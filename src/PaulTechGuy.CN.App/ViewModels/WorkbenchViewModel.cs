@@ -481,6 +481,17 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool HasDropNotice => this.DropNotice is not null;
 
     /// <summary>
+    /// Whether "replace the list instead" means anything.
+    ///
+    /// It only does when the drop landed on top of something. Dropping into an empty list
+    /// and then replacing that list with what was just dropped is the same list, so the
+    /// button would be an offer to do nothing. Undo still means something - back to empty -
+    /// so only this one is hidden.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool CanReplaceWithDrop { get; set; }
+
+    /// <summary>
     /// A quiet suggestion when the dropped content contradicts the chosen intent. Never
     /// acted on automatically: the options are what the user asked for, and rewriting them
     /// because of what they dragged in would be the app overruling them.
@@ -522,6 +533,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this._rowsBeforeDrop = [.. this._allRows];
         this._rowsFromDrop = [];
+        this.CanReplaceWithDrop = this._rowsBeforeDrop.Count > 0;
 
         this.IsScanning = true;
         this.ScanStatus = "Reading dropped items…";
@@ -592,6 +604,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public void DismissDropNotice()
     {
         this.DropNotice = null;
+        this.CanReplaceWithDrop = false;
         this._rowsBeforeDrop = [];
         this._rowsFromDrop = [];
     }

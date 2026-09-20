@@ -91,7 +91,11 @@
                              in the content area where they can sit side by side. -->
                         <InfoBar.Content>
                             <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
+                                <!-- Only when the drop landed on top of something. Replacing
+                                     an empty list with what was just dropped is the same
+                                     list, so the button would offer to do nothing. -->
                                 <Button Content="Replace list instead"
+                                        Visibility="{x:Bind Workbench.CanReplaceWithDrop, Mode=OneWay}"
                                         Command="{x:Bind Workbench.ReplaceWithDropCommand}" />
                                 <Button Content="Undo" Command="{x:Bind Workbench.UndoDropCommand}" />
                             </StackPanel>
