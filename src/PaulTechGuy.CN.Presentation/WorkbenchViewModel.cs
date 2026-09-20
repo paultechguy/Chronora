@@ -721,8 +721,62 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial DateField CopyFromField { get; set; } = DateField.FileModified;
 
+    /// <summary>
+    /// The dates a rule can read FROM.
+    ///
+    /// Deliberately every genre, because reading across the boundary is the product's whole
+    /// differentiator: "copy the photo's taken date onto the file dates" reads metadata and
+    /// writes filesystem fields, and the mode only ever constrains what may be WRITTEN.
+    ///
+    /// Choosing a photo date here is what makes the ExifTool prompt appear even in the
+    /// simple file-dates path, which is intended.
+    /// </summary>
+    public IReadOnlyList<DateFieldSpec> CopyFromOptions { get; } =
+    [
+        DateFieldCatalog.Get(DateField.ExifDateTimeOriginal),
+        DateFieldCatalog.Get(DateField.QuickTimeCreateDate),
+        DateFieldCatalog.Get(DateField.FileCreated),
+        DateFieldCatalog.Get(DateField.FileModified),
+        DateFieldCatalog.Get(DateField.FileAccessed),
+    ];
+
+    /// <summary>
+    /// Which of those is chosen, as a list position so the control can be bound both ways.
+    ///
+    /// There was no control at all until now: picking "another date on the file" showed
+    /// nothing to choose from and quietly used Modified, so the option asked a question
+    /// and then never let anyone answer it.
+    /// </summary>
+    public int CopyFromIndex
+    {
+        get
+        {
+            int found = -1;
+
+            for (int i = 0; i < this.CopyFromOptions.Count; i++)
+            {
+                if (this.CopyFromOptions[i].Field == this.CopyFromField)
+                {
+                    found = i;
+                    break;
+                }
+            }
+
+            return found;
+        }
+
+        set
+        {
+            if (value >= 0 && value < this.CopyFromOptions.Count)
+            {
+                this.CopyFromField = this.CopyFromOptions[value].Field;
+            }
+        }
+    }
+
     partial void OnCopyFromFieldChanged(DateField value)
     {
+        this.OnPropertyChanged(nameof(this.CopyFromIndex));
         this.LeaveTemplateOnEdit();
         this.NotifyIntentDerived();
         this.QueueRecompute();

@@ -328,7 +328,7 @@
                     <RadioButtons SelectedIndex="{x:Bind Workbench.SourceIndex, Mode=TwoWay}">
                         <x:String>A date I pick</x:String>
                         <x:String>Shift the existing date</x:String>
-                        <x:String>Another date on the file</x:String>
+                        <x:String>A date the file already has</x:String>
                         <x:String>The file name</x:String>
                     </RadioButtons>
 
@@ -348,6 +348,26 @@
                                Visibility="{x:Bind Workbench.NeedsShiftInput, Mode=OneWay}"
                                Header="Shift by (hours)" SpinButtonPlacementMode="Inline"
                                SmallChange="1" LargeChange="6" />
+
+                    <!--
+                        This never existed. Choosing "a date the file already has" showed
+                        nothing to choose from and quietly fell back to Modified, so the
+                        option posed a question and then gave nobody a way to answer it.
+
+                        The list crosses both genres on purpose: reading a photo date to
+                        write onto the file dates is the thing this app is for, and the
+                        mode only ever limits what may be WRITTEN.
+                    -->
+                    <ComboBox Visibility="{x:Bind Workbench.NeedsCopyFromInput, Mode=OneWay}"
+                              ItemsSource="{x:Bind Workbench.CopyFromOptions}"
+                              SelectedIndex="{x:Bind Workbench.CopyFromIndex, Mode=TwoWay}"
+                              Header="Which date" HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="domain:DateFieldSpec">
+                                <TextBlock Text="{x:Bind DisplayName}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
 
                     <TextBlock Text="Write it to" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
                     <StackPanel Spacing="2">
