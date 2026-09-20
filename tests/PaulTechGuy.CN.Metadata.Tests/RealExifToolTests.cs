@@ -222,3 +222,72 @@ public class RealExifToolTests(ExifToolFixture fixture) : IClassFixture<ExifTool
         (await this.ReadAsync(path)).Values[DateField.ExifDateTimeOriginal].Raw.ShouldBe(original);
     }
 }
+
+/// <summary>
+/// The QuickTime local-vs-UTC inference, against a real video.
+///
+/// This is the one claim in the plan that cannot be checked with a file the test builds
+/// itself: there is no way to synthesise a camera's date atoms, and the whole question is
+/// what real cameras actually put in them. So it runs against a video the developer
+/// points at, and skips otherwise.
+///
+///     $env:CHRONORA_TEST_VIDEO = 'C:\path\to\PXL_20260920_042030205.mp4'
+///
+/// Verified 2026-09-19 against a Google Pixel .mp4. That file has no EXIF date at all,
+/// so the inference has nothing to corroborate against and falls back to the
+/// specification - which is right for this camera: the filename PXL_20260920_042030205
+/// encodes 04:20:30 UTC and the atom reads 04:20:40, ten seconds later and in the same
+/// frame. Two independent sources, both UTC.
+///
+/// A camera that writes LOCAL time into the atom - GoPro, dashcams, several Canon and
+/// Sony bodies - is the case this inference exists for and is still unverified against
+/// real hardware. Point this at one if you have it.
+/// </summary>
+public class RealVideoTests
+{
+    private static readonly TimeZoneInfo Denver =
+        TimeZoneInfo.CreateCustomTimeZone("test-mst", TimeSpan.FromHours(-7), "Test MST", "Test MST");
+
+    [Fact]
+    public async Task A_real_videos_quicktime_dates_are_read_the_right_way_round()
+    {
+        string? video = Environment.GetEnvironmentVariable("CHRONORA_TEST_VIDEO");
+
+        Assert.SkipWhen(
+            string.IsNullOrWhiteSpace(video) || !File.Exists(video),
+            "Set CHRONORA_TEST_VIDEO to a video file to run this.");
+
+        Assert.SkipUnless(RealExifTool.IsAvailable, RealExifTool.HowToGetIt);
+
+        await using var session = ExifToolSession.Start(RealExifTool.ExecutablePath!);
+
+        IReadOnlyList<FileMetadata> read = await new MetadataReader()
+            .ReadAsync(session, [video!], Denver, TestContext.Current.CancellationToken);
+
+        FileMetadata file = read.Single();
+
+        file.Values.ShouldContainKey(DateField.QuickTimeCreateDate);
+
+        MetadataValue created = file.Values[DateField.QuickTimeCreateDate];
+        created.Parsed.ShouldNotBeNull();
+
+        // Whichever way the inference went, the decision and the value must agree - a
+        // recorded inference that does not match the offset actually applied would make
+        // the detail pane lie about what the app did.
+        created.Parsed!.Value.Offset.ShouldBe(
+            file.QuickTimeReadAsUtc ? TimeSpan.Zero : Denver.GetUtcOffset(created.Parsed!.Value),
+            "the offset applied must match the inference the file reports");
+
+        // With no EXIF date to check against, the atom is taken at its specified meaning.
+        bool hasCorroboration = file.Values.ContainsKey(DateField.ExifDateTimeOriginal);
+
+        if (!hasCorroboration)
+        {
+            file.QuickTimeReadAsUtc.ShouldBeTrue(
+                "with nothing to compare against, the specification is the better guess");
+        }
+
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"{Path.GetFileName(video)}: raw={created.Raw} readAsUtc={file.QuickTimeReadAsUtc} parsed={created.Parsed:O}");
+    }
+}
