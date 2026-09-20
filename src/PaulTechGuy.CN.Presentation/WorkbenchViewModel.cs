@@ -145,14 +145,16 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.AbsoluteTime = new TimeSpan(12, 0, 0);
         this.Summary = ChangeSummary.Empty;
-        this.Rows = [];
         this.Templates = templates.All;
         this.RefreshHistory();
     }
 
-    /// <summary>Rows as the grid shows them: filtered and sorted.</summary>
-    [ObservableProperty]
-    public partial IReadOnlyList<PlanRowViewModel> Rows { get; set; }
+    /// <summary>
+    /// Rows as the grid shows them: filtered and sorted.
+    ///
+    /// One instance, never replaced. See <see cref="RowCollection"/> for why that matters.
+    /// </summary>
+    public RowCollection Rows { get; } = [];
 
     [ObservableProperty]
     public partial ChangeSummary Summary { get; set; }
@@ -2151,6 +2153,42 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         return false;
     }
 
+    /// <summary>
+    /// Moves the shown list to what the projection says, and says nothing at all when the
+    /// projection has not moved.
+    ///
+    /// That silent case is the ordinary one and it is the whole reason this exists.
+    /// Picking a date, nudging a shift, taking one row's date for the run - none of those
+    /// change which rows are shown or what order they are in, yet every one of them used
+    /// to hand the grid a brand new list, which makes it discard every container and
+    /// rebuild: scroll back to the top, thumbnails re-requested, for nothing.
+    ///
+    /// When rows genuinely have come, gone or moved, this is still one reset, exactly as
+    /// before - no worse, and a real diff can come later if the jump on removing a single
+    /// row turns out to be worth more code than it costs.
+    /// </summary>
+    private void SyncRows(List<PlanRowViewModel> projected)
+    {
+        if (this.Rows.Count == projected.Count)
+        {
+            bool same = true;
+
+            for (int i = 0; i < projected.Count && same; i++)
+            {
+                // Reference equality on purpose. These are the same row objects a
+                // recompute mutated in place; only their identity and order matter here.
+                same = ReferenceEquals(this.Rows[i], projected[i]);
+            }
+
+            if (same)
+            {
+                return;
+            }
+        }
+
+        this.Rows.ResetTo(projected);
+    }
+
     /// <summary>Applies the current filter and sort. Cheap: no evaluation happens here.</summary>
     private void Reproject()
     {
@@ -2174,7 +2212,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             _ => query.OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase),
         };
 
-        this.Rows = [.. query];
+        this.SyncRows([.. query]);
         this.RefreshSummary();
         this.OnPropertyChanged(nameof(this.IsFilteredToNothing));
         this.OnPropertyChanged(nameof(this.FilteredToNothingNote));

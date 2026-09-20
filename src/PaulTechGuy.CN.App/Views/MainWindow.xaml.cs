@@ -751,6 +751,20 @@ public sealed partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
+        // The same affordance as the options pane, for the same reason: "now" is a date
+        // people genuinely want and typing today's date into two pickers to get it is
+        // silly. Local, and there is deliberately no UTC twin - which frame the value is
+        // stored in is per-format and the app already decides it.
+        var now = new Button { Content = "Now", HorizontalAlignment = HorizontalAlignment.Left };
+
+        now.Click += (_, _) =>
+        {
+            DateTimeOffset moment = DateTimeOffset.Now;
+
+            date.Date = moment;
+            time.Time = new TimeSpan(moment.Hour, moment.Minute, moment.Second);
+        };
+
         var panel = new StackPanel { Spacing = 12 };
 
         panel.Children.Add(new TextBlock
@@ -761,6 +775,7 @@ public sealed partial class MainWindow : Window
 
         panel.Children.Add(date);
         panel.Children.Add(time);
+        panel.Children.Add(now);
 
         panel.Children.Add(new TextBlock
         {
