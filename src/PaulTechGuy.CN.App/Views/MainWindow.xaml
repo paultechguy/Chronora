@@ -374,16 +374,25 @@
                                   ToolTipService.ToolTip="The date the photo or video records as when it was taken. Photo libraries read this and ignore the file dates, so on its own it is often exactly right." />
 
                         <!--
-                            Accessed and Changed appear only when the user has said they
-                            want to pick fields by hand. Accessed is usually meaningless
-                            because Windows disables the updates, and "Changed (NTFS)"
-                            beside Created and Modified is the clutter the simple paths
-                            must not have.
+                            Accessed is offered here, not under Advanced. Explorer's
+                            Properties dialog shows Created, Modified AND Accessed, so
+                            those three are one set in the user's head - and hiding one of
+                            them means applying a run leaves a date visibly untouched with
+                            nothing on screen explaining why.
+
+                            Off by default, because most people do not want it and the
+                            date it holds is rarely meaningful. Offered, not chosen.
                         -->
                         <CheckBox Content="Accessed" Margin="0,6,0,0"
-                                  Visibility="{x:Bind Workbench.ShowsAdvancedFields, Mode=OneWay}"
+                                  Visibility="{x:Bind Workbench.ShowsFileDates, Mode=OneWay}"
                                   IsChecked="{x:Bind Workbench.WriteAccessed, Mode=TwoWay}"
-                                  ToolTipService.ToolTip="Windows usually stops updating this, so the value is often meaningless." />
+                                  ToolTipService.ToolTip="Explorer shows this next to Created and Modified. Windows usually stops updating it, so a date set here tends to stay put." />
+
+                        <!--
+                            Changed stays under Advanced. Explorer never shows it, so
+                            leaving it alone surprises nobody - which is exactly the test
+                            Accessed failed.
+                        -->
                         <CheckBox Content="Changed (NTFS)"
                                   Visibility="{x:Bind Workbench.ShowsAdvancedFields, Mode=OneWay}"
                                   IsChecked="{x:Bind Workbench.WriteChanged, Mode=TwoWay}"

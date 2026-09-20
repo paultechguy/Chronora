@@ -37,6 +37,16 @@ public sealed partial class MainWindow : Window
 
         this.AppWindow.Resize(new SizeInt32(1360, 880));
         this.AppWindow.Changed += OnAppWindowChanged;
+
+        // WinUI does not close a second window when the main one goes, and the process
+        // stays alive while ANY window is open. Left alone, closing Chronora with History
+        // open leaves an orphaned window and a running process behind - the app looks like
+        // it did not shut down, because it did not.
+        this.Closed += (_, _) =>
+        {
+            this._history?.Close();
+            this._history = null;
+        };
     }
 
     public MainViewModel ViewModel { get; }
@@ -299,7 +309,7 @@ public sealed partial class MainWindow : Window
         // Anything asked for that will NOT happen, stated here rather than left out. A
         // confirmation that lists only the good news is how someone applies 4,000 files and
         // discovers afterwards that the one field they actually wanted was never written.
-        if (summary.HasBlocked)
+        if (summary.HasBlocked || summary.HasUntouched)
         {
             _ = body.AppendLine();
             _ = body.AppendLine("Will NOT be changed:");
@@ -307,6 +317,17 @@ public sealed partial class MainWindow : Window
             foreach (BlockedLine line in summary.BlockedLines)
             {
                 _ = body.AppendLine(CultureInfo.CurrentCulture, $"  {line.FieldName}: {line.Detail}");
+            }
+
+            // File dates nobody asked for, named alongside the ones that are blocked.
+            // Explorer shows Created, Modified and Accessed together, so a run that moves
+            // two of them leaves the third sitting there looking untouched - and without
+            // this, nothing anywhere says that was the intention.
+            foreach (DateField field in summary.UntouchedFileDates)
+            {
+                _ = body.AppendLine(
+                    CultureInfo.CurrentCulture,
+                    $"  {DateFieldCatalog.Get(field).DisplayName}: not selected");
             }
         }
 

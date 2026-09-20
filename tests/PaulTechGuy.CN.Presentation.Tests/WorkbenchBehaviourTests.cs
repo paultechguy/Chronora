@@ -83,9 +83,43 @@ public class WorkbenchBehaviourTests
         using var fixture = new WorkbenchFixture();
         fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
 
-        fixture.ViewModel.WriteAccessed = true;
+        // Changed is an Advanced field. Reaching it IS picking fields by hand, which is
+        // what separates it from Accessed below.
+        fixture.ViewModel.WriteChanged = true;
 
         fixture.ViewModel.Intent.ShouldBe(WorkIntent.Custom);
+    }
+
+    /// <summary>
+    /// Accessed does NOT. Explorer shows it beside Created and Modified, so the pane offers
+    /// it there too - and ticking the third control on the simple path is not the same as
+    /// leaving the simple path.
+    ///
+    /// Reported from the app: a run moved Created and Modified, Explorer went on showing an
+    /// untouched Accessed date, and nothing said why.
+    /// </summary>
+    [Fact]
+    public void Ticking_accessed_stays_on_the_file_dates_answer()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        fixture.ViewModel.WriteAccessed = true;
+
+        fixture.ViewModel.Intent.ShouldBe(WorkIntent.FileDates);
+        fixture.ViewModel.ShowsFileDates.ShouldBeTrue();
+    }
+
+    /// <summary>Offered, not chosen: it starts off.</summary>
+    [Fact]
+    public void The_file_dates_answer_does_not_tick_accessed_for_you()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        fixture.ViewModel.WriteAccessed.ShouldBeFalse();
+        fixture.ViewModel.WriteChanged.ShouldBeFalse();
     }
 
     /// <summary>And editing back to a named shape restores that name rather than sticking on Custom.</summary>
@@ -363,14 +397,14 @@ public class WorkbenchSelectionTests
     {
         using var fixture = new WorkbenchFixture();
         fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
-        fixture.ViewModel.WriteAccessed = true;
+        fixture.ViewModel.WriteChanged = true;
 
         fixture.ViewModel.Intent.ShouldBe(WorkIntent.Custom);
 
         // The echo the control sends back after the binding updates it.
         fixture.ViewModel.IntentIndex = fixture.ViewModel.IntentIndex;
 
-        fixture.ViewModel.WriteAccessed.ShouldBeTrue("the edit must survive the echo");
+        fixture.ViewModel.WriteChanged.ShouldBeTrue("the edit must survive the echo");
         fixture.ViewModel.Intent.ShouldBe(WorkIntent.Custom);
     }
 

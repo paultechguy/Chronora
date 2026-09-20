@@ -103,6 +103,19 @@ public sealed record ChangeSummary(
 
     public bool HasBlocked => this.BlockedLines.Count > 0;
 
+    /// <summary>
+    /// File dates this run is NOT writing, so the confirmation can say so before anyone
+    /// commits rather than leaving them to find out in Explorer.
+    ///
+    /// Explorer's Properties dialog shows Created, Modified and Accessed together. A run
+    /// that moves two of the three leaves one visibly sitting on its original date with
+    /// nothing on screen to explain it - reported from the app, and only obvious to
+    /// somebody who already knew the field was there to ask for.
+    /// </summary>
+    public IReadOnlyList<DateField> UntouchedFileDates { get; init; } = [];
+
+    public bool HasUntouched => this.UntouchedFileDates.Count > 0;
+
     public bool HasAnything => this.FilesTotal > 0;
 
     public string StatusLine
@@ -141,7 +154,12 @@ public sealed record ChangeSummary(
         ? "Nothing to apply"
         : string.Create(CultureInfo.CurrentCulture, $"Apply to {this.FilesToWrite:N0} of {this.FilesTotal:N0} files");
 
-    public static ChangeSummary Build(IReadOnlyList<PlanRowViewModel> rows)
+    /// <param name="targets">
+    /// What the run is actually writing, so the summary can name the file dates it is NOT.
+    /// Passed in rather than inferred from the rows, because a field nothing changes and a
+    /// field nobody asked for look identical once the plans are built.
+    /// </param>
+    public static ChangeSummary Build(IReadOnlyList<PlanRowViewModel> rows, IReadOnlySet<DateField>? targets = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -236,10 +254,18 @@ public sealed record ChangeSummary(
             .OrderBy(kv => (int)kv.Key)
             .Select(kv => new BlockedLine(kv.Key, kv.Value.Count, PlanRowViewModel.Describe(kv.Value.Reason)))];
 
+        // Only the three Explorer puts side by side. Listing the fourth, or every unticked
+        // field in the catalogue, would bury the real warnings under things nobody wanted.
+        DateField[] untouched = targets is null
+            ? []
+            : [.. new[] { DateField.FileCreated, DateField.FileModified, DateField.FileAccessed }
+                .Where(f => !targets.Contains(f))];
+
         return new ChangeSummary(lines, rows.Count, changing, blocked, suspicious, included)
         {
             FilesToWrite = toWrite,
             BlockedLines = blockedLines,
+            UntouchedFileDates = untouched,
         };
     }
 

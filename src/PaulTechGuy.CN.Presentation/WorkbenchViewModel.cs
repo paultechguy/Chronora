@@ -287,6 +287,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                     this.WriteCreated = true;
                     this.WriteModified = true;
                     this.WriteTaken = false;
+
+                    // Offered on this path but not chosen for them, and Changed belongs to
+                    // Advanced - so picking this answer always lands on the same two boxes
+                    // rather than inheriting whatever the previous answer left behind.
+                    this.WriteAccessed = false;
+                    this.WriteChanged = false;
                     break;
 
                 case WorkIntent.PhotoDates:
@@ -332,10 +338,19 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             return;
         }
 
-        WorkIntent matched = (this.WriteCreated, this.WriteModified, this.WriteTaken, this.WriteAccessed, this.WriteChanged) switch
+        // Accessed counts as an ordinary file date here, because Explorer shows it beside
+        // Created and Modified and the pane now offers it there too. Ticking it should not
+        // relabel the answer as "let me pick the fields" - the user has not left the
+        // simple path, they have used the third control on it.
+        //
+        // Changed still forces Custom: it is an Advanced field nobody reaches by accident,
+        // and reaching it IS picking fields by hand.
+        bool anyFileDate = this.WriteCreated || this.WriteModified || this.WriteAccessed;
+
+        WorkIntent matched = (anyFileDate, this.WriteTaken, this.WriteChanged) switch
         {
-            (true, true, false, false, false) => WorkIntent.FileDates,
-            (false, false, true, false, false) => WorkIntent.PhotoDates,
+            (true, false, false) => WorkIntent.FileDates,
+            (false, true, false) => WorkIntent.PhotoDates,
             _ => WorkIntent.Custom,
         };
 
@@ -1395,7 +1410,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Called by the view when a checkbox changes, so the Apply count keeps up.</summary>
-    public void RefreshSummary() => this.Summary = ChangeSummary.Build(this._allRows);
+    public void RefreshSummary() =>
+        this.Summary = ChangeSummary.Build(this._allRows, this.BuildRecipe().AllTargets);
 
     // ---- Applying ---------------------------------------------------------------------
 
