@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using PaulTechGuy.CN.App.ViewModels;
@@ -19,6 +20,7 @@ public sealed partial class MainWindow : Window
     public MainWindow(MainViewModel viewModel)
     {
         this.ViewModel = viewModel;
+        this.Spike = new GridSpikeViewModel();
 
         this.InitializeComponent();
 
@@ -28,15 +30,18 @@ public sealed partial class MainWindow : Window
         this.SetTitleBar(this.AppTitleBar);
 
         this.AppWindow.Resize(new SizeInt32(1280, 820));
-        this.AppWindow.Changed += this.OnAppWindowChanged;
+        this.AppWindow.Changed += OnAppWindowChanged;
     }
 
     public MainViewModel ViewModel { get; }
 
+    /// <summary>Throwaway; removed when the real workbench lands in milestone 5.</summary>
+    public GridSpikeViewModel Spike { get; }
+
     /// <summary>
     /// WinUI has no MinWidth on a Window, so the clamp is applied on resize.
     /// </summary>
-    private void OnAppWindowChanged(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+    private static void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         if (!args.DidSizeChange)
         {
