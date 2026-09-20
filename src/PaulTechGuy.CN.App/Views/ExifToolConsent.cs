@@ -33,6 +33,23 @@ internal static class ExifToolConsent
         ArgumentNullException.ThrowIfNull(root);
         ArgumentNullException.ThrowIfNull(workbench);
 
+        // Loops so "Check again" can re-probe and rebuild. The probe runs when the pane is
+        // built, so without this it cannot see an ExifTool installed WHILE the pane is
+        // open - which is exactly what happens when someone follows the winget advice.
+        while (true)
+        {
+            EngineStatus? result = await ShowOnceAsync(root, workbench).ConfigureAwait(true);
+
+            if (result is { } status)
+            {
+                return status;
+            }
+        }
+    }
+
+    /// <summary>One pass. Returns null when the user asked to look again.</summary>
+    private static async Task<EngineStatus?> ShowOnceAsync(XamlRoot root, WorkbenchViewModel workbench)
+    {
         // Probed before the pane is built, so someone who already has ExifTool is offered
         // their own copy rather than a download they do not need.
         IReadOnlyList<ExifToolCandidate> existing = workbench.FindExistingExifTool();
@@ -115,16 +132,30 @@ internal static class ExifToolConsent
         // broken rather than blocked.
         if (offer is null)
         {
+            var recheck = new Button { Content = "Check again" };
+            recheck.Click += (_, _) =>
+            {
+                chosen = "recheck";
+                dialog.Hide();
+            };
+
             body.Children.Add(new InfoBar
             {
                 IsOpen = true,
                 IsClosable = false,
                 Severity = InfoBarSeverity.Informational,
                 Title = "Downloading is not available right now",
+
+                // winget INSTALLS it, into a folder Chronora already looks in. An earlier
+                // version of this told people to install it and then browse for the file,
+                // which is nonsense: once winget has finished there is nothing to find by
+                // hand. All that is missing is a second look, because the probe ran when
+                // this pane was built.
                 Message = "Chronora could not reach the list of available versions, so it cannot offer to "
-                        + "fetch ExifTool. You can install it yourself with:\n\n"
+                        + "fetch ExifTool. You can install it yourself:\n\n"
                         + "    winget install OliverBetz.ExifTool\n\n"
-                        + "then use “Choose the file myself” above.",
+                        + "Chronora will find it on its own once that finishes — just choose Check again.",
+                ActionButton = recheck,
                 Margin = new Thickness(0, 4, 0, 0),
             });
         }
@@ -149,6 +180,11 @@ internal static class ExifToolConsent
             // Declining is a real answer. Every file-date feature keeps working, so there
             // is nothing to say beyond letting them get on with it.
             null => workbench.EngineStatus,
+
+            // Null means "go round again": re-probe and rebuild, so an ExifTool installed
+            // while this pane was open is found rather than missed.
+            "recheck" => null,
+
             "existing" => await workbench.UseExistingExifToolAsync(existing[0].ExecutablePath).ConfigureAwait(true),
             "browse" => await BrowseAsync(root, workbench).ConfigureAwait(true),
             _ => await InstallAsync(root, workbench).ConfigureAwait(true),
