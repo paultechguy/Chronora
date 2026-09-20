@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:PaulTechGuy.CN.Presentation"
-    xmlns:domain="using:PaulTechGuy.CN.Domain">
+    xmlns:domain="using:PaulTechGuy.CN.Domain"
+    xmlns:local="using:PaulTechGuy.CN.App">
 
     <!--
         The whole window accepts a drop, not just the file list. When the list is empty
@@ -167,6 +168,26 @@
                         <TextBox Text="{x:Bind Workbench.TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  PlaceholderText="All files" MinWidth="150"
                                  ToolTipService.ToolTip="Limit the run with the same wildcards Explorer uses: *.png, mountain*.jpg, IMG_????.CR2, or several separated by semicolons. Files that do not match are hidden AND left alone." />
+                        <!--
+                            "Select none" rather than "Clear all" on purpose: there is
+                            already a Clear on this bar that REMOVES the files, and two
+                            similarly named buttons - one emptying the list, one only
+                            unticking it - is exactly the confusion this app keeps trying
+                            to avoid.
+
+                            Select all covers what is SHOWN; Select none covers everything
+                            loaded. Both err the same way, so neither can leave a file
+                            ticked that you never laid eyes on.
+                        -->
+                        <Button Content="Select all" Command="{x:Bind Workbench.SelectAllShownCommand}"
+                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
+                                Height="{StaticResource CnChromeButtonHeight}"
+                                ToolTipService.ToolTip="Tick every file currently shown. Anything a filter is hiding is left alone." />
+                        <Button Content="Select none" Command="{x:Bind Workbench.SelectNoneCommand}"
+                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
+                                Height="{StaticResource CnChromeButtonHeight}"
+                                ToolTipService.ToolTip="Untick every file, including any a filter is hiding. Nothing is removed from the list." />
+
                         <CheckBox Content="Only changing"
                                   IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}"
                                   ToolTipService.ToolTip="Hide files that are already correct, so the list shows only what this run would actually alter." />
@@ -312,12 +333,33 @@
                             so it lines up with the file name however many lines of detail
                             follow it.
                         -->
-                        <Border Grid.Column="0" Width="64" Height="64" CornerRadius="4"
-                                VerticalAlignment="Top"
+                        <local:ClickableSurface Grid.Column="0" VerticalAlignment="Top"
                                 Visibility="{x:Bind Workbench.HasSelection, Mode=OneWay}"
-                                Background="{ThemeResource ControlAltFillColorSecondaryBrush}">
-                            <Image x:Name="ThumbnailImage" Stretch="Uniform" />
-                        </Border>
+                                DoubleTapped="OnThumbnailDoubleTapped"
+                                PointerEntered="OnThumbnailPointerEntered"
+                                PointerExited="OnThumbnailPointerExited"
+                                ToolTipService.ToolTip="Double-click to open this file in whatever app normally opens it.">
+                          <Border x:Name="ThumbnailFrame" Width="64" Height="64" CornerRadius="4"
+                                  Background="{ThemeResource ControlAltFillColorSecondaryBrush}"
+                                  BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                  BorderThickness="0">
+                            <Grid>
+                                <Image x:Name="ThumbnailImage" Stretch="Uniform" />
+
+                                <!--
+                                    Only on hover. A permanent badge would sit on top of the
+                                    picture the thumbnail exists to show; appearing on hover
+                                    says "this does something" at the moment somebody is
+                                    asking that question.
+                                -->
+                                <Border x:Name="ThumbnailHint" Visibility="Collapsed"
+                                        VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+                                        Padding="0,2" Background="#A0000000">
+                                    <FontIcon Glyph="&#xE8A7;" FontSize="12" Foreground="White" />
+                                </Border>
+                            </Grid>
+                          </Border>
+                        </local:ClickableSurface>
 
                         <StackPanel Grid.Column="1" Spacing="4">
                             <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"

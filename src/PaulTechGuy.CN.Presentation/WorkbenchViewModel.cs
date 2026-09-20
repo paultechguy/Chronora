@@ -1038,7 +1038,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             await foreach (ScannedFile file in this._scanner.ScanAsync(folder, filter, cancellationToken))
             {
-                this._allRows.Add(new PlanRowViewModel(file));
+                this._allRows.Add(this.TrackRow(new PlanRowViewModel(file)));
                 added++;
 
                 // The grid fills as the scan runs rather than after it, so a big folder
@@ -1233,7 +1233,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, ScanFilter.Default, cancellationToken))
             {
-                var row = new PlanRowViewModel(file);
+                PlanRowViewModel row = this.TrackRow(new PlanRowViewModel(file));
                 this._allRows.Add(row);
                 this._rowsFromDrop.Add(row);
             }
@@ -1545,6 +1545,31 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         };
     }
 
+    /// <summary>
+    /// Watches a row so ticking its checkbox updates the Apply count.
+    ///
+    /// Subscribed here rather than left to the view to remember. It was left to the view,
+    /// and the view did not: the checkbox bound two-way to IsIncluded and nothing told the
+    /// summary, so unticking half a list left the Apply button still offering to write all
+    /// of it. The number on the destructive button has to follow what is ticked.
+    /// </summary>
+    private PlanRowViewModel TrackRow(PlanRowViewModel row)
+    {
+        row.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlanRowViewModel.IsIncluded))
+            {
+                this.RefreshSummary();
+            }
+        };
+
+        return row;
+    }
+
+    /// <summary>
+    /// Ticks everything currently shown - not everything loaded, because a type filter
+    /// narrows what the run covers and selecting files it is excluding would contradict it.
+    /// </summary>
     [RelayCommand]
     public void SelectAllShown()
     {
@@ -1556,6 +1581,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.RefreshSummary();
     }
 
+    /// <summary>
+    /// Unticks everything loaded, including anything a filter is hiding.
+    ///
+    /// Deliberately wider than SelectAllShown. Both err the same way: selecting covers only
+    /// what you can see, and deselecting covers everything - so neither can leave a file
+    /// ticked that you never laid eyes on.
+    /// </summary>
     [RelayCommand]
     public void SelectNone()
     {

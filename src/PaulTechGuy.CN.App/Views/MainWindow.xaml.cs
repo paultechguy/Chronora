@@ -6,6 +6,7 @@ using System.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Domain;
@@ -184,6 +185,55 @@ public sealed partial class MainWindow : Window
     private HistoryWindow? _history;
 
     private CancellationTokenSource? _thumbnail;
+
+    /// <summary>
+    /// A border and a small glyph on hover, so the thumbnail says it is more than a
+    /// picture. The cursor changes too, which ClickableBorder handles.
+    /// </summary>
+    private void OnThumbnailPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        this.ThumbnailFrame.BorderThickness = new Thickness(2);
+        this.ThumbnailHint.Visibility = Visibility.Visible;
+    }
+
+    private void OnThumbnailPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        this.ThumbnailFrame.BorderThickness = new Thickness(0);
+        this.ThumbnailHint.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Opens the file with whatever normally opens it.
+    ///
+    /// Chronora is looking at dates, not at pictures, so the useful thing here is to hand
+    /// the file to something that IS an image or video viewer rather than to grow one.
+    ///
+    /// UseShellExecute is the whole point: it resolves the user's own file association
+    /// instead of trying to run the file, which is what the default would do.
+    /// </summary>
+    private void OnThumbnailDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (this.Workbench.SelectedRow is not { } row)
+        {
+            return;
+        }
+
+        string path = row.File.FullPath;
+
+        try
+        {
+            using var opening = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
+                                      or System.IO.FileNotFoundException)
+        {
+            // No association, the file has gone, or the shell refused it. Said in the
+            // status bar rather than swallowed: a double-click that does nothing at all
+            // reads as the app being broken.
+            this.Workbench.ScanStatus = $"Could not open {row.Name}: {ex.Message}";
+        }
+    }
 
     private void OnWorkbenchPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
