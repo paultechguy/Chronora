@@ -123,26 +123,36 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // The deferral matters: without it the data view is disposed the moment this
-        // handler returns, and the await below would read from a closed package.
+        // The deferral covers reading the data view and NOTHING else.
+        //
+        // It has to exist: without it the package is disposed the moment this handler
+        // returns and the read below fails. But a drop is an OLE transaction with a modal
+        // message loop at both ends, and the deferral is what holds that transaction open.
+        // Scanning the folder and reading every file's metadata inside it kept Explorer
+        // and Chronora locked together for the whole job - which is what froze the app on
+        // a drop of 24 files.
+        List<string> paths;
+
         DragOperationDeferral deferral = e.GetDeferral();
 
         try
         {
             IReadOnlyList<Windows.Storage.IStorageItem> items = await e.DataView.GetStorageItemsAsync();
 
-            List<string> paths = [.. items
+            paths = [.. items
                 .Select(i => i.Path)
                 .Where(p => !string.IsNullOrWhiteSpace(p))];
-
-            if (paths.Count > 0)
-            {
-                await this.Workbench.AddDroppedAsync(paths);
-            }
         }
         finally
         {
+            // Released before any real work starts. The drag is over the instant its data
+            // has been read; everything after this is Chronora's own business.
             deferral.Complete();
+        }
+
+        if (paths.Count > 0)
+        {
+            await this.Workbench.AddDroppedAsync(paths);
         }
     }
 
