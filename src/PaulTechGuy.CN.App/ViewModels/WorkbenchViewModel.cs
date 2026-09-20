@@ -278,10 +278,21 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.NotifyIntentDerived();
     }
 
+    /// <summary>
+    /// Every property computed from the intent or the ticked fields.
+    ///
+    /// All of them, in one place, because the failure mode is silent: a computed property
+    /// left out of this list simply evaluates once at startup and never again, so its
+    /// control stays in whatever state the empty initial intent implied. That is exactly
+    /// how Created and Modified went missing from "let me pick the fields" - they were
+    /// bound to a property added after this method and never added to it.
+    /// </summary>
     private void NotifyIntentDerived()
     {
         this.OnPropertyChanged(nameof(this.HasChosenIntent));
         this.OnPropertyChanged(nameof(this.IsPhotoMode));
+        this.OnPropertyChanged(nameof(this.ShowsFileDates));
+        this.OnPropertyChanged(nameof(this.ShowsAdvancedFields));
         this.OnPropertyChanged(nameof(this.Mode));
         this.OnPropertyChanged(nameof(this.IntentNote));
     }
