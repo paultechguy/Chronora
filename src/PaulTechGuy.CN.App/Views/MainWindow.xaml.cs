@@ -134,7 +134,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnDismissDropNotice(InfoBar sender, object args) => this.Workbench.DismissDropNotice();
+    private void OnDismissActionNotice(InfoBar sender, object args) => this.Workbench.DismissActionNotice();
 
     private void OnDismissNudge(InfoBar sender, object args) => this.Workbench.DismissNudge();
 

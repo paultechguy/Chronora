@@ -470,15 +470,24 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
     }
 
-    // ---- Dropped items ----------------------------------------------------------------
+    // ---- Reversible actions -----------------------------------------------------------
 
-    /// <summary>What the last drop did, offered back for a few seconds rather than assumed.</summary>
+    /// <summary>
+    /// What the last list-changing action did, with a way back.
+    ///
+    /// One notice rather than one per action: a drop and a start-over cannot both have
+    /// just happened, and two bars offering different undos at once would be a way to
+    /// press the wrong one.
+    /// </summary>
     [ObservableProperty]
-    public partial string? DropNotice { get; set; }
+    public partial string? ActionNotice { get; set; }
 
-    partial void OnDropNoticeChanged(string? value) => this.OnPropertyChanged(nameof(this.HasDropNotice));
+    partial void OnActionNoticeChanged(string? value) => this.OnPropertyChanged(nameof(this.HasActionNotice));
 
-    public bool HasDropNotice => this.DropNotice is not null;
+    public bool HasActionNotice => this.ActionNotice is not null;
+
+    /// <summary>How to put back whatever the notice is describing.</summary>
+    private Action? _undoLastAction;
 
     /// <summary>
     /// Whether "replace the list instead" means anything.
@@ -557,11 +566,31 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             string what = paths.Count == 1 ? Path.GetFileName(paths[0].TrimEnd(Path.DirectorySeparatorChar)) : $"{paths.Count} items";
 
-            this.DropNotice = string.Create(
+            List<PlanRowViewModel> before = [.. this._rowsBeforeDrop];
+
+
+
+            this.ActionNotice = string.Create(
                 CultureInfo.CurrentCulture,
                 $"Added {this._rowsFromDrop.Count:N0} file{(this._rowsFromDrop.Count == 1 ? string.Empty : "s")} from {what}.");
 
-            this.ScanStatus = this.DropNotice;
+
+
+            this._undoLastAction = () =>
+
+
+            {
+
+
+                this._allRows.Clear();
+
+
+                this._allRows.AddRange(before);
+
+
+            };
+
+            this.ScanStatus = this.ActionNotice;
             this.Recompute();
             this.CheckIntentAgainstContent();
         }
@@ -580,13 +609,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Puts the list back as it was before the last drop.</summary>
+    /// <summary>Reverses whatever the notice is describing.</summary>
     [RelayCommand]
-    public void UndoDrop()
+    public void UndoLastAction()
     {
-        this._allRows.Clear();
-        this._allRows.AddRange(this._rowsBeforeDrop);
-        this.DismissDropNotice();
+        Action? undo = this._undoLastAction;
+        this.DismissActionNotice();
+
+        undo?.Invoke();
         this.Recompute();
     }
 
@@ -594,19 +624,117 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public void ReplaceWithDrop()
     {
+        List<PlanRowViewModel> kept = [.. this._rowsFromDrop];
+
         this._allRows.Clear();
-        this._allRows.AddRange(this._rowsFromDrop);
-        this.DismissDropNotice();
+        this._allRows.AddRange(kept);
+        this.DismissActionNotice();
         this.Recompute();
     }
 
     [RelayCommand]
-    public void DismissDropNotice()
+    public void DismissActionNotice()
     {
-        this.DropNotice = null;
+        this.ActionNotice = null;
         this.CanReplaceWithDrop = false;
+        this._undoLastAction = null;
         this._rowsBeforeDrop = [];
         this._rowsFromDrop = [];
+    }
+
+    // ---- Clearing and starting over ---------------------------------------------------
+
+    /// <summary>Whether there is a list at all, which is what Clear needs to mean anything.</summary>
+    public bool HasAnyFiles => this._allRows.Count > 0;
+
+    /// <summary>
+    /// Whether anything would actually change. Covers the view state as well as the list,
+    /// because a stale filter is precisely the thing you cannot see the cause of.
+    /// </summary>
+    public bool CanStartOver =>
+        this.HasAnyFiles
+        || this.Intent != WorkIntent.None
+        || this.Sort != SortChoice.Name
+        || this.ShowOnlyChanging
+        || this.ShowOnlyProblems;
+
+    /// <summary>
+    /// Back to the opening question: no files, no filters, no intent.
+    ///
+    /// It is undoable rather than confirmed. Nothing has been written to disk either way,
+    /// so a dialog would be heavier than the action deserves - but a carefully built custom
+    /// field set is worth a few seconds of grace.
+    /// </summary>
+    [RelayCommand]
+    public void StartOver()
+    {
+        List<PlanRowViewModel> rows = [.. this._allRows];
+        List<string> roots = [.. this._roots];
+        WorkIntent intent = this.Intent;
+        SourceChoice source = this.Source;
+        SortChoice sort = this.Sort;
+        bool onlyChanging = this.ShowOnlyChanging;
+        bool onlyProblems = this.ShowOnlyProblems;
+        (bool created, bool modified, bool accessed, bool changed, bool taken) =
+            (this.WriteCreated, this.WriteModified, this.WriteAccessed, this.WriteChanged, this.WriteTaken);
+
+        this._allRows.Clear();
+        this._roots.Clear();
+        this.SelectedRow = null;
+        this.ScanStatus = string.Empty;
+        this.DismissNudge();
+
+        this._applyingIntent = true;
+
+        try
+        {
+            this.Intent = WorkIntent.None;
+            this.Source = SourceChoice.PickADate;
+            this.Sort = SortChoice.Name;
+            this.ShowOnlyChanging = false;
+            this.ShowOnlyProblems = false;
+            this.WriteCreated = true;
+            this.WriteModified = true;
+            this.WriteAccessed = false;
+            this.WriteChanged = false;
+            this.WriteTaken = false;
+        }
+        finally
+        {
+            this._applyingIntent = false;
+        }
+
+        this.NotifyIntentDerived();
+        this.Recompute();
+
+        this.ActionNotice = "Started over.";
+        this._undoLastAction = () =>
+        {
+            this._allRows.AddRange(rows);
+            this._roots.AddRange(roots);
+
+            this._applyingIntent = true;
+
+            try
+            {
+                this.Intent = intent;
+                this.Source = source;
+                this.Sort = sort;
+                this.ShowOnlyChanging = onlyChanging;
+                this.ShowOnlyProblems = onlyProblems;
+                this.WriteCreated = created;
+                this.WriteModified = modified;
+                this.WriteAccessed = accessed;
+                this.WriteChanged = changed;
+                this.WriteTaken = taken;
+            }
+            finally
+            {
+                this._applyingIntent = false;
+            }
+
+            this.NotifyIntentDerived();
+        };
     }
 
     /// <summary>Takes the suggestion the nudge offered.</summary>
@@ -666,19 +794,37 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Empties the list and nothing else. The options stay, because clearing the files is
+    /// not a statement about what you wanted to do to them.
+    /// </summary>
     [RelayCommand]
-    public void Clear()
+    public void ClearList()
     {
+        if (!this.HasAnyFiles)
+        {
+            return;
+        }
+
+        List<PlanRowViewModel> rows = [.. this._allRows];
+        List<string> roots = [.. this._roots];
+
         this._allRows.Clear();
-
         this._roots.Clear();
-
-        this.DismissDropNotice();
-
-        this.DismissNudge();
         this.SelectedRow = null;
         this.ScanStatus = string.Empty;
+        this.DismissNudge();
         this.Recompute();
+
+        this.ActionNotice = string.Create(
+            CultureInfo.CurrentCulture,
+            $"Cleared {rows.Count:N0} file{(rows.Count == 1 ? string.Empty : "s")}.");
+
+        this._undoLastAction = () =>
+        {
+            this._allRows.AddRange(rows);
+            this._roots.AddRange(roots);
+        };
     }
 
     [RelayCommand]
@@ -963,6 +1109,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.Rows = [.. query];
         this.RefreshSummary();
+        this.OnPropertyChanged(nameof(this.HasAnyFiles));
+        this.OnPropertyChanged(nameof(this.CanStartOver));
     }
 
     private Recipe BuildRecipe()
