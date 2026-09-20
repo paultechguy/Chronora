@@ -172,6 +172,15 @@
                                 IsEnabled="{x:Bind Workbench.CanStartOver, Mode=OneWay}"
                                 Height="{StaticResource CnChromeButtonHeight}"
                                 ToolTipService.ToolTip="Back to the opening question: no files, no filters, and no choice made yet. Nothing on disk changes." />
+
+                        <!--
+                            Always enabled, even with nothing applied yet. A greyed-out
+                            History teaches people the app has no undo; an empty one that
+                            says so teaches them it does, and that they have not used it.
+                        -->
+                        <Button Content="History" Click="OnOpenHistory"
+                                Height="{StaticResource CnChromeButtonHeight}"
+                                ToolTipService.ToolTip="Every run Chronora has applied, and the way back. Undo works days later, not just straight after." />
                     </StackPanel>
                 </Grid>
 

@@ -1539,10 +1539,32 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>History as the window shows it, newest first.</summary>
+    [ObservableProperty]
+    public partial IReadOnlyList<HistoryRowViewModel> HistoryRows { get; set; } = [];
+
+    public bool HasHistory => this.HistoryRows.Count > 0;
+
+    /// <summary>
+    /// How far back undo still reaches, stated rather than left to be discovered.
+    ///
+    /// Retention prunes old runs, and the one thing worse than a limit is a limit nobody
+    /// mentioned until the run they wanted had already gone.
+    /// </summary>
+    public string RetentionNote => this.HistoryRows.Count == 0
+        ? "Nothing has been applied yet."
+        : string.Create(
+            CultureInfo.CurrentCulture,
+            $"Oldest run still here: {this.HistoryRows[^1].When}.");
+
     public void RefreshHistory()
     {
         this.History = this._journal.ListRuns(50);
+        this.HistoryRows = [.. this.History.Select(r => new HistoryRowViewModel(r))];
+
         this.OnPropertyChanged(nameof(this.CanUndo));
+        this.OnPropertyChanged(nameof(this.HasHistory));
+        this.OnPropertyChanged(nameof(this.RetentionNote));
     }
 
     /// <summary>
@@ -1565,9 +1587,83 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
     }
 
-    private string DescribeRecipe() => string.Create(
-        CultureInfo.InvariantCulture,
-        $"{{\"intent\":\"{this.Intent}\",\"source\":\"{this.Source}\",\"mode\":\"{this.Mode}\"}}");
+    /// <summary>
+    /// What the run recorded about itself, for History to render from.
+    ///
+    /// Carries a written summary as well as the machine-readable parts, because History
+    /// has to stay explicable after every file the run touched has been moved or deleted -
+    /// and "{"intent":"FileDates","source":"FromAnotherDate"}" is not an explanation.
+    ///
+    /// Built with a serialiser rather than string concatenation: a template name is
+    /// user-supplied text and can contain a quote, which would otherwise produce a broken
+    /// record that History could never read back.
+    /// </summary>
+    private string DescribeRecipe()
+    {
+        var record = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["summary"] = this.SummariseRun(),
+            ["intent"] = this.Intent.ToString(),
+            ["source"] = this.Source.ToString(),
+            ["mode"] = this.Mode.ToString(),
+        };
+
+        if (this.ActiveTemplate is { } template)
+        {
+            record["template"] = template.Name;
+            record["templateId"] = template.Id;
+        }
+
+        return System.Text.Json.JsonSerializer.Serialize(record, RunRecordJsonContext.Default.DictionaryStringString);
+    }
+
+    /// <summary>One line naming what was written and where it came from.</summary>
+    private string SummariseRun()
+    {
+        if (this.ActiveTemplate is { } template)
+        {
+            return template.Name;
+        }
+
+        List<string> targets = [];
+
+        if (this.WriteCreated)
+        {
+            targets.Add("Created");
+        }
+
+        if (this.WriteModified)
+        {
+            targets.Add("Modified");
+        }
+
+        if (this.WriteAccessed)
+        {
+            targets.Add("Accessed");
+        }
+
+        if (this.WriteChanged)
+        {
+            targets.Add("Changed");
+        }
+
+        if (this.WriteTaken)
+        {
+            targets.Add("Taken");
+        }
+
+        string source = this.Source switch
+        {
+            SourceChoice.ShiftBy => string.Create(CultureInfo.CurrentCulture, $"shifted by {this.ShiftHours:0.##} hours"),
+            SourceChoice.FromAnotherDate => $"from {DateFieldCatalog.Get(this.CopyFromField).DisplayName}",
+            SourceChoice.FromFileName => "from the file name",
+            _ => string.Create(CultureInfo.CurrentCulture, $"set to {this.AbsoluteDate.Date.Add(this.AbsoluteTime):yyyy-MM-dd HH:mm}"),
+        };
+
+        return targets.Count == 0
+            ? source
+            : string.Create(CultureInfo.CurrentCulture, $"{string.Join(", ", targets)} {source}");
+    }
 
     /// <summary>
     /// Cancels anything in flight. The debounce and the run each own a token source, and a

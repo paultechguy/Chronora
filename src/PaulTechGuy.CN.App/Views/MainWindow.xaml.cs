@@ -146,6 +146,28 @@ public sealed partial class MainWindow : Window
     private async void OnSetUpExifTool(object sender, RoutedEventArgs e) =>
         _ = await ExifToolConsent.ShowAsync(this.Content.XamlRoot, this.Workbench);
 
+    /// <summary>
+    /// Opens History, or brings the open one forward.
+    ///
+    /// One window rather than one per click: a second copy of a list that offers to write
+    /// to files is a way to undo the same run twice, and the second attempt would look
+    /// like the app corrupting things rather than like a duplicate.
+    /// </summary>
+    private void OnOpenHistory(object sender, RoutedEventArgs e)
+    {
+        if (this._history is not null)
+        {
+            this._history.Activate();
+            return;
+        }
+
+        this._history = new HistoryWindow(this.Workbench);
+        this._history.Closed += (_, _) => this._history = null;
+        this._history.Activate();
+    }
+
+    private HistoryWindow? _history;
+
     private void OnTemplateChosen(object sender, SelectionChangedEventArgs e)
     {
         if (this.Workbench is not null && sender is ComboBox { SelectedItem: DateTemplate template })

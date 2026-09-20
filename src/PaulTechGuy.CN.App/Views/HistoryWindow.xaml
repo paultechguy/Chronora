@@ -1,0 +1,62 @@
+<Window
+    x:Class="PaulTechGuy.CN.App.Views.HistoryWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:PaulTechGuy.CN.Presentation">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="16">
+
+        <TextBlock Grid.Row="0" Text="What Chronora has changed"
+                   Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,4" />
+
+        <!--
+            Retention stated up front. A limit nobody mentioned until the run they wanted
+            had already been pruned is worse than no undo at all, because by then they have
+            been relying on it.
+        -->
+        <TextBlock Grid.Row="1" Text="{x:Bind Workbench.RetentionNote, Mode=OneWay}"
+                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                   Margin="0,0,0,12" TextWrapping="Wrap" />
+
+        <ListView Grid.Row="2" ItemsSource="{x:Bind Workbench.HistoryRows, Mode=OneWay}"
+                  SelectionMode="Single">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:HistoryRowViewModel">
+                    <Grid ColumnDefinitions="*,Auto" Padding="0,8" ColumnSpacing="12">
+                        <StackPanel Grid.Column="0" Spacing="2">
+                            <TextBlock Text="{x:Bind What}" TextWrapping="Wrap"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
+                                <Run Text="{x:Bind When}" />
+                                <Run Text="·" />
+                                <Run Text="{x:Bind Scale}" />
+                                <Run Text="·" />
+                                <Run Text="{x:Bind StatusText}" />
+                            </TextBlock>
+                            <TextBlock Text="{x:Bind Where}" TextWrapping="NoWrap"
+                                       TextTrimming="CharacterEllipsis"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.55" />
+                        </StackPanel>
+
+                        <!--
+                            Per row rather than acting on a selection. "Undo" next to the
+                            thing it undoes cannot be misread; a button elsewhere that acts
+                            on whatever happens to be selected can.
+                        -->
+                        <Button Grid.Column="1" Content="Undo this"
+                                VerticalAlignment="Center"
+                                Visibility="{x:Bind CanRevert}"
+                                Tag="{x:Bind RunId}"
+                                Click="OnUndoRun" />
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Refresh" Click="OnRefresh" />
+            <Button Content="Close" Click="OnClose" />
+        </StackPanel>
+    </Grid>
+</Window>
