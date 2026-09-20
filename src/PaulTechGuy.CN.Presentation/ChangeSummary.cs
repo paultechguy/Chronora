@@ -31,8 +31,11 @@ public sealed record SummaryLine(DateField Field, int Count, DateTimeOffset? Ear
                 return "—";
             }
 
-            string a = from.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.CurrentCulture);
-            string b = to.LocalDateTime.ToString("yyyy-MM-dd", CultureInfo.CurrentCulture);
+            // With the time. This app's whole subject is dates AND times, and a run that
+            // shifts everything by three hours showed an identical range at day precision
+            // - a preview that could not distinguish the change from no change at all.
+            string a = from.LocalDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
+            string b = to.LocalDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
 
             return a == b ? a : $"{a} … {b}";
         }

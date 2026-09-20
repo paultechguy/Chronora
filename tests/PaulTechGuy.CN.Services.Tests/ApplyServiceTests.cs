@@ -492,6 +492,19 @@ internal sealed class RecordingGateway : IMetadataWriteGateway
 
     public List<bool> BackupsRequested { get; } = [];
 
+    /// <summary>
+    /// What the file supposedly holds now, for the drift check. Empty by default, which
+    /// means "unchanged since the run" is never asserted by accident - a test that wants
+    /// to exercise drift has to say so.
+    /// </summary>
+    public Dictionary<DateField, MetadataValue> Live { get; } = [];
+
+    public Task<FileMetadata?> ReadOneAsync(string path, CancellationToken cancellationToken = default) =>
+        Task.FromResult<FileMetadata?>(new FileMetadata(
+            path,
+            System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(this.Live),
+            QuickTimeReadAsUtc: false));
+
     public Task<MetadataWriteResult> WriteAsync(
         MetadataWriteRequest request,
         bool keepBackup = true,
@@ -511,5 +524,157 @@ internal sealed class RecordingGateway : IMetadataWriteGateway
             WriteDestination.Embedded,
             null,
             this.Succeeds ? null : "Pretend failure."));
+    }
+}
+
+/// <summary>
+/// Undoing a run that wrote a photo date.
+///
+/// Reported from the app: undo produced "0 files, 0 changes", the files were untouched on
+/// disk, and the original run kept offering its Undo button. All one cause. The drift
+/// check asked "does this file still hold what the run wrote?" by reading a TimestampSet,
+/// which only carries the four filesystem times - so a recorded photo date always came
+/// back as absent, absent was read as "somebody changed this", and the undo refused.
+///
+/// Every run that touched a photo or video date was permanently un-undoable, silently, in
+/// the feature the whole app is built around.
+/// </summary>
+public class RevertMetadataTests
+{
+    private static readonly DateTimeOffset Original = new(2019, 4, 2, 11, 30, 15, TimeSpan.Zero);
+    private static readonly DateTimeOffset Target = new(2024, 3, 15, 14, 25, 30, TimeSpan.Zero);
+
+    private static readonly RunHeader Header =
+        new(RunKind.Apply, "0.1.0", null, "UTC", "{}", ["test"]);
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    /// <summary>The state the engine reports after the run wrote Target.</summary>
+    private static void SetLiveTaken(RecordingGateway engine, DateTimeOffset value) =>
+        engine.Live[DateField.ExifDateTimeOriginal] =
+            new MetadataValue(Present: true, value.ToString("yyyy:MM:dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture), value);
+
+    [Fact]
+    public async Task A_photo_date_run_can_actually_be_undone()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        ApplyOutcome applied = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        applied.Written.ShouldBe(1);
+
+        // The file now holds what the run wrote, so nothing has drifted.
+        SetLiveTaken(engine, Target);
+
+        ApplyOutcome undone = await apply.RevertAsync(applied.RunId, Header, false, null, Ct);
+
+        undone.Written.ShouldBe(1, "the photo date was written, so it must be undoable");
+        undone.Failed.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// And the undo has to actually put the tag back, not just report success. The restore
+    /// is byte-exact: the string that was there, or a delete when there was nothing.
+    /// </summary>
+    [Fact]
+    public async Task Undoing_a_photo_date_deletes_a_tag_that_was_not_there_before()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        ApplyOutcome applied = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        SetLiveTaken(engine, Target);
+        engine.Requests.Clear();
+
+        _ = await apply.RevertAsync(applied.RunId, Header, false, null, Ct);
+
+        engine.Requests.ShouldNotBeEmpty("the undo has to write the tag back");
+
+        // The photo had no taken date before the run, so putting it back means removing
+        // the tag - not blanking it, which is a different state that reads back differently.
+        engine.Requests[^1].Assignments.ShouldContain(a => a.Tag == "ExifIFD:DateTimeOriginal" && a.IsDeletion);
+    }
+
+    /// <summary>
+    /// The drift ladder still has to work for real drift. A photo whose date somebody
+    /// changed after the run is left alone, which is the whole point of the check.
+    /// </summary>
+    [Fact]
+    public async Task A_photo_date_changed_since_the_run_is_left_alone()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        ApplyOutcome applied = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        // Somebody set it to something else in the meantime.
+        SetLiveTaken(engine, Target.AddYears(1));
+
+        ApplyOutcome undone = await apply.RevertAsync(applied.RunId, Header, false, null, Ct);
+
+        undone.Written.ShouldBe(0);
+        undone.Failed.ShouldBe(1, "drifted, so skipped rather than overwritten");
+    }
+
+    /// <summary>
+    /// An undo records its own files. Without that, History showed "0 files · 0 changes"
+    /// and the undo could not itself be undone - which the design says it must be.
+    /// </summary>
+    [Fact]
+    public async Task An_undo_records_what_it_did()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        ApplyOutcome applied = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        SetLiveTaken(engine, Target);
+        ApplyOutcome undone = await apply.RevertAsync(applied.RunId, Header, false, null, Ct);
+
+        JournalRun run = ws.Journal.ListRuns(10).First(r => r.RunId == undone.RunId);
+
+        run.Kind.ShouldBe(RunKind.Revert);
+        run.FileCount.ShouldBe(1, "an undo that recorded nothing cannot itself be undone");
+        run.ChangeCount.ShouldBeGreaterThan(0);
+    }
+
+    /// <summary>
+    /// With no engine, an undo of a photo date refuses rather than half-doing it. Putting
+    /// the file dates back while leaving the photo date where the run left it is a state
+    /// nobody asked for and nothing would explain.
+    /// </summary>
+    [Fact]
+    public async Task Undoing_a_photo_date_without_exiftool_refuses_rather_than_half_doing_it()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        ApplyOutcome applied = await ws.ApplyWith(engine).ApplyAsync([plan], Header, null, Ct);
+
+        // ws.Apply has no gateway at all.
+        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, false, null, Ct);
+
+        undone.Written.ShouldBe(0);
+        undone.Failed.ShouldBe(1);
     }
 }

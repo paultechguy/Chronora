@@ -28,4 +28,15 @@ public interface IMetadataWriteGateway
         MetadataWriteRequest request,
         bool keepBackup = true,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads one file's date tags as they are right now.
+    ///
+    /// Undo needs this, and its absence was a real bug rather than an omission. The drift
+    /// check asks "does this file still hold what the run wrote?", and it could only read
+    /// filesystem timestamps - so a recorded photo date always came back as nothing, which
+    /// the check read as "somebody changed it" and refused to undo. Every run that touched
+    /// a photo or video date was permanently un-undoable.
+    /// </summary>
+    Task<FileMetadata?> ReadOneAsync(string path, CancellationToken cancellationToken = default);
 }

@@ -265,11 +265,11 @@ public sealed class ApplyService(
         ArgumentNullException.ThrowIfNull(header);
 
         return await Task.Run(
-            () => this.Revert(sourceRunId, header, force, progress, cancellationToken),
+            () => this.RevertCoreAsync(sourceRunId, header, force, progress, cancellationToken),
             cancellationToken).ConfigureAwait(false);
     }
 
-    private ApplyOutcome Revert(
+    private async Task<ApplyOutcome> RevertCoreAsync(
         long sourceRunId,
         RunHeader header,
         bool force,
@@ -279,6 +279,21 @@ public sealed class ApplyService(
         var recorded = this._journal.ReadRevertable(sourceRunId);
         long runId = this._journal.BeginRun(header with { Kind = RunKind.Revert, RevertsRunId = sourceRunId }, DateTimeOffset.UtcNow);
 
+        // An undo records its own files, exactly as an apply does.
+        //
+        // It did not, and History showed every undo as "0 files · 0 changes" - which was
+        // not a display bug so much as the run genuinely having no record of itself. The
+        // plan says a revert is an ordinary run, journaled and itself revertible, and a
+        // run with no files recorded cannot be undone in turn.
+        //
+        // The fields are the mirror image: what the original run wrote becomes the before,
+        // and what it replaced becomes the after.
+        IReadOnlyList<long> revertRowIds = this._journal.RecordPriorState(
+            runId,
+            [.. recorded.Select(r => ToRevertPriorState(r.File, r.Changes))]);
+
+        var revertResults = new List<FileResult>(recorded.Count);
+
         int restored = 0;
         int refused = 0;
         int done = 0;
@@ -286,12 +301,19 @@ public sealed class ApplyService(
 
         try
         {
-            foreach ((JournalFile file, IReadOnlyList<JournalFieldChange> changes) in recorded)
+            for (int i = 0; i < recorded.Count; i++)
             {
+                (JournalFile file, IReadOnlyList<JournalFieldChange> changes) = recorded[i];
+
                 cancellationToken.ThrowIfCancellationRequested();
 
-                RevertOutcome outcome = this.RevertOne(file, changes, force);
+                RevertOutcome outcome = await this.RevertOneAsync(file, changes, force, cancellationToken).ConfigureAwait(false);
                 this._journal.RecordRevert(file.FileRowId, outcome, DateTimeOffset.UtcNow);
+
+                revertResults.Add(new FileResult(
+                    revertRowIds[i],
+                    outcome == RevertOutcome.Reverted ? FileOutcome.Applied : FileOutcome.Failed,
+                    outcome == RevertOutcome.Reverted ? null : outcome.ToString()));
 
                 if (outcome == RevertOutcome.Reverted)
                 {
@@ -316,6 +338,7 @@ public sealed class ApplyService(
         }
         finally
         {
+            this._journal.RecordResults(revertResults);
             this._journal.CompleteRun(runId, status, DateTimeOffset.UtcNow);
             this._journal.RefreshRevertStatus(sourceRunId);
         }
@@ -335,20 +358,77 @@ public sealed class ApplyService(
     /// deliberately changed last Tuesday is the one unforgivable bug in an undo feature, so
     /// forcing it has to be an explicit choice.
     /// </summary>
-    private RevertOutcome RevertOne(JournalFile file, IReadOnlyList<JournalFieldChange> changes, bool force)
+    private async Task<RevertOutcome> RevertOneAsync(
+        JournalFile file,
+        IReadOnlyList<JournalFieldChange> changes,
+        bool force,
+        CancellationToken cancellationToken)
     {
         if (!this._writer.TryRead(file.Path, file.IsDirectory, out TimestampSet current, out _))
         {
             return RevertOutcome.Missing;
         }
 
-        if (!force && HasDrifted(current, changes))
+        List<JournalFieldChange> metadataChanges =
+            [.. changes.Where(c => DateFieldCatalog.GenreOf(c.Field) == FieldGenre.Metadata)];
+
+        // What the file's photo and video dates hold NOW.
+        //
+        // Undo had no way to ask this, and the consequence was total rather than partial:
+        // a recorded photo date always read back as nothing, the drift check took nothing
+        // as "somebody changed this", and so every run that touched a photo or video date
+        // silently refused to undo and reported zero files restored.
+        FileMetadata? liveMetadata = null;
+
+        if (metadataChanges.Count > 0)
+        {
+            if (this._metadata is null || !this._metadata.Available)
+            {
+                // Refusing beats a half-undo: putting the file dates back while leaving
+                // the photo date where the run left it is a state nobody asked for and
+                // nothing would explain.
+                this._logger.LogInformation(
+                    "{Path} needs ExifTool to undo its photo date; leaving it alone.", file.Path);
+
+                return RevertOutcome.Failed;
+            }
+
+            liveMetadata = await this._metadata.ReadOneAsync(file.Path, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (!force && HasDrifted(current, liveMetadata, changes))
         {
             this._logger.LogInformation("{Path} changed since the run; leaving it alone.", file.Path);
             return RevertOutcome.Drifted;
         }
 
-        TimestampSet restore = ToRestoreSet(changes);
+        // Metadata first, then the timestamps - the same order as an apply and for the same
+        // reason: ExifTool rewrites the file and moves the times being restored.
+        if (metadataChanges.Count > 0)
+        {
+            List<TagAssignment> assignments = [.. metadataChanges
+                .Where(c => c.TagName is not null)
+                .Select(c => TagWritePlanner.PlanRestore(c.TagName!, c.BeforePresent, c.BeforeRaw))];
+
+            if (assignments.Count > 0)
+            {
+                MetadataWriteResult written = await this._metadata!
+                    .WriteAsync(
+                        new MetadataWriteRequest(file.Path, FileScanner.KindOf(file.Path), assignments),
+                        this.KeepBackups,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!written.Succeeded)
+                {
+                    return RevertOutcome.Failed;
+                }
+            }
+        }
+
+        // Everything the run recorded goes back, and anything a metadata rewrite disturbed
+        // goes back with it.
+        TimestampSet restore = ToRestoreSet(changes, metadataChanges.Count > 0 ? current : null);
 
         WriteResult result = this._writer.Write(file.Path, restore, file.IsDirectory);
 
@@ -361,7 +441,10 @@ public sealed class ApplyService(
     /// True when the file no longer holds what the run wrote, which means something else
     /// edited it in the meantime.
     /// </summary>
-    private static bool HasDrifted(TimestampSet current, IReadOnlyList<JournalFieldChange> changes)
+    private static bool HasDrifted(
+        TimestampSet current,
+        FileMetadata? liveMetadata,
+        IReadOnlyList<JournalFieldChange> changes)
     {
         foreach (JournalFieldChange change in changes)
         {
@@ -370,7 +453,16 @@ public sealed class ApplyService(
                 continue;
             }
 
-            DateTimeOffset? actual = current.Get(change.Field);
+            bool isMetadata = DateFieldCatalog.GenreOf(change.Field) == FieldGenre.Metadata;
+
+            DateTimeOffset? actual = isMetadata
+                ? liveMetadata?.Values.TryGetValue(change.Field, out MetadataValue value) == true ? value.Parsed : null
+                : current.Get(change.Field);
+
+            // Absent where the run left a value means something removed it, which is a
+            // change like any other. This is also where the whole feature used to break:
+            // a metadata field could not be read at all, so it was ALWAYS absent, so every
+            // photo date looked like it had been tampered with.
             if (actual is null)
             {
                 return true;
@@ -386,6 +478,30 @@ public sealed class ApplyService(
 
         return false;
     }
+
+    /// <summary>
+    /// The undo's own record of a file: the mirror image of the run it is undoing.
+    ///
+    /// What the original wrote becomes this run's "before", and what the original replaced
+    /// becomes its "after" - which is what makes an undo revertible in turn, rather than a
+    /// dead end that History lists as having touched nothing.
+    /// </summary>
+    private static PriorState ToRevertPriorState(JournalFile file, IReadOnlyList<JournalFieldChange> changes) =>
+        new(
+            file.Path,
+            file.VolumeSerial,
+            file.FileId,
+            file.SizeBefore,
+            file.AttributesBefore,
+            file.IsDirectory,
+            [.. changes.Select(c => new PriorField(
+                c.Field,
+                c.TagName,
+                BeforePresent: c.AfterTicks is not null || c.AfterRaw is not null,
+                BeforeTicks: c.AfterTicks,
+                BeforeRaw: c.AfterRaw,
+                AfterTicks: c.BeforeTicks,
+                AfterRaw: c.BeforeRaw))]);
 
     private static PriorState ToPriorState(FilePlan plan)
     {
@@ -501,12 +617,19 @@ public sealed class ApplyService(
         return new TimestampSet(created, modified, accessed, changed);
     }
 
-    private static TimestampSet ToRestoreSet(IReadOnlyList<JournalFieldChange> changes)
+    /// <param name="restoreFrom">
+    /// The times the file has right now, supplied only when a metadata rewrite is about to
+    /// disturb them. Fields the run never recorded are then put back to what they are,
+    /// rather than left wherever the rewrite moved them.
+    /// </param>
+    private static TimestampSet ToRestoreSet(
+        IReadOnlyList<JournalFieldChange> changes,
+        TimestampSet? restoreFrom = null)
     {
-        DateTimeOffset? created = null;
-        DateTimeOffset? modified = null;
-        DateTimeOffset? accessed = null;
-        DateTimeOffset? changed = null;
+        DateTimeOffset? created = restoreFrom?.Created;
+        DateTimeOffset? modified = restoreFrom?.Modified;
+        DateTimeOffset? accessed = restoreFrom?.Accessed;
+        DateTimeOffset? changed = restoreFrom?.Changed;
 
         foreach (JournalFieldChange change in changes)
         {

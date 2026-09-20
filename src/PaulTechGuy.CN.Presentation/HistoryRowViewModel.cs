@@ -53,7 +53,9 @@ public sealed class HistoryRowViewModel(JournalRun run)
 
     public string StatusText => this.Run.Status switch
     {
-        RunStatus.Completed => "Applied",
+        // A finished undo says "Undone", not "Applied". Both are true of the machinery and
+        // only one is true of what the user did.
+        RunStatus.Completed => this.Run.Kind == RunKind.Revert ? "Undone" : "Applied",
         RunStatus.Cancelled => "Cancelled part way",
         RunStatus.Failed => "Failed",
         RunStatus.Interrupted => "Interrupted",

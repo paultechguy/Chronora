@@ -130,6 +130,41 @@ public sealed class MetadataGateway(
     }
 
     /// <summary>
+    /// Reads one file's date tags. Used by undo, which has to ask what the file holds now
+    /// before deciding whether putting it back would overwrite somebody else's change.
+    /// </summary>
+    public async Task<FileMetadata?> ReadOneAsync(string path, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(path);
+
+        if (!this.Available)
+        {
+            return null;
+        }
+
+        ExifToolSession? session = await this.GetSessionAsync(cancellationToken).ConfigureAwait(false);
+
+        if (session is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            IReadOnlyList<FileMetadata> read = await this._reader
+                .ReadAsync(session, [path], this.LocalZone, cancellationToken)
+                .ConfigureAwait(false);
+
+            return read.Count > 0 ? read[0] : null;
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
+        {
+            this._logger.LogWarning(ex, "Could not read the current metadata of {Path}.", path);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Writes one file's tags. One file per call, because a batch reports a single status
     /// and this app's promise is that you know what happened to each file.
     /// </summary>
