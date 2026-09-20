@@ -33,7 +33,14 @@
                     beats 4,000 rows they cannot, and it is what makes a batch of 63 videos
                     landing on 1904 visible without scrolling to find them.
                 -->
+                <!--
+                    Hidden entirely until there is something to summarise. An empty card
+                    reading "0 of 0 will change" is worse than no card: it occupies the most
+                    prominent place on screen to say nothing, right when the pane should be
+                    inviting the first drop instead.
+                -->
                 <Border Grid.Row="0" Padding="12,8" CornerRadius="4" Margin="0,0,0,8"
+                        Visibility="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
                         Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
                     <StackPanel Spacing="2">
                         <ItemsControl ItemsSource="{x:Bind Workbench.Summary.Lines, Mode=OneWay}">
@@ -239,6 +246,29 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                <!--
+                    The empty state, in the same grid cell as the list so it lands in the
+                    middle of the large blank area rather than as a line of status text at
+                    the top. It says what to do where you would do it, and the whole window
+                    already accepts the drop.
+
+                    Not hit-testable, so it cannot swallow the drop it is inviting.
+                -->
+                <StackPanel Grid.Row="3" Spacing="10"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            IsHitTestVisible="False"
+                            Visibility="{x:Bind Workbench.IsListEmpty, Mode=OneWay}">
+                    <FontIcon Glyph="&#xE8DE;" FontSize="36" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    <TextBlock Text="Drop files and/or folders here to begin"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               HorizontalAlignment="Center" TextWrapping="Wrap"
+                               TextAlignment="Center" />
+                    <TextBlock Text="or use Add folder…"
+                               Style="{StaticResource BodyTextBlockStyle}" Opacity="0.6"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
 
                 <!--
                     Nothing is hidden: the full field-by-field breakdown is one selection

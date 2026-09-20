@@ -396,6 +396,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // precisely the moment someone who picked the wrong one wants it. Found by the
         // notification test rather than by a person, which is the point of that test.
         this.OnPropertyChanged(nameof(this.HasAnyFiles));
+        this.OnPropertyChanged(nameof(this.IsListEmpty));
         this.OnPropertyChanged(nameof(this.CanStartOver));
     }
 
@@ -1320,6 +1321,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool HasAnyFiles => this._allRows.Count > 0;
 
     /// <summary>
+    /// Nothing in the list yet, which is when the pane should say what to do about it.
+    ///
+    /// The empty state used to be a line of ordinary text in the summary band at the top -
+    /// far from the large blank area that is the thing you would actually drop onto, and
+    /// styled like a status rather than an invitation.
+    /// </summary>
+    public bool IsListEmpty => this._allRows.Count == 0;
+
+    /// <summary>
     /// Whether anything would actually change. Covers the view state as well as the list,
     /// because a stale filter is precisely the thing you cannot see the cause of.
     /// </summary>
@@ -1975,6 +1985,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.Rows = [.. query];
         this.RefreshSummary();
         this.OnPropertyChanged(nameof(this.HasAnyFiles));
+        this.OnPropertyChanged(nameof(this.IsListEmpty));
         this.OnPropertyChanged(nameof(this.CanStartOver));
     }
 

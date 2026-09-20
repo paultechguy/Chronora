@@ -133,11 +133,6 @@ public sealed record ChangeSummary(
     {
         get
         {
-            if (this.FilesTotal == 0)
-            {
-                return "No files yet. Add a folder to begin.";
-            }
-
             var parts = new List<string>
             {
                 string.Create(CultureInfo.CurrentCulture, $"{this.FilesChanging:N0} of {this.FilesTotal:N0} will change"),
