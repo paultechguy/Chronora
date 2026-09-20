@@ -3,6 +3,7 @@
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml.Media;
 using PaulTechGuy.CN.Presentation;
 using Windows.Graphics;
@@ -29,12 +30,16 @@ public sealed partial class HistoryWindow : Window
 
         this.Title = "Chronora — History";
 
-        // The same backdrop the main window sets. Without it this window falls back to a
-        // flat black rather than the translucent dark grey next door, so the two read as
-        // different applications sitting side by side.
+        // Everything the main window does, not just the backdrop. Setting SystemBackdrop
+        // alone was not enough and this window still came out flat black: a standard title
+        // bar composites Mica differently from an extended one, so the two windows only
+        // match once the title bar treatment matches too.
         this.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
+        this.ExtendsContentIntoTitleBar = true;
+        this.SetTitleBar(this.AppTitleBar);
 
         this.AppWindow.Resize(new SizeInt32(760, 620));
+        this.AppWindow.Changed += OnAppWindowChanged;
 
         // Re-read on open rather than trusting whatever the main window last loaded. A run
         // may have finished since, and a stale History is one someone would act on.
@@ -42,6 +47,27 @@ public sealed partial class HistoryWindow : Window
     }
 
     public WorkbenchViewModel Workbench { get; }
+
+    // Enough to keep the list and the buttons from collapsing into each other. Same
+    // approach as the main window, since WinUI has no MinWidth on a Window.
+    private const int MinimumWidth = 520;
+    private const int MinimumHeight = 360;
+
+    private static void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!args.DidSizeChange)
+        {
+            return;
+        }
+
+        int width = Math.Max(sender.Size.Width, MinimumWidth);
+        int height = Math.Max(sender.Size.Height, MinimumHeight);
+
+        if (width != sender.Size.Width || height != sender.Size.Height)
+        {
+            sender.Resize(new SizeInt32(width, height));
+        }
+    }
 
     private void OnRefresh(object sender, RoutedEventArgs e) => this.Workbench.RefreshHistory();
 

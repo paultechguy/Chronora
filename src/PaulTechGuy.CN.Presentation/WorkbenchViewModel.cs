@@ -489,7 +489,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // The ticked set has moved, so the intent label has to catch up with it.
         this.ReconcileIntent();
 
-        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”.");
+        // The bottom bar, not the banner. Choosing a template is an option change, and a
+        // highlighted bar with an Undo button on every option change is noise that teaches
+        // people to stop reading the one place the app says something urgent.
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”.");
         this.NotifyTemplateState();
         this.QueueRecompute();
     }
@@ -533,7 +536,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ReloadTemplates();
         this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == template.Id) ?? template;
-        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”.");
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”.");
         this.NotifyTemplateState();
 
         return null;
@@ -551,7 +554,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ReloadTemplates();
 
         this.ActiveTemplate = null;
-        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”.");
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”.");
         this.NotifyTemplateState();
         this.QueueRecompute();
     }
@@ -578,7 +581,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ReloadTemplates();
         this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == copy.Id) ?? copy;
-        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”.");
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”.");
         this.NotifyTemplateState();
 
         return null;
@@ -623,13 +626,28 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private void LeaveTemplateOnEdit()
     {
-        if (this._applyingTemplate || this.ActiveTemplate is not { } template)
+        if (this._applyingTemplate)
+        {
+            return;
+        }
+
+        // A banner offering to undo a list action is stale the moment somebody moves on to
+        // configuring the run: carrying on IS accepting the list. That it never went away
+        // on its own is the other half of why the banner looked like it was reacting to
+        // every option change.
+        this.ActionNotice = null;
+
+        if (this.ActiveTemplate is not { } template)
         {
             return;
         }
 
         this.ActiveTemplate = null;
-        this.ActionNotice = string.Create(
+
+        // Said, but quietly. It still has to be said - dropping the template can change what
+        // Apply does in ways the controls cannot show - but it follows an ordinary option
+        // change, and a banner on every one of those is the overkill reported.
+        this.ScanStatus = string.Create(
             CultureInfo.CurrentCulture,
             $"Stopped using “{template.Name}” because you changed the options.");
 

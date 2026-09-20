@@ -4,66 +4,81 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:PaulTechGuy.CN.Presentation">
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto" Padding="16">
-
-        <TextBlock Grid.Row="0" Text="What Chronora has changed"
-                   Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,4" />
+    <Grid RowDefinitions="Auto,*">
 
         <!--
-            Retention stated up front. A limit nobody mentioned until the run they wanted
-            had already been pruned is worse than no undo at all, because by then they have
-            been relying on it.
+            The same extended title bar as the main window, and not just for tidiness: a
+            standard title bar composites the Mica backdrop differently, which is why this
+            window came out flat black beside the main window's translucent dark grey. The
+            backdrop alone was not enough to match it.
         -->
-        <TextBlock Grid.Row="1" Text="{x:Bind Workbench.RetentionNote, Mode=OneWay}"
-                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
-                   Margin="0,0,0,12" TextWrapping="Wrap" />
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0">
+            <TextBlock Text="Chronora — History" VerticalAlignment="Center"
+                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+        </Grid>
 
-        <ListView Grid.Row="2" ItemsSource="{x:Bind Workbench.HistoryRows, Mode=OneWay}"
-                  SelectionMode="Single">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="vm:HistoryRowViewModel">
-                    <Grid ColumnDefinitions="*,Auto" Padding="0,8" ColumnSpacing="12">
-                        <StackPanel Grid.Column="0" Spacing="2">
-                            <TextBlock Text="{x:Bind What}" TextWrapping="Wrap"
-                                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
-                                <Run Text="{x:Bind When}" />
-                                <Run Text="·" />
-                                <Run Text="{x:Bind Scale}" />
-                                <Run Text="·" />
-                                <Run Text="{x:Bind StatusText}" />
-                            </TextBlock>
-                            <TextBlock Text="{x:Bind Where}" TextWrapping="NoWrap"
-                                       TextTrimming="CharacterEllipsis"
-                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.55" />
-                        </StackPanel>
+        <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*,Auto" Padding="16,0,16,16">
 
-                        <!--
-                            Per row rather than acting on a selection. "Undo" next to the
-                            thing it undoes cannot be misread; a button elsewhere that acts
-                            on whatever happens to be selected can.
-                        -->
-                        <Button Grid.Column="1" Content="Undo this"
-                                VerticalAlignment="Center"
-                                Visibility="{x:Bind CanRevert}"
-                                Tag="{x:Bind RunId}"
-                                Click="OnUndoRun" />
-                    </Grid>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-
-        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,12,0,0" ColumnSpacing="8">
+            <TextBlock Grid.Row="0" Text="What Chronora has changed"
+                       Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,4" />
 
             <!--
-                Far from the other two, because it is not the same kind of action. This is
-                the only thing in the app that destroys something no later work can rebuild.
+                Retention stated up front. A limit nobody mentions until the run they wanted
+                has already been pruned is worse than no undo at all, because by then they
+                have been relying on it.
             -->
-            <Button Grid.Column="0" Content="Clear history…" Click="OnClearHistory"
-                    IsEnabled="{x:Bind Workbench.HasHistory, Mode=OneWay}" />
+            <TextBlock Grid.Row="1" Text="{x:Bind Workbench.RetentionNote, Mode=OneWay}"
+                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                       Margin="0,0,0,12" TextWrapping="Wrap" />
 
-            <Button Grid.Column="2" Content="Refresh" Click="OnRefresh" />
-            <Button Grid.Column="3" Content="Close" Click="OnClose" />
+            <ListView Grid.Row="2" ItemsSource="{x:Bind Workbench.HistoryRows, Mode=OneWay}"
+                      SelectionMode="Single">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:HistoryRowViewModel">
+                        <Grid ColumnDefinitions="*,Auto" Padding="0,8" ColumnSpacing="12">
+                            <StackPanel Grid.Column="0" Spacing="2">
+                                <TextBlock Text="{x:Bind What}" TextWrapping="Wrap"
+                                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+                                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7">
+                                    <Run Text="{x:Bind When}" />
+                                    <Run Text="·" />
+                                    <Run Text="{x:Bind Scale}" />
+                                    <Run Text="·" />
+                                    <Run Text="{x:Bind StatusText}" />
+                                </TextBlock>
+                                <TextBlock Text="{x:Bind Where}" TextWrapping="NoWrap"
+                                           TextTrimming="CharacterEllipsis"
+                                           Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.55" />
+                            </StackPanel>
+
+                            <!--
+                                Per row rather than acting on a selection. "Undo" next to the
+                                thing it undoes cannot be misread; a button elsewhere that
+                                acts on whatever happens to be selected can.
+                            -->
+                            <Button Grid.Column="1" Content="Undo this"
+                                    VerticalAlignment="Center"
+                                    Visibility="{x:Bind CanRevert}"
+                                    Tag="{x:Bind RunId}"
+                                    Click="OnUndoRun" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+
+            <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,12,0,0" ColumnSpacing="8">
+
+                <!--
+                    Far from the other two, because it is not the same kind of action. This
+                    is the only thing in the app that destroys something no later work can
+                    rebuild.
+                -->
+                <Button Grid.Column="0" Content="Clear history…" Click="OnClearHistory"
+                        IsEnabled="{x:Bind Workbench.HasHistory, Mode=OneWay}" />
+
+                <Button Grid.Column="2" Content="Refresh" Click="OnRefresh" />
+                <Button Grid.Column="3" Content="Close" Click="OnClose" />
+            </Grid>
         </Grid>
     </Grid>
 </Window>
