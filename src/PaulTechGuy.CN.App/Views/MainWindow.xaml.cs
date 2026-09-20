@@ -188,7 +188,10 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// A border and a small glyph on hover, so the thumbnail says it is more than a
-    /// picture. The cursor changes too, which ClickableBorder handles.
+    /// picture. The cursor changes too, which ClickableSurface handles.
+    ///
+    /// These carry the whole affordance now that there is no tooltip, so all three stay:
+    /// the cursor, the border and the glyph each catch somebody the others would miss.
     /// </summary>
     private void OnThumbnailPointerEntered(object sender, PointerRoutedEventArgs e)
     {
@@ -208,11 +211,18 @@ public sealed partial class MainWindow : Window
     /// Chronora is looking at dates, not at pictures, so the useful thing here is to hand
     /// the file to something that IS an image or video viewer rather than to grow one.
     ///
-    /// UseShellExecute is the whole point: it resolves the user's own file association
-    /// instead of trying to run the file, which is what the default would do.
+    /// A single click, and safe as one: the thumbnail only exists once a row is selected,
+    /// so clicking it is always a second, deliberate act on the picture itself rather than
+    /// something anybody does on the way to choosing a row.
+    ///
+    /// UseShellExecute is the whole point of the call: it resolves the user's own file
+    /// association instead of trying to run the file, which is what the default would do.
     /// </summary>
-    private void OnThumbnailDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    private void OnThumbnailTapped(object sender, TappedRoutedEventArgs e)
     {
+        // Stops here rather than bubbling on to the pane behind it.
+        e.Handled = true;
+
         if (this.Workbench.SelectedRow is not { } row)
         {
             return;

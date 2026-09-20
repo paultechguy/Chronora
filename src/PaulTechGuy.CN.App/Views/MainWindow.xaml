@@ -335,10 +335,9 @@
                         -->
                         <local:ClickableSurface Grid.Column="0" VerticalAlignment="Top"
                                 Visibility="{x:Bind Workbench.HasSelection, Mode=OneWay}"
-                                DoubleTapped="OnThumbnailDoubleTapped"
+                                Tapped="OnThumbnailTapped"
                                 PointerEntered="OnThumbnailPointerEntered"
-                                PointerExited="OnThumbnailPointerExited"
-                                ToolTipService.ToolTip="Double-click to open this file in whatever app normally opens it.">
+                                PointerExited="OnThumbnailPointerExited">
                           <Border x:Name="ThumbnailFrame" Width="64" Height="64" CornerRadius="4"
                                   Background="{ThemeResource ControlAltFillColorSecondaryBrush}"
                                   BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
