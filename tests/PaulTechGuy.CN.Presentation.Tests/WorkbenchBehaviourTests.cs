@@ -302,6 +302,11 @@ public class WorkbenchBehaviourTests
         fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
         await fixture.LoadAsync("a.jpg", "b.jpg");
 
+        // A date has to be picked before anything is proposed - the app no longer arrives
+        // with today already loaded.
+        fixture.ViewModel.AbsoluteDate = new DateTimeOffset(2019, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        fixture.ViewModel.Recompute();
+
         fixture.ViewModel.Summary.ApplyLabel.ShouldContain("of 2");
     }
 }

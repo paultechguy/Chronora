@@ -339,7 +339,8 @@
                     -->
                     <StackPanel Spacing="8" Visibility="{x:Bind Workbench.NeedsAbsoluteInput, Mode=OneWay}">
                         <CalendarDatePicker Date="{x:Bind Workbench.AbsoluteDate, Mode=TwoWay}"
-                                            Header="Date" HorizontalAlignment="Stretch" />
+                                            Header="Date" PlaceholderText="Pick a date"
+                                            HorizontalAlignment="Stretch" />
                         <TimePicker Time="{x:Bind Workbench.AbsoluteTime, Mode=TwoWay}"
                                     Header="Time" HorizontalAlignment="Stretch" ClockIdentifier="24HourClock" />
                     </StackPanel>

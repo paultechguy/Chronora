@@ -66,6 +66,16 @@ public abstract record DateSource
     /// <summary>Parse it out of the file or folder name.</summary>
     public sealed record FromFileName(string PatternId) : DateSource;
 
+    /// <summary>
+    /// Nothing chosen yet.
+    ///
+    /// An explicit state rather than an absent rule, because the TARGETS are still known
+    /// and still matter: the app has to go on saying that photo dates will need ExifTool,
+    /// and that a field cannot be written, before anyone picks the date. A recipe with no
+    /// rules would take all of that away and look like there was nothing to warn about.
+    /// </summary>
+    public sealed record Unset : DateSource;
+
     // 0.2.0: FromTakeoutJson, once there is a real export to build against.
 }
 

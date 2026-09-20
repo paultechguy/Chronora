@@ -123,7 +123,23 @@ public sealed partial class PlanRowViewModel : ObservableObject
         if (distinct.Count == 1)
         {
             string fields = string.Join(" · ", writes.Select(w => w.Target.DisplayName));
-            return string.Create(CultureInfo.CurrentCulture, $"{fields} → {Stamp(distinct[0])}");
+
+            // With the CURRENT value, exactly as the single-field line has it.
+            //
+            // It used to render only "Created · Modified → 2026-09-19", which reads as a
+            // statement about the file rather than a proposal about it - reported as
+            // "these rows show the wrong date" when the row was in fact showing a date the
+            // file did not have yet. A preview that omits what it is changing FROM is not
+            // a preview.
+            List<DateTimeOffset> before = [.. writes
+                .Select(w => w.BeforeDate)
+                .Where(d => d.HasValue)
+                .Select(d => d!.Value)
+                .Distinct()];
+
+            return before.Count == 1
+                ? string.Create(CultureInfo.CurrentCulture, $"{fields}  {Stamp(before[0])} → {Stamp(distinct[0])}")
+                : string.Create(CultureInfo.CurrentCulture, $"{fields} → {Stamp(distinct[0])}");
         }
 
         return string.Create(
@@ -189,6 +205,7 @@ public sealed partial class PlanRowViewModel : ObservableObject
         ProblemCode.FieldNotWritableForFormat => "not supported for this file type",
         ProblemCode.CloudPlaceholderWouldHydrate => "still in the cloud",
         ProblemCode.NoSourceValue => "no date found",
+        ProblemCode.NoDateChosen => "pick a date first",
         ProblemCode.AmbiguousPatternMatch => "two possible dates in the name",
         ProblemCode.InvalidLocalTime => "that clock time does not exist (clocks went forward)",
         ProblemCode.AmbiguousLocalTime => "that clock time happens twice (clocks went back)",

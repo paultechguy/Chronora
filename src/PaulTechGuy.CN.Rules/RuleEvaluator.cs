@@ -115,6 +115,13 @@ public sealed class RuleEvaluator
             return new PlannedChange(targetRef, before, After: null, ChangeStatus.Blocked, blockReason, ruleIndex);
         }
 
+        // Waiting on the user, not on the file. Reported distinctly so nobody is sent
+        // looking for a date the file is missing when they have simply not picked one.
+        if (rule.Source is DateSource.Unset)
+        {
+            return new PlannedChange(targetRef, before, After: null, ChangeStatus.Skipped, ProblemCode.NoDateChosen, ruleIndex);
+        }
+
         ResolvedDate? resolved = this.Resolve(file, rule.Source, target, context)
             ?? (rule.Fallback is not null ? this.Resolve(file, rule.Fallback, target, context) : null);
 

@@ -142,7 +142,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._dispatcher = dispatcher;
         this._logger = logger;
 
-        this.AbsoluteDate = DateTimeOffset.Now.Date;
         this.AbsoluteTime = new TimeSpan(12, 0, 0);
         this.Summary = ChangeSummary.Empty;
         this.Rows = [];
@@ -688,9 +687,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool NeedsCopyFromInput => this.Source == SourceChoice.FromAnotherDate;
 
     [ObservableProperty]
-    public partial DateTimeOffset AbsoluteDate { get; set; }
+    public partial DateTimeOffset? AbsoluteDate { get; set; }
 
-    partial void OnAbsoluteDateChanged(DateTimeOffset value)
+    partial void OnAbsoluteDateChanged(DateTimeOffset? value)
     {
         this.LeaveTemplateOnEdit();
         this.QueueRecompute();
@@ -1298,6 +1297,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.ActiveTemplate = null;
             this.Intent = WorkIntent.None;
             this.Source = SourceChoice.PickADate;
+            this.AbsoluteDate = null;
             this.Sort = SortChoice.Name;
             this.ShowOnlyChanging = false;
             this.ShowOnlyProblems = false;
@@ -1762,7 +1762,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             SourceChoice.ShiftBy => string.Create(CultureInfo.CurrentCulture, $"shifted by {this.ShiftHours:0.##} hours"),
             SourceChoice.FromAnotherDate => $"from {DateFieldCatalog.Get(this.CopyFromField).DisplayName}",
             SourceChoice.FromFileName => "from the file name",
-            _ => string.Create(CultureInfo.CurrentCulture, $"set to {this.AbsoluteDate.Date.Add(this.AbsoluteTime):yyyy-MM-dd HH:mm}"),
+            _ => this.AbsoluteDate is { } picked
+                ? string.Create(CultureInfo.CurrentCulture, $"set to {picked.Date.Add(this.AbsoluteTime):yyyy-MM-dd HH:mm}")
+                : "set to a chosen date",
         };
 
         return targets.Count == 0
@@ -1911,12 +1913,25 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             _ = targets.Add(DateField.ExifDateTimeOriginal);
         }
 
+        // Until a date is actually chosen there is no run to describe, and saying nothing
+        // beats inventing one.
+        //
+        // This used to default to today at noon, so adding files immediately produced
+        // "2 of 2 will change" and a preview proposing to stamp everything with today,
+        // before anyone had made a single decision. Reported as rows showing the wrong
+        // date - and they were: they showed a date nobody had asked for. An app that edits
+        // irreplaceable files must not arrive with a destructive plan already loaded.
         DateSource source = this.Source switch
         {
             SourceChoice.ShiftBy => new DateSource.Shift(TimeSpan.FromHours(this.ShiftHours), ShiftBasis.WallClock),
             SourceChoice.FromAnotherDate => new DateSource.CopyFrom(Aggregate.FirstPresent, [this.CopyFromField]),
             SourceChoice.FromFileName => new DateSource.FromFileName(string.Empty),
-            _ => new DateSource.Absolute(new DateTimeOffset(this.AbsoluteDate.Date.Add(this.AbsoluteTime), DateTimeOffset.Now.Offset)),
+            // Unset until a date is picked. The targets stay in the recipe either way, so
+            // the app goes on saying that photo dates need ExifTool and that a field
+            // cannot be written - warnings that are just as true before the date is chosen.
+            _ => this.AbsoluteDate is { } picked
+                ? new DateSource.Absolute(new DateTimeOffset(picked.Date.Add(this.AbsoluteTime), DateTimeOffset.Now.Offset))
+                : new DateSource.Unset(),
         };
 
         return new Recipe(

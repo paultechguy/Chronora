@@ -47,6 +47,14 @@ public enum ProblemCode
     /// <summary>The rule found no date and no fallback produced one.</summary>
     NoSourceValue,
 
+    /// <summary>
+    /// The user has not picked a date yet. Distinct from NoSourceValue, which means the
+    /// FILE has nothing to offer - one is waiting on a person and the other is a fact
+    /// about the file, and telling somebody "no date found" while they have simply not
+    /// filled the box in yet sends them looking in the wrong place.
+    /// </summary>
+    NoDateChosen,
+
     /// <summary>The filename matched more than one pattern plausibly. Never guess.</summary>
     AmbiguousPatternMatch,
 
