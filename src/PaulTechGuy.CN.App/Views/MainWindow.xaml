@@ -357,11 +357,12 @@
                                   Visibility="{x:Bind Workbench.ShowsFileDates, Mode=OneWay}"
                                   IsChecked="{x:Bind Workbench.WriteModified, Mode=TwoWay}" />
 
-                        <!-- Stands alone: for Google Photos it is the only correct choice. -->
+                        <!-- Stands alone: for anything that reads the file's own date, it is the only
+                             correct choice. -->
                         <CheckBox Content="Taken (photo)"
                                   Visibility="{x:Bind Workbench.IsPhotoMode, Mode=OneWay}"
                                   IsChecked="{x:Bind Workbench.WriteTaken, Mode=TwoWay}"
-                                  ToolTipService.ToolTip="The date the photo records as when it was taken. Google Photos reads this and ignores the file dates, so on its own it is often exactly right." />
+                                  ToolTipService.ToolTip="The date the photo or video records as when it was taken. Photo libraries read this and ignore the file dates, so on its own it is often exactly right." />
 
                         <!--
                             Accessed and Changed appear only when the user has said they

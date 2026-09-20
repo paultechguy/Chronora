@@ -34,7 +34,7 @@ public enum WorkIntent
     /// <summary>Created and Modified. No photo machinery anywhere on screen.</summary>
     FileDates,
 
-    /// <summary>The date the photo records. What Google Photos actually reads.</summary>
+    /// <summary>The date the file records for itself. What a photo library actually reads.</summary>
     PhotoDates,
 
     /// <summary>
@@ -262,7 +262,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             "Windows Explorer sorts by these. Its “Date taken” column reads the photo instead, so this "
             + "will not change what that column shows.",
         WorkIntent.PhotoDates =>
-            "Google Photos reads this when you upload, and ignores the Windows file dates entirely.",
+            "The date a photo or video records for itself. Photo libraries read this when you "
+            + "upload, and ignore the Windows file dates entirely.",
         WorkIntent.Custom =>
             "Pick exactly the fields you want. It starts with the photo date and the file dates together, "
             + "which is what you need for it to look right both in Explorer and after an upload.",
@@ -1334,7 +1335,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.OnPropertyChanged(nameof(this.NudgeActionLabel));
             this.IntentNudge = string.Create(
                 CultureInfo.CurrentCulture,
-                $"{media:N0} of these are photos or videos. Google Photos reads their Taken date, not the file dates.");
+                $"{media:N0} of these are photos or videos. Photo libraries read their taken date, not the file dates.");
         }
     }
 
@@ -1700,8 +1701,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             _ = targets.Add(DateField.FileChanged);
         }
 
-        // Taken stands alone perfectly well, and for Google Photos it is the ONLY correct
-        // choice: the upload reads the photo's Taken date and ignores file dates entirely.
+        // Taken stands alone perfectly well, and for anything that reads a file's own date
+        // it is the ONLY correct choice: an upload reads the taken date and ignores the
+        // file dates entirely.
         // Nothing here requires Created or Modified to be ticked alongside it.
         if (this.WriteTaken && this.IsPhotoMode)
         {
