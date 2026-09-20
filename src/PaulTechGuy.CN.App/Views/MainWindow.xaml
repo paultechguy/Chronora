@@ -4,84 +4,232 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:PaulTechGuy.CN.App.ViewModels">
 
-    <Grid x:Name="RootGrid" RowDefinitions="Auto,Auto,*,Auto">
-
-        <Border x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0">
-            <TextBlock Text="Chronora &#183; grid spike"
-                       VerticalAlignment="Center"
-                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-        </Border>
-
-        <StackPanel Grid.Row="1" Margin="16,0,16,12" Spacing="6">
-            <TextBlock Text="{x:Bind Spike.BuildReport, Mode=OneWay}"
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-            <TextBlock Text="{x:Bind Spike.RecomputeReport, Mode=OneWay}"
-                       Style="{StaticResource BodyStrongTextBlockStyle}" />
-            <TextBlock Text="{x:Bind Spike.BenchmarkReport, Mode=OneWay}"
-                       FontFamily="Consolas"
-                       Style="{StaticResource CaptionTextBlockStyle}" />
-            <Button Content="Recompute all rows"
-                    Command="{x:Bind Spike.RecomputeCommand}"
-                    Height="{StaticResource CnChromeButtonHeight}" />
-        </StackPanel>
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto">
 
         <!--
-            The control under test. ItemsStackPanel virtualises, but only estimates extent for
-            non-uniform items, so every row is pinned to one height via ItemContainerStyle.
-            That is what keeps the scrollbar honest and the layout out of a re-measure storm.
+            The mode switch lives in the title bar because it is the highest-level choice in
+            the app: it decides what may be WRITTEN, and nothing else. It deliberately does
+            not restrict what may be read, which is what keeps "copy the photo's Taken date
+            onto the file dates" reachable from the simple mode.
         -->
-        <ListView Grid.Row="2"
-                  x:Name="RowList"
-                  ItemsSource="{x:Bind Spike.Rows}"
-                  SelectionMode="Single"
-                  ShowsScrollingPlaceholders="True"
-                  IncrementalLoadingTrigger="None">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0" ColumnDefinitions="Auto,Auto,*">
+            <TextBlock Grid.Column="0" Text="Chronora" VerticalAlignment="Center"
+                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="24,0,0,0" Spacing="4" VerticalAlignment="Center">
+                <RadioButton Content="File dates" GroupName="Mode" IsChecked="True"
+                             Checked="OnModeChecked" Tag="FileDates" />
+                <RadioButton Content="Photo dates" GroupName="Mode"
+                             Checked="OnModeChecked" Tag="PhotoDates" />
+            </StackPanel>
+        </Grid>
 
-            <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem">
-                    <Setter Property="Height" Value="56" />
-                    <Setter Property="MinHeight" Value="56" />
-                    <Setter Property="Padding" Value="12,0" />
-                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                </Style>
-            </ListView.ItemContainerStyle>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,320">
 
-            <ListView.ItemsPanel>
-                <ItemsPanelTemplate>
-                    <ItemsStackPanel Orientation="Vertical"
-                                     CacheLength="2.0" />
-                </ItemsPanelTemplate>
-            </ListView.ItemsPanel>
+            <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*,Auto" Margin="16,0,8,0">
 
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="vm:SpikeRow">
-                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" VerticalAlignment="Center">
-                        <CheckBox Grid.RowSpan="2" Grid.Column="0"
-                                  IsChecked="{x:Bind IsChecked, Mode=TwoWay}"
-                                  MinWidth="32" />
-                        <TextBlock Grid.Row="0" Grid.Column="1"
-                                   Text="{x:Bind Name}"
-                                   TextTrimming="CharacterEllipsis"
-                                   Style="{StaticResource BodyTextBlockStyle}" />
-                        <TextBlock Grid.Row="1" Grid.Column="1"
-                                   Text="{x:Bind vm:SpikeRow.FormatDiff(Before, After), Mode=OneWay}"
-                                   TextTrimming="CharacterEllipsis"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   Opacity="0.75" />
-                        <TextBlock Grid.RowSpan="2" Grid.Column="2"
-                                   Text="{x:Bind Status, Mode=OneWay}"
-                                   VerticalAlignment="Center"
-                                   Margin="12,0,0,0"
+                <!--
+                    The summary band IS the preview. Six lines someone can actually verify
+                    beats 4,000 rows they cannot, and it is what makes a batch of 63 videos
+                    landing on 1904 visible without scrolling to find them.
+                -->
+                <Border Grid.Row="0" Padding="12,8" CornerRadius="4" Margin="0,0,0,8"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <StackPanel Spacing="2">
+                        <ItemsControl ItemsSource="{x:Bind Workbench.Summary.Lines, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SummaryLine">
+                                    <Grid ColumnDefinitions="110,*,Auto">
+                                        <TextBlock Grid.Column="0" Text="{x:Bind FieldName}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind SuspiciousDetail}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{x:Bind Workbench.Summary.StatusLine, Mode=OneWay}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+                    <Button Content="Add folder..." Click="OnAddFolder"
+                            Height="{StaticResource CnChromeButtonHeight}" />
+                    <Button Content="Clear" Command="{x:Bind Workbench.ClearCommand}"
+                            Height="{StaticResource CnChromeButtonHeight}" />
+                    <ComboBox SelectionChanged="OnSortChanged" MinWidth="180" SelectedIndex="0">
+                        <ComboBoxItem Content="Sort: name" Tag="Name" />
+                        <ComboBoxItem Content="Sort: biggest change" Tag="BiggestChange" />
+                        <ComboBoxItem Content="Sort: resulting date" Tag="ResultingDate" />
+                        <ComboBoxItem Content="Sort: status" Tag="Status" />
+                    </ComboBox>
+                    <CheckBox Content="Only changing" IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}" />
+                    <CheckBox Content="Only problems" IsChecked="{x:Bind Workbench.ShowOnlyProblems, Mode=TwoWay}" />
+                </StackPanel>
+
+                <!--
+                    Uniform two-line rows. The milestone 1 spike settled the rest: no lazy
+                    item source and no phased rendering, because 50,000 materialised rows
+                    cost 16 ms. The fixed height is NOT optional though - a virtualising
+                    layout only estimates extent for non-uniform items, and the scrollbar
+                    drifts under the cursor when it has to guess.
+                -->
+                <ListView Grid.Row="2"
+                          ItemsSource="{x:Bind Workbench.Rows, Mode=OneWay}"
+                          SelectedItem="{x:Bind Workbench.SelectedRow, Mode=TwoWay}"
+                          SelectionMode="Single">
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="Height" Value="54" />
+                            <Setter Property="MinHeight" Value="54" />
+                            <Setter Property="Padding" Value="8,0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel Orientation="Vertical" CacheLength="2.0" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="vm:PlanRowViewModel">
+                            <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" VerticalAlignment="Center">
+                                <CheckBox Grid.RowSpan="2" Grid.Column="0" MinWidth="32"
+                                          IsChecked="{x:Bind IsIncluded, Mode=TwoWay}" />
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind Name}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Style="{StaticResource BodyTextBlockStyle}" />
+                                <TextBlock Grid.Row="1" Grid.Column="1"
+                                           Text="{x:Bind vm:PlanRowViewModel.FormatSummary(Plan), Mode=OneWay}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75" />
+                                <TextBlock Grid.RowSpan="2" Grid.Column="2" Margin="12,0,0,0"
+                                           VerticalAlignment="Center"
+                                           Text="{x:Bind vm:PlanRowViewModel.FormatStatus(Plan), Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <!--
+                    Nothing is hidden: the full field-by-field breakdown is one selection
+                    away rather than one navigation away, which is the thing the competing
+                    tools get wrong.
+                -->
+                <Border Grid.Row="3" Padding="12,8" Margin="0,8,0,8" CornerRadius="4"
+                        Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}" />
+                        <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
+                                   Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
-                    </Grid>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+                    </StackPanel>
+                </Border>
+            </Grid>
 
-        <Border Grid.Row="3" Height="32" Padding="16,0">
-            <TextBlock x:Name="StatusText"
-                       VerticalAlignment="Center"
-                       Style="{StaticResource CaptionTextBlockStyle}" />
+            <Border Grid.Column="1" Width="1" Margin="4,8"
+                    Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+
+            <!--
+                The options pane is a fixed width, so every extra pixel of a resized window
+                goes to the file list. More screen means more rows, which is what more
+                screen is actually for in a bulk tool.
+            -->
+            <ScrollViewer Grid.Column="2" Padding="16,0,16,0">
+                <StackPanel Spacing="12">
+
+                    <TextBlock Text="Where do you need this to look right?"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    <StackPanel Spacing="4">
+                        <RadioButton Content="Windows Explorer" GroupName="Dest" IsChecked="True"
+                                     Checked="OnDestinationChecked" Tag="Explorer" />
+                        <RadioButton Content="Google Photos" GroupName="Dest"
+                                     Checked="OnDestinationChecked" Tag="GooglePhotos" />
+                        <RadioButton Content="Everywhere" GroupName="Dest"
+                                     Checked="OnDestinationChecked" Tag="Everywhere" />
+                    </StackPanel>
+                    <TextBlock Text="{x:Bind Workbench.DestinationNote, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
+
+                    <TextBlock Text="Get the date from" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                    <StackPanel Spacing="4">
+                        <RadioButton Content="A date I pick" GroupName="Src" IsChecked="True"
+                                     Checked="OnSourceChecked" Tag="PickADate" />
+                        <RadioButton Content="Shift the existing date" GroupName="Src"
+                                     Checked="OnSourceChecked" Tag="ShiftBy" />
+                        <RadioButton Content="Another date on the file" GroupName="Src"
+                                     Checked="OnSourceChecked" Tag="FromAnotherDate" />
+                        <RadioButton Content="The file name" GroupName="Src"
+                                     Checked="OnSourceChecked" Tag="FromFileName" />
+                    </StackPanel>
+
+                    <StackPanel Spacing="8">
+                        <CalendarDatePicker Date="{x:Bind Workbench.AbsoluteDate, Mode=TwoWay}"
+                                            Header="Date" HorizontalAlignment="Stretch" />
+                        <TimePicker Time="{x:Bind Workbench.AbsoluteTime, Mode=TwoWay}"
+                                    Header="Time" HorizontalAlignment="Stretch" ClockIdentifier="24HourClock" />
+                        <NumberBox Value="{x:Bind Workbench.ShiftHours, Mode=TwoWay}"
+                                   Header="Shift by (hours)" SpinButtonPlacementMode="Inline"
+                                   SmallChange="1" LargeChange="6" />
+                    </StackPanel>
+
+                    <TextBlock Text="Write it to" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                    <StackPanel Spacing="2">
+                        <CheckBox Content="Created" IsChecked="{x:Bind Workbench.WriteCreated, Mode=TwoWay}" />
+                        <CheckBox Content="Modified" IsChecked="{x:Bind Workbench.WriteModified, Mode=TwoWay}" />
+                        <CheckBox Content="Taken (photo)" IsChecked="{x:Bind Workbench.WriteTaken, Mode=TwoWay}" />
+                    </StackPanel>
+
+                    <!--
+                        Accessed and Changed sit behind Advanced deliberately. Accessed is
+                        usually meaningless because Windows disables the updates by default,
+                        and a checkbox reading "Changed (NTFS)" beside Created and Modified
+                        is exactly the clutter the simple path must not have.
+                    -->
+                    <Expander Header="Advanced" HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="2" Margin="0,4">
+                            <CheckBox Content="Accessed" IsChecked="{x:Bind Workbench.WriteAccessed, Mode=TwoWay}" />
+                            <TextBlock Text="Windows usually stops updating this, so the value is often meaningless."
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
+                            <CheckBox Content="Changed (NTFS)" Margin="0,8,0,0"
+                                      IsChecked="{x:Bind Workbench.WriteChanged, Mode=TwoWay}" />
+                            <TextBlock Text="A fourth timestamp Explorer never shows. Not every drive can store it."
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <Border Grid.Row="2" Padding="16,8" BorderThickness="0,1,0,0"
+                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                           Text="{x:Bind Workbench.ScanStatus, Mode=OneWay}"
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+
+                <!--
+                    This replaced a "Dry run" button. A dry run sitting beside a live
+                    preview quietly tells the user the thing they have been looking at might
+                    not be real; an export is the same reassurance and is actually useful.
+                -->
+                <Button Grid.Column="1" Content="Export preview (CSV)" Margin="0,0,8,0"
+                        Click="OnExportPreview"
+                        Height="{StaticResource CnChromeButtonHeight}" />
+
+                <Button Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
+                        Content="{x:Bind Workbench.Summary.ApplyLabel, Mode=OneWay}"
+                        MinWidth="{StaticResource CnCommandButtonMinWidth}"
+                        Height="{StaticResource CnChromeButtonHeight}"
+                        IsEnabled="False"
+                        ToolTipService.ToolTip="Applying arrives in the next milestone." />
+            </Grid>
         </Border>
     </Grid>
 </Window>

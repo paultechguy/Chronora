@@ -1,26 +1,31 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Globalization;
+using System.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PaulTechGuy.CN.App.ViewModels;
+using PaulTechGuy.CN.Domain;
 using Windows.Graphics;
+using Windows.Storage.Pickers;
 
 namespace PaulTechGuy.CN.App.Views;
 
 public sealed partial class MainWindow : Window
 {
-    // The window is freely resizable because the primary content is a file listing: more
-    // screen means more rows, which is the biggest usability lever in a bulk tool. The
-    // minimum only stops the three regions collapsing into nonsense.
-    private const int MinimumWidth = 900;
-    private const int MinimumHeight = 600;
+    // Freely resizable because the primary content is a file listing: more screen means
+    // more rows, which is the biggest usability lever in a bulk tool. The minimum only
+    // stops the three regions collapsing into nonsense.
+    private const int MinimumWidth = 980;
+    private const int MinimumHeight = 640;
 
-    public MainWindow(MainViewModel viewModel)
+    public MainWindow(MainViewModel viewModel, WorkbenchViewModel workbench)
     {
         this.ViewModel = viewModel;
-        this.Spike = new GridSpikeViewModel();
+        this.Workbench = workbench;
 
         this.InitializeComponent();
 
@@ -29,18 +34,15 @@ public sealed partial class MainWindow : Window
         this.ExtendsContentIntoTitleBar = true;
         this.SetTitleBar(this.AppTitleBar);
 
-        this.AppWindow.Resize(new SizeInt32(1280, 820));
+        this.AppWindow.Resize(new SizeInt32(1360, 880));
         this.AppWindow.Changed += OnAppWindowChanged;
     }
 
     public MainViewModel ViewModel { get; }
 
-    /// <summary>Throwaway; removed when the real workbench lands in milestone 5.</summary>
-    public GridSpikeViewModel Spike { get; }
+    public WorkbenchViewModel Workbench { get; }
 
-    /// <summary>
-    /// WinUI has no MinWidth on a Window, so the clamp is applied on resize.
-    /// </summary>
+    /// <summary>WinUI has no MinWidth on a Window, so the clamp is applied on resize.</summary>
     private static void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         if (!args.DidSizeChange)
@@ -56,4 +58,114 @@ public sealed partial class MainWindow : Window
             sender.Resize(new SizeInt32(width, height));
         }
     }
+
+    private async void OnAddFolder(object sender, RoutedEventArgs e)
+    {
+        var picker = new FolderPicker();
+        picker.FileTypeFilter.Add("*");
+
+        // An unpackaged app has no implicit window for a picker to parent to, so the
+        // handle has to be supplied by hand or the dialog never appears at all.
+        nint handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, handle);
+
+        Windows.Storage.StorageFolder? folder = await picker.PickSingleFolderAsync();
+        if (folder is null)
+        {
+            return;
+        }
+
+        await this.Workbench.AddFolderAsync(folder.Path, ScanFilter.Default);
+    }
+
+    private void OnModeChecked(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench is not null
+            && sender is RadioButton { Tag: string tag }
+            && Enum.TryParse(tag, out AppMode mode))
+        {
+            this.Workbench.Mode = mode;
+        }
+    }
+
+    private void OnSourceChecked(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench is not null
+            && sender is RadioButton { Tag: string tag }
+            && Enum.TryParse(tag, out SourceChoice choice))
+        {
+            this.Workbench.Source = choice;
+        }
+    }
+
+    private void OnDestinationChecked(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench is not null
+            && sender is RadioButton { Tag: string tag }
+            && Enum.TryParse(tag, out DestinationChoice choice))
+        {
+            this.Workbench.ApplyDestination(choice);
+        }
+    }
+
+    private void OnSortChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (this.Workbench is not null
+            && sender is ComboBox { SelectedItem: ComboBoxItem { Tag: string tag } }
+            && Enum.TryParse(tag, out SortChoice choice))
+        {
+            this.Workbench.Sort = choice;
+        }
+    }
+
+    /// <summary>
+    /// Answers "how do I check 5,000 rows" by handing them to a spreadsheet, and doubles as
+    /// a record of what a run was about to do. It replaced a Dry run button, which sitting
+    /// beside a live preview only suggests the preview might not be real.
+    /// </summary>
+    private async void OnExportPreview(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileSavePicker();
+        picker.FileTypeChoices.Add("CSV", [".csv"]);
+        picker.SuggestedFileName = "chronora-preview";
+
+        nint handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, handle);
+
+        Windows.Storage.StorageFile? file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var csv = new StringBuilder();
+        _ = csv.AppendLine("Path,Field,Before,After,Status,Problem");
+
+        foreach (PlanRowViewModel row in this.Workbench.Rows)
+        {
+            if (row.Plan is null)
+            {
+                continue;
+            }
+
+            foreach (PlannedChange change in row.Plan.Changes)
+            {
+                _ = csv.Append(Quote(row.FullPath)).Append(',')
+                       .Append(Quote(change.Target.DisplayName)).Append(',')
+                       .Append(Quote(Stamp(change.BeforeDate))).Append(',')
+                       .Append(Quote(Stamp(change.AfterDate))).Append(',')
+                       .Append(Quote(change.Status.ToString())).Append(',')
+                       .Append(Quote(PlanRowViewModel.Describe(change.Problem)))
+                       .AppendLine();
+            }
+        }
+
+        await Windows.Storage.FileIO.WriteTextAsync(file, csv.ToString());
+    }
+
+    private static string Stamp(DateTimeOffset? value) =>
+        value is { } v ? v.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : string.Empty;
+
+    private static string Quote(string value) =>
+        "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 }

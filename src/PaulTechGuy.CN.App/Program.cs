@@ -8,7 +8,9 @@ using Microsoft.UI.Dispatching;
 using PaulTechGuy.CN.Abstractions;
 using PaulTechGuy.CN.App.ViewModels;
 using PaulTechGuy.CN.App.Views;
+using PaulTechGuy.CN.FileSystem;
 using PaulTechGuy.CN.Repositories;
+using PaulTechGuy.CN.Rules;
 using Serilog;
 
 namespace PaulTechGuy.CN.App;
@@ -99,7 +101,15 @@ public static class Program
         // Each layer contributes its own registrations, so this stays a list of intents.
         builder.Services.AddSingleton<IAppPaths>(paths);
 
+        // One registration per layer, so the root reads as a list of intents.
+        builder.Services.AddSingleton<VolumeProbe>();
+        builder.Services.AddSingleton<FileTimeWriter>();
+        builder.Services.AddSingleton<FileScanner>();
+        builder.Services.AddSingleton<FilenameDateParser>();
+        builder.Services.AddSingleton<RuleEvaluator>();
+
         builder.Services.AddSingleton<MainViewModel>();
+        builder.Services.AddSingleton<WorkbenchViewModel>();
         builder.Services.AddSingleton<MainWindow>();
 
         return builder.Build();
