@@ -50,6 +50,25 @@ public sealed record SummaryLine(DateField Field, int Count, DateTimeOffset? Ear
 }
 
 /// <summary>
+/// A field the user asked for that will NOT be written, and why.
+///
+/// This exists because omitting it is the exact failure the destination presets were added
+/// to prevent: someone ticks a field, the summary lists only what will change, and the app
+/// reports a clean run while quietly doing nothing about the thing they actually wanted.
+/// </summary>
+/// <param name="Field">The field that was requested.</param>
+/// <param name="Count">How many files it affects.</param>
+/// <param name="Reason">Plain language, already user-facing.</param>
+public sealed record BlockedLine(DateField Field, int Count, string Reason)
+{
+    public string FieldName => DateFieldCatalog.Get(this.Field).DisplayName;
+
+    public string Detail => string.Create(
+        CultureInfo.CurrentCulture,
+        $"{this.Count:N0} file{(this.Count == 1 ? string.Empty : "s")} — {this.Reason}");
+}
+
+/// <summary>
 /// What the whole run will do, grouped so it can be verified at a glance.
 ///
 /// This exists because a per-row diff does not scale: at 4,000 files, scanning every row is
@@ -74,6 +93,15 @@ public sealed record ChangeSummary(
 
     /// <summary>Files that are both ticked and will actually change: what Apply acts on.</summary>
     public int FilesToWrite { get; init; }
+
+    /// <summary>
+    /// Fields the user asked for that will not happen. Shown as prominently as the ones
+    /// that will, because "you asked for this and it is not going to work" is more urgent
+    /// information than "these other things will".
+    /// </summary>
+    public IReadOnlyList<BlockedLine> BlockedLines { get; init; } = [];
+
+    public bool HasBlocked => this.BlockedLines.Count > 0;
 
     public bool HasAnything => this.FilesTotal > 0;
 
@@ -123,6 +151,7 @@ public sealed record ChangeSummary(
         }
 
         var byField = new Dictionary<DateField, (int Count, DateTimeOffset? Min, DateTimeOffset? Max, int Odd)>();
+        var blockedByField = new Dictionary<DateField, (int Count, ProblemCode Reason)>();
 
         int changing = 0;
         int blocked = 0;
@@ -167,7 +196,21 @@ public sealed record ChangeSummary(
 
             foreach (PlannedChange change in plan.Changes)
             {
-                if (!change.WillWrite || change.Target is not ChangeTarget.Field field)
+                if (change.Target is not ChangeTarget.Field field)
+                {
+                    continue;
+                }
+
+                if (change.Status == ChangeStatus.Blocked)
+                {
+                    (int Count, ProblemCode Reason) tally =
+                        blockedByField.TryGetValue(field.Which, out var seen) ? seen : (0, change.Problem);
+
+                    blockedByField[field.Which] = (tally.Count + 1, tally.Reason);
+                    continue;
+                }
+
+                if (!change.WillWrite)
                 {
                     continue;
                 }
@@ -189,9 +232,14 @@ public sealed record ChangeSummary(
             .OrderBy(kv => (int)kv.Key)
             .Select(kv => new SummaryLine(kv.Key, kv.Value.Count, kv.Value.Min, kv.Value.Max, kv.Value.Odd))];
 
+        List<BlockedLine> blockedLines = [.. blockedByField
+            .OrderBy(kv => (int)kv.Key)
+            .Select(kv => new BlockedLine(kv.Key, kv.Value.Count, PlanRowViewModel.Describe(kv.Value.Reason)))];
+
         return new ChangeSummary(lines, rows.Count, changing, blocked, suspicious, included)
         {
             FilesToWrite = toWrite,
+            BlockedLines = blockedLines,
         };
     }
 

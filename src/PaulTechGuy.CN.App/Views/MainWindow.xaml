@@ -50,25 +50,61 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <!--
+                            Fields that were asked for and will NOT happen, shown as
+                            prominently as the ones that will. Omitting them was the exact
+                            failure the destination presets exist to prevent: tick a field,
+                            see a clean summary, and learn nothing about why it did nothing.
+                        -->
+                        <ItemsControl ItemsSource="{x:Bind Workbench.Summary.BlockedLines, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:BlockedLine">
+                                    <Grid ColumnDefinitions="110,*">
+                                        <TextBlock Grid.Column="0" Text="{x:Bind FieldName}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
+                                                   TextWrapping="Wrap"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
                         <TextBlock Text="{x:Bind Workbench.Summary.StatusLine, Mode=OneWay}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
 
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
-                    <Button Content="Add folder..." Click="OnAddFolder"
-                            Height="{StaticResource CnChromeButtonHeight}" />
-                    <Button Content="Clear" Command="{x:Bind Workbench.ClearCommand}"
-                            Height="{StaticResource CnChromeButtonHeight}" />
-                    <ComboBox SelectionChanged="OnSortChanged" MinWidth="180" SelectedIndex="0">
-                        <ComboBoxItem Content="Sort: name" Tag="Name" />
-                        <ComboBoxItem Content="Sort: biggest change" Tag="BiggestChange" />
-                        <ComboBoxItem Content="Sort: resulting date" Tag="ResultingDate" />
-                        <ComboBoxItem Content="Sort: status" Tag="Status" />
-                    </ComboBox>
-                    <CheckBox Content="Only changing" IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}" />
-                    <CheckBox Content="Only problems" IsChecked="{x:Bind Workbench.ShowOnlyProblems, Mode=TwoWay}" />
-                </StackPanel>
+                <!--
+                    Clear is separated and right-aligned. It was sitting between the sort
+                    and the filters, where a destructive action has no business being: the
+                    controls beside it only change what you SEE, and it throws the list away.
+                -->
+                <Grid Grid.Row="1" Margin="0,0,0,8" ColumnDefinitions="Auto,*,Auto">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
+                        <Button Content="Add folder..." Click="OnAddFolder"
+                                Height="{StaticResource CnChromeButtonHeight}" />
+                        <ComboBox SelectionChanged="OnSortChanged" MinWidth="180" SelectedIndex="0"
+                                  ToolTipService.ToolTip="Sort by biggest change to bring the most-moved dates to the top. It is the quickest way to spot one that looks wrong.">
+                            <ComboBoxItem Content="Sort: name" Tag="Name" />
+                            <ComboBoxItem Content="Sort: biggest change" Tag="BiggestChange" />
+                            <ComboBoxItem Content="Sort: resulting date" Tag="ResultingDate" />
+                            <ComboBoxItem Content="Sort: status" Tag="Status" />
+                        </ComboBox>
+                        <CheckBox Content="Only changing"
+                                  IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}"
+                                  ToolTipService.ToolTip="Hide files that are already correct, so the list shows only what this run would actually alter." />
+                        <CheckBox Content="Only problems"
+                                  IsChecked="{x:Bind Workbench.ShowOnlyProblems, Mode=TwoWay}"
+                                  ToolTipService.ToolTip="Show only files that cannot be changed, or whose result looks wrong and is worth checking before you apply." />
+                    </StackPanel>
+
+                    <Button Grid.Column="2" Content="Clear" Command="{x:Bind Workbench.ClearCommand}"
+                            Height="{StaticResource CnChromeButtonHeight}"
+                            ToolTipService.ToolTip="Remove every file from the list. It does not change anything on disk." />
+                </Grid>
 
                 <!--
                     Uniform two-line rows. The milestone 1 spike settled the rest: no lazy
@@ -142,11 +178,11 @@
                 screen is actually for in a bulk tool.
             -->
             <ScrollViewer Grid.Column="2" Padding="16,0,16,0">
-                <StackPanel Spacing="12">
+                <StackPanel Spacing="8">
 
                     <TextBlock Text="Where do you need this to look right?"
                                Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" TextWrapping="Wrap" />
-                    <StackPanel Spacing="4">
+                    <StackPanel Spacing="2">
                         <RadioButton Content="Windows Explorer" GroupName="Dest" IsChecked="True"
                                      Checked="OnDestinationChecked" Tag="Explorer" />
                         <RadioButton Content="Google Photos" GroupName="Dest"
@@ -157,8 +193,8 @@
                     <TextBlock Text="{x:Bind Workbench.DestinationNote, Mode=OneWay}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
 
-                    <TextBlock Text="Get the date from" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
-                    <StackPanel Spacing="4">
+                    <TextBlock Text="Get the date from" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
+                    <StackPanel Spacing="2">
                         <RadioButton Content="A date I pick" GroupName="Src" IsChecked="True"
                                      Checked="OnSourceChecked" Tag="PickADate" />
                         <RadioButton Content="Shift the existing date" GroupName="Src"
@@ -169,21 +205,41 @@
                                      Checked="OnSourceChecked" Tag="FromFileName" />
                     </StackPanel>
 
-                    <StackPanel Spacing="8">
+                    <!--
+                        Only the input the chosen source uses. Showing all three at once made
+                        the pane taller than the window and invited people to fill in a field
+                        that was going to be ignored.
+                    -->
+                    <StackPanel Spacing="8" Visibility="{x:Bind Workbench.NeedsAbsoluteInput, Mode=OneWay}">
                         <CalendarDatePicker Date="{x:Bind Workbench.AbsoluteDate, Mode=TwoWay}"
                                             Header="Date" HorizontalAlignment="Stretch" />
                         <TimePicker Time="{x:Bind Workbench.AbsoluteTime, Mode=TwoWay}"
                                     Header="Time" HorizontalAlignment="Stretch" ClockIdentifier="24HourClock" />
-                        <NumberBox Value="{x:Bind Workbench.ShiftHours, Mode=TwoWay}"
-                                   Header="Shift by (hours)" SpinButtonPlacementMode="Inline"
-                                   SmallChange="1" LargeChange="6" />
                     </StackPanel>
 
-                    <TextBlock Text="Write it to" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,8,0,0" />
+                    <NumberBox Value="{x:Bind Workbench.ShiftHours, Mode=TwoWay}"
+                               Visibility="{x:Bind Workbench.NeedsShiftInput, Mode=OneWay}"
+                               Header="Shift by (hours)" SpinButtonPlacementMode="Inline"
+                               SmallChange="1" LargeChange="6" />
+
+                    <TextBlock Text="Write it to" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
                     <StackPanel Spacing="2">
                         <CheckBox Content="Created" IsChecked="{x:Bind Workbench.WriteCreated, Mode=TwoWay}" />
                         <CheckBox Content="Modified" IsChecked="{x:Bind Workbench.WriteModified, Mode=TwoWay}" />
-                        <CheckBox Content="Taken (photo)" IsChecked="{x:Bind Workbench.WriteTaken, Mode=TwoWay}" />
+
+                        <!--
+                            Taken appears only in Photo dates mode, because that is the only
+                            mode that can write it. Showing it in File dates mode and then
+                            dropping it from the recipe is worse than not offering it: the
+                            box ticks, the preview reports nothing to do, and nothing says why.
+
+                            It also stands alone. For Google Photos it is the ONLY correct
+                            choice, since the upload reads it and ignores file dates.
+                        -->
+                        <CheckBox Content="Taken (photo)"
+                                  Visibility="{x:Bind Workbench.IsPhotoMode, Mode=OneWay}"
+                                  IsChecked="{x:Bind Workbench.WriteTaken, Mode=TwoWay}"
+                                  ToolTipService.ToolTip="The date the photo records as when it was taken. Google Photos reads this and ignores the file dates, so on its own it is often exactly right." />
                     </StackPanel>
 
                     <!--

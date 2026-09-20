@@ -114,14 +114,42 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial AppMode Mode { get; set; } = AppMode.FileDates;
 
-    partial void OnModeChanged(AppMode value) => this.QueueRecompute();
+    partial void OnModeChanged(AppMode value)
+    {
+        this.OnPropertyChanged(nameof(this.IsPhotoMode));
+        this.QueueRecompute();
+    }
+
+    /// <summary>
+    /// Whether photo targets may be written, and therefore whether they are shown at all.
+    ///
+    /// File dates mode shows no EXIF controls, full stop. Rendering a Taken checkbox that
+    /// the recipe then silently drops is worse than not offering it: the user ticks it, the
+    /// preview reports nothing to do, and nothing explains why.
+    /// </summary>
+    public bool IsPhotoMode => this.Mode == AppMode.PhotoDates;
 
     // ---- Source -----------------------------------------------------------------------
 
     [ObservableProperty]
     public partial SourceChoice Source { get; set; } = SourceChoice.PickADate;
 
-    partial void OnSourceChanged(SourceChoice value) => this.QueueRecompute();
+    partial void OnSourceChanged(SourceChoice value)
+    {
+        this.OnPropertyChanged(nameof(this.NeedsAbsoluteInput));
+        this.OnPropertyChanged(nameof(this.NeedsShiftInput));
+        this.OnPropertyChanged(nameof(this.NeedsCopyFromInput));
+        this.QueueRecompute();
+    }
+
+    // Only the input the chosen source actually uses is shown. Rendering all three at once
+    // made the pane taller than the window and invited people to fill in a field that was
+    // going to be ignored.
+    public bool NeedsAbsoluteInput => this.Source == SourceChoice.PickADate;
+
+    public bool NeedsShiftInput => this.Source == SourceChoice.ShiftBy;
+
+    public bool NeedsCopyFromInput => this.Source == SourceChoice.FromAnotherDate;
 
     [ObservableProperty]
     public partial DateTimeOffset AbsoluteDate { get; set; }
@@ -622,7 +650,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             _ = targets.Add(DateField.FileChanged);
         }
 
-        if (this.WriteTaken && this.Mode == AppMode.PhotoDates)
+        // Taken stands alone perfectly well, and for Google Photos it is the ONLY correct
+        // choice: the upload reads the photo's Taken date and ignores file dates entirely.
+        // Nothing here requires Created or Modified to be ticked alongside it.
+        if (this.WriteTaken && this.IsPhotoMode)
         {
             _ = targets.Add(DateField.ExifDateTimeOriginal);
         }

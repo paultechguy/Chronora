@@ -144,6 +144,20 @@ public sealed partial class MainWindow : Window
             _ = body.AppendLine(CultureInfo.CurrentCulture, $"  {line.FieldName}: {line.Detail}");
         }
 
+        // Anything asked for that will NOT happen, stated here rather than left out. A
+        // confirmation that lists only the good news is how someone applies 4,000 files and
+        // discovers afterwards that the one field they actually wanted was never written.
+        if (summary.HasBlocked)
+        {
+            _ = body.AppendLine();
+            _ = body.AppendLine("Will NOT be changed:");
+
+            foreach (BlockedLine line in summary.BlockedLines)
+            {
+                _ = body.AppendLine(CultureInfo.CurrentCulture, $"  {line.FieldName}: {line.Detail}");
+            }
+        }
+
         if (summary.FilesSuspicious > 0)
         {
             _ = body.AppendLine();
