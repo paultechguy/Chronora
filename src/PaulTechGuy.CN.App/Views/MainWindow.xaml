@@ -287,9 +287,15 @@
                               SelectionChanged="OnTemplateChosen"
                               PlaceholderText="Choose a template…"
                               HorizontalAlignment="Stretch">
+                        <!--
+                            Wrapped, and with the description on hover. The options pane
+                            is a fixed 320px so a name can outrun it, and a template whose
+                            name is cut off is one nobody can choose on purpose.
+                        -->
                         <ComboBox.ItemTemplate>
                             <DataTemplate x:DataType="domain:DateTemplate">
-                                <TextBlock Text="{x:Bind Name}" TextWrapping="NoWrap" />
+                                <TextBlock Text="{x:Bind Name}" TextWrapping="Wrap"
+                                           ToolTipService.ToolTip="{x:Bind Description}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
                     </ComboBox>

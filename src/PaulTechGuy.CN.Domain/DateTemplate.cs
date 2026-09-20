@@ -88,7 +88,7 @@ public static class BuiltInTemplates
     [
         new DateTemplate(
             "builtin.photos-sort-wrong-in-explorer",
-            "Photos and videos sort wrong in Explorer",
+            "Explorer shows the wrong date",
             "Copies the date the camera recorded onto the file dates, so Explorer and "
             + "anything else that sorts by file date finally agrees with when it was taken.",
 
@@ -110,7 +110,7 @@ public static class BuiltInTemplates
         // Ids are what saved references point at; the name was the part that was wrong.
         new DateTemplate(
             "builtin.photos-land-on-today-in-google-photos",
-            "Photo or video “taken” date is missing",
+            "Taken date is missing",
             "Scans, downloads and phone exports often have a sensible file date and no "
             + "taken date at all, which is why photo libraries pile them onto today. This "
             + "fills in the missing one from the file date, and leaves anything that "

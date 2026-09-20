@@ -120,7 +120,23 @@ public sealed class RuleEvaluator
 
         if (resolved is not { } value)
         {
-            return new PlannedChange(targetRef, before, After: null, ChangeStatus.Skipped, ProblemCode.NoSourceValue, ruleIndex);
+            // Nothing resolved - but WHY matters, and these two look identical from here.
+            //
+            // A rule can READ a metadata date to write onto file dates: "copy the photo's
+            // taken date onto the file dates" is the product's whole differentiator. The
+            // targets are filesystem fields, so TryBlock above sees nothing to block, and
+            // with no ExifTool the source simply reads as empty. That came out as "no
+            // change" against every row: the app quietly doing nothing and not saying so,
+            // which is the exact failure it exists to prevent.
+            ProblemCode reason = !context.MetadataEngineAvailable && SourceReadsMetadata(rule)
+                ? ProblemCode.MetadataEngineUnavailable
+                : ProblemCode.NoSourceValue;
+
+            ChangeStatus unresolved = reason == ProblemCode.MetadataEngineUnavailable
+                ? ChangeStatus.Blocked
+                : ChangeStatus.Skipped;
+
+            return new PlannedChange(targetRef, before, After: null, unresolved, reason, ruleIndex);
         }
 
         if (value.Problem != ProblemCode.None && value.Blocking)
@@ -213,6 +229,22 @@ public sealed class RuleEvaluator
 
             _ => null,
         };
+
+    /// <summary>
+    /// Whether this rule needs to READ a metadata date, counting its fallback.
+    ///
+    /// Reading counts as much as writing. A rule whose targets are all filesystem fields
+    /// can still be entirely dependent on ExifTool, and that is the common case rather
+    /// than a corner one.
+    /// </summary>
+    private static bool SourceReadsMetadata(DateRule rule) =>
+        ReadsMetadata(rule.Source) || (rule.Fallback is not null && ReadsMetadata(rule.Fallback));
+
+    private static bool ReadsMetadata(DateSource source) => source switch
+    {
+        DateSource.CopyFrom copy => copy.Fields.Any(f => DateFieldCatalog.GenreOf(f) == FieldGenre.Metadata),
+        _ => false,
+    };
 
     private static ResolvedDate? ResolveCopy(ScannedFile file, DateSource.CopyFrom copy)
     {

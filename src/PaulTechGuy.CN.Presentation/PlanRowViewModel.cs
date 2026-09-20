@@ -100,8 +100,14 @@ public sealed partial class PlanRowViewModel : ObservableObject
 
         if (writes.Count == 0)
         {
-            PlannedChange? blocked = plan.Changes.FirstOrDefault(c => c.Status == ChangeStatus.Blocked);
-            return blocked is not null ? Describe(blocked.Problem) : "no change";
+            // Any stated reason beats "no change". A row that will do nothing is only
+            // useful if it says why it will do nothing - "no change" on a file the user
+            // explicitly selected reads as the app being broken, and when the cause is a
+            // missing ExifTool it is also wrong.
+            PlannedChange? explained = plan.Changes.FirstOrDefault(c => c.Status == ChangeStatus.Blocked)
+                ?? plan.Changes.FirstOrDefault(c => c.Problem != ProblemCode.None);
+
+            return explained is not null ? Describe(explained.Problem) : "no change";
         }
 
         if (writes.Count == 1)
