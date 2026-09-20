@@ -160,6 +160,16 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial PlanRowViewModel? SelectedRow { get; set; }
 
+    /// <summary>
+    /// Whether a row is selected, so the detail pane knows whether to hold a slot for the
+    /// thumbnail. With nothing selected there is no file to show a picture of, and an empty
+    /// grey square would be furniture rather than information.
+    /// </summary>
+    public bool HasSelection => this.SelectedRow is not null;
+
+    partial void OnSelectedRowChanged(PlanRowViewModel? value) =>
+        this.OnPropertyChanged(nameof(this.HasSelection));
+
     [ObservableProperty]
     public partial bool IsScanning { get; set; }
 

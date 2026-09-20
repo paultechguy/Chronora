@@ -296,15 +296,38 @@
                     away rather than one navigation away, which is the thing the competing
                     tools get wrong.
                 -->
+                <!--
+                    MinHeight so the pane stops growing and shrinking as you move between a
+                    row changing two dates and one changing three. The thumbnail is 64 and
+                    three lines of detail are about the same, so one fixed floor holds both
+                    and the list above stops shifting under the cursor.
+                -->
                 <Border Grid.Row="4" Padding="12,8" Margin="0,8,0,8" CornerRadius="4"
+                        MinHeight="88"
                         Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"
-                                   Style="{StaticResource BodyStrongTextBlockStyle}" />
-                        <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
-                                   Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
-                                   Style="{StaticResource CaptionTextBlockStyle}" />
-                    </StackPanel>
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+
+                        <!--
+                            The picture Explorer would show. Top-aligned rather than centred
+                            so it lines up with the file name however many lines of detail
+                            follow it.
+                        -->
+                        <Border Grid.Column="0" Width="64" Height="64" CornerRadius="4"
+                                VerticalAlignment="Top"
+                                Visibility="{x:Bind Workbench.HasSelection, Mode=OneWay}"
+                                Background="{ThemeResource ControlAltFillColorSecondaryBrush}">
+                            <Image x:Name="ThumbnailImage" Stretch="Uniform" />
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
+                                       Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                        </StackPanel>
+                    </Grid>
                 </Border>
             </Grid>
 

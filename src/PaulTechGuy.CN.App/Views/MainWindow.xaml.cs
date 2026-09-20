@@ -38,6 +38,11 @@ public sealed partial class MainWindow : Window
         this.AppWindow.Resize(new SizeInt32(1360, 880));
         this.AppWindow.Changed += OnAppWindowChanged;
 
+        // Thumbnails follow the selection. Done here rather than through a binding because
+        // loading one is asynchronous and cancellable, and a property getter cannot be
+        // either.
+        this.Workbench.PropertyChanged += this.OnWorkbenchPropertyChanged;
+
         // WinUI does not close a second window when the main one goes, and the process
         // stays alive while ANY window is open. Left alone, closing Chronora with History
         // open leaves an orphaned window and a running process behind - the app looks like
@@ -177,6 +182,56 @@ public sealed partial class MainWindow : Window
     }
 
     private HistoryWindow? _history;
+
+    private CancellationTokenSource? _thumbnail;
+
+    private void OnWorkbenchPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(WorkbenchViewModel.SelectedRow))
+        {
+            this.LoadThumbnail();
+        }
+    }
+
+    /// <summary>
+    /// Loads the selected file's thumbnail, abandoning any still in flight.
+    ///
+    /// Superseding matters more than it looks: holding an arrow key down walks the list
+    /// faster than a video frame can be extracted, and without cancellation the pane would
+    /// flicker through every picture on the way as each late result arrived.
+    /// </summary>
+    private async void LoadThumbnail()
+    {
+        this._thumbnail?.Cancel();
+        this._thumbnail?.Dispose();
+        this._thumbnail = null;
+
+        this.ThumbnailImage.Source = null;
+
+        if (this.Workbench.SelectedRow is not { } row)
+        {
+            return;
+        }
+
+        var cts = new CancellationTokenSource();
+        this._thumbnail = cts;
+
+        try
+        {
+            Microsoft.UI.Xaml.Media.ImageSource? image =
+                await ThumbnailProvider.LoadAsync(row.File, cts.Token);
+
+            // The selection may have moved on while the Shell was working.
+            if (!cts.IsCancellationRequested && ReferenceEquals(this.Workbench.SelectedRow, row))
+            {
+                this.ThumbnailImage.Source = image;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Superseded by a newer selection, which is the normal case rather than a fault.
+        }
+    }
 
     private void OnTemplateChosen(object sender, SelectionChangedEventArgs e)
     {
