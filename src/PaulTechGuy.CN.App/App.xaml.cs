@@ -62,6 +62,36 @@ public partial class App : Application
         // have been upgraded, uninstalled or quarantined since the last session, and a
         // remembered path is a starting point, never a promise.
         _ = window.Workbench.RefreshEngineAsync();
+
+        _ = LoadCommandLinePathsAsync(window);
+    }
+
+    /// <summary>
+    /// Files and folders named on the command line are loaded at startup.
+    ///
+    /// This is what a Send To shortcut and an Explorer "open with" will both need, so it
+    /// is a real feature rather than a test hook - but it is also the only way to get files
+    /// into the app without a person driving it, which matters: a freeze that only appears
+    /// once rows exist cannot otherwise be reproduced except by hand.
+    /// </summary>
+    private static async Task LoadCommandLinePathsAsync(MainWindow window)
+    {
+        string[] paths =
+        [
+            .. Environment.GetCommandLineArgs()
+                .Skip(1)
+                .Where(a => !a.StartsWith('-') && !a.StartsWith('/'))
+                .Where(a => File.Exists(a) || Directory.Exists(a)),
+        ];
+
+        if (paths.Length == 0)
+        {
+            return;
+        }
+
+        Log.Information("Loading {Count} path(s) named on the command line.", paths.Length);
+
+        await window.Workbench.AddDroppedAsync(paths);
     }
 
     private static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

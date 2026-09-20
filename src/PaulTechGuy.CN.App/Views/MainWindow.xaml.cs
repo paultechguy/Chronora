@@ -224,13 +224,20 @@ public sealed partial class MainWindow : Window
             // lying about which file it is describing.
             image.Tag = row;
 
-            image.Source = ThumbnailProvider.TryGetCached(row.File.FullPath, out ImageSource? ready)
-                ? ready
-                : ThumbnailProvider.IconFor(row.File);
+            // Lookups only. Nothing in phase 0 may wait for anything: this ran the icon
+            // build here once and froze the app on the first row, because producing an
+            // ImageSource ends in SetBitmapAsync and that completes ON the UI thread.
+            bool haveThumbnail = ThumbnailProvider.TryGetCached(row.File.FullPath, out ImageSource? ready);
 
-            // Only worth a second phase when there is something better to fetch.
-            if (ready is null)
+            if (haveThumbnail)
             {
+                image.Source = ready;
+            }
+            else
+            {
+                _ = ThumbnailProvider.TryGetIcon(row.File, out ImageSource? icon);
+                image.Source = icon;
+
                 args.RegisterUpdateCallback(OnRowRealised);
             }
 
@@ -249,6 +256,19 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            // The icon first, so a row is never blank for longer than it takes to build
+            // one icon per extension. Awaited rather than waited on - the difference
+            // between this and the version that froze the app.
+            if (!ThumbnailProvider.TryGetIcon(row.File, out ImageSource? _))
+            {
+                ImageSource? icon = await ThumbnailProvider.EnsureIconAsync(row.File, CancellationToken.None);
+
+                if (icon is not null && ReferenceEquals(image.Tag, row) && image.Source is null)
+                {
+                    image.Source = icon;
+                }
+            }
+
             ImageSource? thumbnail = await ThumbnailProvider.LoadAsync(row.File, CancellationToken.None);
 
             // The container may have been recycled onto a different file while the Shell

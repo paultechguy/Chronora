@@ -1276,6 +1276,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.Recompute();
             this.CheckIntentAgainstContent();
 
+            this._logger.LogInformation(
+                "Added {Added} file(s); the list now holds {Total}.",
+                this._rowsFromDrop.Count,
+                this._allRows.Count);
+
             await this.ReadMetadataAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException)

@@ -66,31 +66,53 @@ internal static class ThumbnailProvider
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The icon for this kind of file, immediately.
+    /// The icon for this kind of file, if one has already been built.
     ///
-    /// Synchronous on purpose: after the first file of a given extension this is a
-    /// dictionary lookup, so a row can be filled during layout without waiting for
-    /// anything. Returns null only for the very first call for an extension whose icon the
-    /// Shell will not produce.
+    /// A pure dictionary lookup and nothing else. It used to do the work here instead, on
+    /// the grounds that the result had to be available during layout - and that froze the
+    /// app on the first row: building an ImageSource ends in SoftwareBitmapSource.
+    /// SetBitmapAsync, which completes ON the UI thread, so blocking the UI thread to wait
+    /// for it is a guaranteed deadlock rather than merely a slow call.
+    ///
+    /// So nothing here waits for anything. The first file of an extension shows an empty
+    /// slot for a few milliseconds while <see cref="EnsureIconAsync" /> fills the cache,
+    /// and every file after it is a lookup.
     /// </summary>
-    public static ImageSource? IconFor(ScannedFile file)
+    public static bool TryGetIcon(ScannedFile file, out ImageSource? icon)
     {
         ArgumentNullException.ThrowIfNull(file);
 
-        string extension = file.IsDirectory ? "<folder>" : Path.GetExtension(file.FullPath);
+        return IconsByExtension.TryGetValue(ExtensionOf(file), out icon);
+    }
+
+    /// <summary>
+    /// Builds this extension's icon if it is not already known. Cheap and cached: measured
+    /// at about 2.5 ms, paid once per extension for the whole session.
+    /// </summary>
+    public static async Task<ImageSource?> EnsureIconAsync(ScannedFile file, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        string extension = ExtensionOf(file);
 
         if (IconsByExtension.TryGetValue(extension, out ImageSource? cached))
         {
             return cached;
         }
 
-        // Built from THIS file, then kept under its extension. The Shell needs a real path
-        // to resolve an association, and every other file of the same type will match it.
-        ImageSource? icon = FromHandle(Extract(file.FullPath, SIIGBF.IconOnly));
+        // Built from THIS file, then kept under its extension: the Shell needs a real path
+        // to resolve an association, and every other file of that type will match it.
+        Pixels? pixels = await Task.Run(
+            () => ReadBitmapFrom(Extract(file.FullPath, SIIGBF.IconOnly)), cancellationToken).ConfigureAwait(true);
+
+        ImageSource? icon = pixels is { } bits ? await ToImageAsync(bits).ConfigureAwait(true) : null;
 
         IconsByExtension[extension] = icon;
         return icon;
     }
+
+    private static string ExtensionOf(ScannedFile file) =>
+        file.IsDirectory ? "<folder>" : Path.GetExtension(file.FullPath);
 
     /// <summary>Whether a real thumbnail is already in hand, so no work needs scheduling.</summary>
     public static bool TryGetCached(string path, out ImageSource? image) =>
@@ -155,13 +177,6 @@ internal static class ThumbnailProvider
 
     /// <summary>Dropped when the list is replaced, so a stale path cannot show a stale picture.</summary>
     public static void Forget() => ThumbnailsByPath.Clear();
-
-    private static ImageSource? FromHandle(nint bitmap)
-    {
-        Pixels? pixels = ReadBitmapFrom(bitmap);
-
-        return pixels is { } bits ? ToImageAsync(bits).GetAwaiter().GetResult() : null;
-    }
 
     private static async Task<ImageSource> ToImageAsync(Pixels bits)
     {
