@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using PaulTechGuy.CN.Domain;
@@ -169,6 +170,24 @@ public static class PatternCompiler
         // The Google-style duplicate marker, matched and discarded.
         "(n)" => @"(?:\(\d+\))?",
 
+        // Last, after every constant, because it is the only arm with a guard: a run of
+        // exactly n digits to step over. The chip builder needs it - having named the year
+        // in 20240315, the remaining 0315 must be matched by something of known length,
+        // and plain {#} is \d+ and would swallow whatever came next.
+        _ when FixedDigits(token) is { } fixedRun => fixedRun,
+
         _ => throw new FormatException($"Unknown token '{{{token}}}'."),
     };
+
+    /// <summary>
+    /// <c>{#4}</c> to <c>\d{4}</c>. Bounded at 40 so a typo cannot ask for a match of
+    /// absurd width.
+    /// </summary>
+    private static string? FixedDigits(string token) =>
+        token.Length > 1
+        && token[0] == '#'
+        && int.TryParse(token[1..], NumberStyles.None, CultureInfo.InvariantCulture, out int count)
+        && count is > 0 and <= 40
+            ? string.Create(CultureInfo.InvariantCulture, $@"\d{{{count}}}")
+            : null;
 }
