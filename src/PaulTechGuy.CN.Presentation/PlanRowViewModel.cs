@@ -62,6 +62,21 @@ public sealed partial class PlanRowViewModel : ObservableObject
     public partial FilePlan? Plan { get; set; }
 
     /// <summary>
+    /// A date typed in for this file alone, overriding whatever the run would give it.
+    ///
+    /// In four thousand photos there are always three that need a date nobody can derive -
+    /// a scan with no metadata, a file whose name lies. Without this the only way to fix
+    /// those three is a separate run for each, which is how a bulk tool turns into a chore.
+    /// </summary>
+    [ObservableProperty]
+    public partial DateTimeOffset? ManualDate { get; set; }
+
+    public bool HasManualDate => this.ManualDate is not null;
+
+    partial void OnManualDateChanged(DateTimeOffset? value) =>
+        this.OnPropertyChanged(nameof(this.HasManualDate));
+
+    /// <summary>
     /// Whether this row takes part in the run. The checkbox is the single selection model:
     /// the Apply button reads "Apply to N of M", so there is never a question of whether it
     /// acts on the checked rows or the changed ones.

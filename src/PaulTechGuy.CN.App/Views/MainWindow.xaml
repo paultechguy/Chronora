@@ -15,6 +15,43 @@
           AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" DragLeave="OnDragLeave">
 
         <!--
+            ONE flyout, shared by every row, rather than one declared inside the row
+            template. A template-level flyout is built for each realised container and
+            rebuilt on every recycle, which is a lot of objects for a menu only ever shown
+            once at a time. The handler records which row was clicked before showing it.
+
+            Everything here acts on the right-clicked row and nothing else, whatever is
+            ticked. A menu item that sometimes means "this file" and sometimes means "these
+            three hundred" is how somebody removes three hundred files by accident.
+        -->
+        <Grid.Resources>
+            <MenuFlyout x:Name="RowMenu">
+                <MenuFlyoutItem Text="Open" Click="OnRowMenuOpen" />
+                <MenuFlyoutItem Text="Show in File Explorer" Click="OnRowMenuShowInExplorer" />
+                <MenuFlyoutItem Text="Copy full path" Click="OnRowMenuCopyPath" />
+                <MenuFlyoutItem Text="Properties" Click="OnRowMenuProperties" />
+
+                <MenuFlyoutSeparator />
+
+                <MenuFlyoutItem Text="Create a copy" Click="OnRowMenuCreateCopy" />
+
+                <MenuFlyoutSeparator />
+
+                <!-- Text is set when the menu opens, because it names what the click does. -->
+                <MenuFlyoutItem Tag="tick" Text="Include in the run" Click="OnRowMenuToggle" />
+                <MenuFlyoutItem Text="Run on this file only" Click="OnRowMenuSelectOnly" />
+                <MenuFlyoutItem Text="Remove from the list" Click="OnRowMenuRemove" />
+
+                <MenuFlyoutSeparator />
+
+                <MenuFlyoutItem Text="Set this file's date…" Click="OnRowMenuSetDate" />
+                <MenuFlyoutItem Tag="clear" Text="Use the run's date again" Click="OnRowMenuClearDate" />
+                <MenuFlyoutItem Text="Use this file's date for the run" Click="OnRowMenuUseDate" />
+            </MenuFlyout>
+        </Grid.Resources>
+
+
+        <!--
             The title bar carries no controls. It used to hold a File dates / Photo dates
             switch, which was redundant with the options pane and could actively contradict
             it: choosing a photo preset set the switch, but moving the switch did not clear
@@ -229,12 +266,11 @@
                     layout only estimates extent for non-uniform items, and the scrollbar
                     drifts under the cursor when it has to guess.
                 -->
-                <ListView Grid.Row="3"
+                <ListView x:Name="FileList" Grid.Row="3"
                           ItemsSource="{x:Bind Workbench.Rows, Mode=OneWay}"
                           SelectedItem="{x:Bind Workbench.SelectedRow, Mode=TwoWay}"
                           SelectionMode="Single"
-                          ContainerContentChanging="OnRowRealised"
-                          DoubleTapped="OnRowDoubleTapped">
+                          ContainerContentChanging="OnRowRealised">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Height" Value="54" />

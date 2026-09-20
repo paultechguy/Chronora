@@ -1550,6 +1550,121 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         };
     }
 
+    // ---- One row at a time -------------------------------------------------------------
+    //
+    // Every one of these acts on the row that was right-clicked and on nothing else,
+    // whatever happens to be ticked. One rule, no exceptions: a menu item that sometimes
+    // means "this file" and sometimes means "these three hundred files" is how somebody
+    // removes three hundred files by accident.
+
+    /// <summary>
+    /// Takes one file out of the list. Nothing on disk changes.
+    ///
+    /// There was no way to do this: Clear empties everything, so one stray file meant
+    /// building the list again.
+    /// </summary>
+    public void RemoveRow(PlanRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (!this._allRows.Remove(row))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(this.SelectedRow, row))
+        {
+            this.SelectedRow = null;
+        }
+
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Removed {row.Name} from the list.");
+        this.Reproject();
+        this.OnPropertyChanged(nameof(this.CanStartOver));
+    }
+
+    /// <summary>Unticks everything else, so the run covers this file alone.</summary>
+    public void SelectOnly(PlanRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        foreach (PlanRowViewModel other in this._allRows)
+        {
+            other.IsIncluded = ReferenceEquals(other, row);
+        }
+
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"The run now covers {row.Name} only.");
+        this.RefreshSummary();
+    }
+
+    /// <summary>
+    /// Fills the run's date picker from this file, so "make everything match this one" is
+    /// two clicks rather than reading a date off the screen and typing it back in.
+    /// </summary>
+    /// <returns>False when the file has no date to offer.</returns>
+    public bool UseRowDateForRun(PlanRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (BestDate(row) is not { } value)
+        {
+            this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"{row.Name} has no date to copy.");
+            return false;
+        }
+
+        DateTimeOffset local = value.ToLocalTime();
+
+        this.Source = SourceChoice.PickADate;
+        this.AbsoluteDate = local.Date;
+        this.AbsoluteTime = local.TimeOfDay;
+
+        this.ScanStatus = string.Create(
+            CultureInfo.CurrentCulture,
+            $"The run will use {local:yyyy-MM-dd HH:mm}, taken from {row.Name}.");
+
+        return true;
+    }
+
+    /// <summary>
+    /// The date this file actually has, preferring the one it recorded for itself.
+    ///
+    /// One order, shared by everything that needs "this file's date" - the row menu seeds
+    /// its date dialog from it and "use this file's date for the run" copies it - so the
+    /// two can never disagree about which of a file's dates is the real one.
+    /// </summary>
+    public static DateTimeOffset? BestDate(PlanRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        return row.File.Current(DateField.ExifDateTimeOriginal)
+            ?? row.File.Current(DateField.QuickTimeCreateDate)
+            ?? row.File.Times.Modified
+            ?? row.File.Times.Created;
+    }
+
+    /// <summary>
+    /// Sets a date for this file alone. Null clears it and hands the row back to the run.
+    /// </summary>
+    public void SetManualDate(PlanRowViewModel row, DateTimeOffset? value)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        row.ManualDate = value;
+
+        this.ScanStatus = value is { } set
+            ? string.Create(CultureInfo.CurrentCulture, $"{row.Name} is set to {set:yyyy-MM-dd HH:mm} by hand.")
+            : string.Create(CultureInfo.CurrentCulture, $"{row.Name} follows the run again.");
+
+        this.Recompute();
+    }
+
+    /// <summary>Ticks or unticks one row, and keeps the Apply count with it.</summary>
+    public static void ToggleRow(PlanRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        row.IsIncluded = !row.IsIncluded;
+    }
+
     /// <summary>
     /// Watches a row so ticking its checkbox updates the Apply count.
     ///
@@ -1983,9 +2098,23 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             DateTimeOffset.Now,
             this._exifTool.Status.Available);
 
+        // One rule always exists, even when no date has been picked - BuildRecipe uses an
+        // Unset source rather than an empty recipe precisely so the targets survive.
+        IReadOnlySet<DateField> targets = recipe.Rules[0].Targets;
+
         foreach (PlanRowViewModel row in this._allRows)
         {
-            row.Plan = this._evaluator.Evaluate(row.File, recipe, context);
+            // A hand-typed date replaces the source for that row and nothing else: its
+            // targets, guards and mode stay exactly as the run says. The override is about
+            // WHERE the date comes from, not about exempting the file from the rules.
+            Recipe forRow = row.ManualDate is { } manual
+                ? new Recipe(
+                    [new DateRule(new DateSource.Absolute(manual), targets, RuleGuards.None)],
+                    ScanFilter.Default,
+                    this.Mode)
+                : recipe;
+
+            row.Plan = this._evaluator.Evaluate(row.File, forRow, context);
         }
 
         this.Reproject();

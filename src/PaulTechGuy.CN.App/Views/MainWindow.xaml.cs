@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -12,6 +15,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Domain;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Foundation;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 
@@ -39,6 +43,24 @@ public sealed partial class MainWindow : Window
 
         this.AppWindow.Resize(new SizeInt32(1360, 880));
         this.AppWindow.Changed += OnAppWindowChanged;
+
+        // handledEventsToo, which is the whole point. A ListViewItem marks tap events as
+        // handled while doing its own selection, so a DoubleTapped hook declared on the
+        // ListView in XAML never fires - which is why double-clicking a row did nothing
+        // even after the DataContext bug was fixed. AddHandler with the flag set is the
+        // only way to see an event a child has already claimed.
+        this.FileList.AddHandler(
+            UIElement.DoubleTappedEvent,
+            new DoubleTappedEventHandler(this.OnRowDoubleTapped),
+            handledEventsToo: true);
+
+        // The same treatment for the same reason: a ListViewItem handles the right-click
+        // while deciding whether to show a context flyout of its own, so a ContextRequested
+        // hook declared in XAML would never see it either.
+        this.FileList.AddHandler(
+            UIElement.ContextRequestedEvent,
+            new TypedEventHandler<UIElement, ContextRequestedEventArgs>(this.OnRowContextRequested),
+            handledEventsToo: true);
 
         // WinUI does not close a second window when the main one goes, and the process
         // stays alive while ANY window is open. Left alone, closing Chronora with History
@@ -303,17 +325,6 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Opens the double-clicked file with whatever normally opens it.
-    ///
-    /// Chronora is looking at dates, not at pictures, so the useful move is handing the
-    /// file to something that IS a viewer rather than growing one. A double-click because a
-    /// single one already means "select this row", and a stray click must not launch
-    /// another program.
-    ///
-    /// UseShellExecute is the whole point of the call: it resolves the user's own file
-    /// association instead of trying to run the file, which is what the default would do.
-    /// </summary>
-    /// <summary>
     /// Which row a click landed on, found by walking up to the ListViewItem.
     ///
     /// Not DataContext, which is what this used and why double-clicking a row did nothing
@@ -321,15 +332,22 @@ public sealed partial class MainWindow : Window
     /// it, so the cast quietly failed and the handler returned. The container's Content is
     /// the item, always, whatever the template does.
     /// </summary>
-    private static PlanRowViewModel? FindRow(object? source)
+    private static PlanRowViewModel? FindRow(object? source) =>
+        FindContainer(source)?.Content as PlanRowViewModel;
+
+    /// <summary>
+    /// The container a click landed in, which is also the element a context menu should be
+    /// positioned against.
+    /// </summary>
+    private static ListViewItem? FindContainer(object? source)
     {
         DependencyObject? node = source as DependencyObject;
 
         while (node is not null)
         {
-            if (node is ListViewItem { Content: PlanRowViewModel row })
+            if (node is ListViewItem item)
             {
-                return row;
+                return item;
             }
 
             node = VisualTreeHelper.GetParent(node);
@@ -338,11 +356,390 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>
+    /// The row the menu was opened on. Every item acts on this and nothing else.
+    /// </summary>
+    private PlanRowViewModel? _menuRow;
+
+    /// <summary>
+    /// Opens the row menu where the pointer is.
+    ///
+    /// Selecting the row first is deliberate: the detail pane at the bottom follows the
+    /// selection, so without this the menu would act on one file while the pane below it
+    /// described another - which is exactly the mismatch that gets somebody to apply a
+    /// change to the wrong photo.
+    ///
+    /// Right-clicking below the last row resolves to nothing and is left alone, rather
+    /// than falling back to the selection. A menu that appears over empty space and acts
+    /// on a file somewhere off screen is worse than no menu.
+    /// </summary>
+    private void OnRowContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        if (FindContainer(e.OriginalSource) is not { Content: PlanRowViewModel row } container)
+        {
+            return;
+        }
+
+        this._menuRow = row;
+        this.Workbench.SelectedRow = row;
+
+        // Named for what the click will DO, not for the state it is in. "Include in the
+        // run" sitting on an already-included row reads as a label rather than an action.
+        if (this.RowMenuItem("tick") is { } tick)
+        {
+            tick.Text = row.IsIncluded ? "Take out of the run" : "Include in the run";
+        }
+
+        // Only offered when there is something to clear, because on every other row it
+        // would be a menu item that does nothing.
+        if (this.RowMenuItem("clear") is { } clear)
+        {
+            clear.Visibility = row.HasManualDate ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // Positioned against the row rather than the list, so the keyboard menu key - which
+        // carries no pointer position - still opens the menu on the row it belongs to
+        // instead of at the top-left corner of a list that may be scrolled a long way down.
+        if (e.TryGetPosition(container, out Point point))
+        {
+            this.RowMenu.ShowAt(container, point);
+        }
+        else
+        {
+            this.RowMenu.ShowAt(container);
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Finds a menu item by its tag.
+    ///
+    /// By tag rather than by name because these live in a ResourceDictionary, where the
+    /// XAML compiler does not reliably generate fields for nested elements. The tag is
+    /// stable and the lookup runs once per right-click on fourteen items.
+    /// </summary>
+    private MenuFlyoutItem? RowMenuItem(string tag) =>
+        this.RowMenu.Items.OfType<MenuFlyoutItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag as string, tag, StringComparison.Ordinal));
+
+    private void OnRowMenuOpen(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            this.OpenWithShell(row);
+        }
+    }
+
+    /// <summary>
+    /// Opens the containing folder with the file already selected.
+    ///
+    /// The selection is the whole value: "where is this?" answered with a folder opened at
+    /// the top of four thousand files is not an answer.
+    /// </summary>
+    private void OnRowMenuShowInExplorer(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is not { } row)
+        {
+            return;
+        }
+
+        try
+        {
+            // Quoted because paths have spaces, and /select, takes exactly one argument.
+            using var opening = Process.Start(new ProcessStartInfo("explorer.exe")
+            {
+                Arguments = string.Create(CultureInfo.InvariantCulture, $"/select,\"{row.File.FullPath}\""),
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            this.Workbench.ScanStatus = $"Could not show {row.Name} in File Explorer: {ex.Message}";
+        }
+    }
+
+    private void OnRowMenuCopyPath(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is not { } row)
+        {
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(row.File.FullPath);
+        Clipboard.SetContent(package);
+
+        this.Workbench.ScanStatus = $"Copied the path to {row.Name}.";
+    }
+
+    /// <summary>
+    /// Windows' own Properties dialog.
+    ///
+    /// It earns its place in a tool about dates by being the independent second opinion:
+    /// it reads Created, Modified and Accessed straight from the filesystem, so it can
+    /// confirm - or contradict - what Chronora says it just did.
+    ///
+    /// Process.Start with Verb = "properties" looks like it should do this and does not.
+    /// The shell needs SEE_MASK_INVOKEIDLIST to have an item to raise a sheet for, and
+    /// .NET never sets it, so that version fails silently.
+    /// </summary>
+    private void OnRowMenuProperties(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is not { } row)
+        {
+            return;
+        }
+
+        var info = new SHELLEXECUTEINFO
+        {
+            cbSize = Marshal.SizeOf<SHELLEXECUTEINFO>(),
+            fMask = SeeMaskInvokeIdList,
+            hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this),
+            lpVerb = "properties",
+            lpFile = row.File.FullPath,
+            nShow = SwShow,
+        };
+
+        if (!ShellExecuteEx(ref info))
+        {
+            this.Workbench.ScanStatus = $"Could not open properties for {row.Name}.";
+        }
+    }
+
+    /// <summary>
+    /// Duplicates the file beside itself, stamped with the time the copy was taken.
+    ///
+    /// The time it was COPIED rather than the date it holds, for two reasons: every copy
+    /// is then unique, so taking two in a row cannot collide, and the name records when
+    /// the safety net was put there. Naming it from the file's own date would be a first
+    /// step into renaming files from dates, which this app deliberately does not do.
+    ///
+    /// Beside the original rather than in a backups folder, because this is a
+    /// before-I-try-something copy and its value is being visible in the same place a
+    /// moment later.
+    /// </summary>
+    private void OnRowMenuCreateCopy(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is not { } row)
+        {
+            return;
+        }
+
+        string path = row.File.FullPath;
+
+        if (Path.GetDirectoryName(path) is not { } folder)
+        {
+            return;
+        }
+
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss", CultureInfo.InvariantCulture);
+        string copy = Path.Combine(
+            folder,
+            $"{Path.GetFileNameWithoutExtension(path)}_{stamp}{Path.GetExtension(path)}");
+
+        try
+        {
+            // Never overwrite. A copy that silently replaced an earlier copy would defeat
+            // the only reason anybody makes one.
+            File.Copy(path, copy, overwrite: false);
+
+            this.Workbench.ScanStatus = $"Copied to {Path.GetFileName(copy)}.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            this.Workbench.ScanStatus = $"Could not copy {row.Name}: {ex.Message}";
+        }
+    }
+
+    private void OnRowMenuToggle(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            WorkbenchViewModel.ToggleRow(row);
+        }
+    }
+
+    private void OnRowMenuSelectOnly(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            this.Workbench.SelectOnly(row);
+        }
+    }
+
+    private void OnRowMenuRemove(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            this.Workbench.RemoveRow(row);
+            this._menuRow = null;
+        }
+    }
+
+    private void OnRowMenuUseDate(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            _ = this.Workbench.UseRowDateForRun(row);
+        }
+    }
+
+    private void OnRowMenuClearDate(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            this.Workbench.SetManualDate(row, null);
+        }
+    }
+
+    /// <summary>
+    /// A date for this one file, overriding the run.
+    ///
+    /// In four thousand photos there are always three that need a date typed in, and
+    /// without this the only way to handle them is a second run on a filtered list.
+    ///
+    /// Seeded with whatever the file already has, because the common edit is a correction
+    /// of hours or minutes rather than a date built from nothing.
+    /// </summary>
+    private async void OnRowMenuSetDate(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is not { } row)
+        {
+            return;
+        }
+
+        DateTimeOffset seed = (row.ManualDate ?? WorkbenchViewModel.BestDate(row) ?? DateTimeOffset.Now).ToLocalTime();
+
+        var date = new CalendarDatePicker
+        {
+            Date = seed,
+            Header = "Date",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var time = new TimePicker
+        {
+            Time = seed.TimeOfDay,
+            Header = "Time",
+            ClockIdentifier = "24HourClock",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var panel = new StackPanel { Spacing = 12 };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = row.Name,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+
+        panel.Children.Add(date);
+        panel.Children.Add(time);
+
+        panel.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.7,
+            Text = "This file alone uses this date. The rest of the run is unchanged, and the "
+                + "fields it writes to stay whatever you chose.",
+        });
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = this.Content.XamlRoot,
+            Title = "Set this file's date",
+            Content = panel,
+            PrimaryButtonText = "Set",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary && date.Date is { } picked)
+        {
+            this.Workbench.SetManualDate(
+                row,
+                new DateTimeOffset(picked.Date.Add(time.Time), DateTimeOffset.Now.Offset));
+        }
+    }
+
+    /// <summary>
+    /// Hands a file to whatever normally opens it, with one place to report a failure.
+    ///
+    /// UseShellExecute is the whole point: it resolves the user's own file association
+    /// rather than trying to execute the file, which is what the default would do.
+    /// </summary>
+    private void OpenWithShell(PlanRowViewModel row)
+    {
+        try
+        {
+            using var opening = Process.Start(new ProcessStartInfo(row.File.FullPath)
+            {
+                UseShellExecute = true,
+            });
+
+            this.Workbench.ScanStatus = $"Opened {row.Name}.";
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or FileNotFoundException)
+        {
+            this.Workbench.ScanStatus = $"Could not open {row.Name}: {ex.Message}";
+        }
+    }
+
+    /// <summary>SEE_MASK_INVOKEIDLIST - without it "properties" silently does nothing.</summary>
+    private const uint SeeMaskInvokeIdList = 0x0000000C;
+
+    /// <summary>SW_SHOWNORMAL.</summary>
+    private const int SwShow = 1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct SHELLEXECUTEINFO
+    {
+        public int cbSize;
+        public uint fMask;
+        public nint hwnd;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? lpVerb;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? lpFile;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? lpParameters;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? lpDirectory;
+        public int nShow;
+        public nint hInstApp;
+        public nint lpIDList;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? lpClass;
+        public nint hkeyClass;
+        public uint dwHotKey;
+        public nint hIcon;
+        public nint hProcess;
+    }
+
+    // DllImport rather than LibraryImport: the struct carries four marshalled strings, so
+    // it is not blittable, and the source generator cannot marshal it without a hand-
+    // written marshaller for no gain on a call made once per right-click.
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShellExecuteEx(ref SHELLEXECUTEINFO info);
+
+    /// <summary>
+    /// Opens the double-clicked file with whatever normally opens it.
+    ///
+    /// Chronora is looking at dates, not at pictures, so the useful move is handing the
+    /// file to something that IS a viewer rather than growing one. A double-click rather
+    /// than a single, because a single already means "select this row" and a stray click
+    /// must not launch another program.
+    /// </summary>
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if (FindRow(e.OriginalSource) is not { } row)
+        PlanRowViewModel? row = FindRow(e.OriginalSource) ?? this.Workbench.SelectedRow;
+
+        // Logged because this handler has now failed to fire twice for different reasons,
+        // and a double-click that does nothing leaves nothing behind to diagnose.
+        Serilog.Log.Information(
+            "Row double-clicked. source={Source} resolved={Row}",
+            e.OriginalSource?.GetType().Name ?? "null",
+            row?.Name ?? "none");
+
+        if (row is null)
         {
-            // The double-click landed on the list rather than on a row.
             return;
         }
 
@@ -350,6 +747,8 @@ public sealed partial class MainWindow : Window
         {
             using var opening = System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(row.File.FullPath) { UseShellExecute = true });
+
+            this.Workbench.ScanStatus = $"Opened {row.Name}.";
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
                                       or System.IO.FileNotFoundException)
