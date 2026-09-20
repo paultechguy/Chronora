@@ -90,6 +90,48 @@
   </Target>
 
   <!--
+    Chronora offers to fetch the ExifTool named in docs/exiftool.json and refuses anything
+    whose SHA256 does not match. A placeholder hash therefore breaks EVERY install at once,
+    for everyone, from the moment the release goes out - and reports itself as a checksum
+    mismatch, which reads like a security problem rather than an unfinished file.
+
+    The file ships with a zero hash on purpose, so forgetting to fill it in has to fail
+    somewhere. Failing here means it cannot be shipped at all: publish is what produces the
+    artifact, so this runs there rather than relying on anyone remembering a script.
+
+    Debug and plain builds are untouched, because a developer running F5 has no artifact to
+    get wrong.
+  -->
+  <!--
+    PrepareForPublish, not Publish. The Publish target runs AFTER the files have been
+    copied, so hooking it leaves a complete-looking folder on disk next to a failed exit
+    code - and a release script that checks the folder rather than the code would zip it.
+    Failing here means no artifact is produced at all.
+  -->
+  <Target Name="VerifyExifToolManifest" BeforeTargets="PrepareForPublish" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <_ManifestPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\docs\exiftool.json'))</_ManifestPath>
+    </PropertyGroup>
+
+    <Error Condition="!Exists('$(_ManifestPath)')"
+           Text="docs/exiftool.json is missing. The app reads it to know which ExifTool it may offer to install." />
+
+    <PropertyGroup>
+      <_ManifestText>$([System.IO.File]::ReadAllText('$(_ManifestPath)'))</_ManifestText>
+      <_HasPlaceholderHash>$([System.Text.RegularExpressions.Regex]::IsMatch($(_ManifestText), '&quot;sha256&quot;\s*:\s*&quot;0{64}&quot;'))</_HasPlaceholderHash>
+      <_HasRealHash>$([System.Text.RegularExpressions.Regex]::IsMatch($(_ManifestText), '&quot;sha256&quot;\s*:\s*&quot;[0-9a-fA-F]{64}&quot;'))</_HasRealHash>
+    </PropertyGroup>
+
+    <Error Condition="'$(_HasPlaceholderHash)' == 'true'"
+           Text="docs/exiftool.json still has the placeholder sha256 (all zeros). Every ExifTool download would be refused with a checksum error. Run: pwsh .\build\Test-ExifToolManifest.ps1 for how to fill it in." />
+
+    <Error Condition="'$(_HasRealHash)' != 'true'"
+           Text="docs/exiftool.json has no valid 64-character sha256. Every ExifTool download would be refused. Run: pwsh .\build\Test-ExifToolManifest.ps1" />
+
+    <Message Importance="high" Text="ExifTool manifest carries a real hash. Run build\Test-ExifToolManifest.ps1 -Verify to confirm it matches the file at that URL." />
+  </Target>
+
+  <!--
     CRITICAL for an unpackaged head. A folder publish otherwise omits $(TargetName).pri and
     App.xbf, and the app dies before its first window with:
       "Cannot locate resource from 'ms-appx:///Views/MainWindow.xaml'"
