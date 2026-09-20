@@ -119,6 +119,58 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Apply, behind a confirmation.
+    ///
+    /// This is one of only two modal surfaces in the app. Marqora's house rule is that
+    /// nothing is modal, and that rule came from a text editor where modality interrupts
+    /// flow; here the user is about to rewrite dates on files they cannot easily replace,
+    /// which is precisely a "decide now" moment. Inheriting the convention without
+    /// re-deriving it would have been the wrong call.
+    /// </summary>
+    private async void OnApply(object sender, RoutedEventArgs e)
+    {
+        ChangeSummary summary = this.Workbench.Summary;
+
+        if (summary.FilesToWrite == 0)
+        {
+            return;
+        }
+
+        var body = new StringBuilder();
+        _ = body.AppendLine(CultureInfo.CurrentCulture, $"{summary.FilesToWrite:N0} files will be changed.");
+
+        foreach (SummaryLine line in summary.Lines)
+        {
+            _ = body.AppendLine(CultureInfo.CurrentCulture, $"  {line.FieldName}: {line.Detail}");
+        }
+
+        if (summary.FilesSuspicious > 0)
+        {
+            _ = body.AppendLine();
+            _ = body.AppendLine(CultureInfo.CurrentCulture,
+                $"⚠ {summary.FilesSuspicious:N0} results look wrong. Sort by biggest change to see them first.");
+        }
+
+        _ = body.AppendLine();
+        _ = body.Append("This can be undone afterwards.");
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = this.Content.XamlRoot,
+            Title = "Apply these changes?",
+            Content = body.ToString(),
+            PrimaryButtonText = "Apply",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            await this.Workbench.ApplyAsync();
+        }
+    }
+
+    /// <summary>
     /// Answers "how do I check 5,000 rows" by handing them to a spreadsheet, and doubles as
     /// a record of what a run was about to do. It replaced a Dry run button, which sitting
     /// beside a live preview only suggests the preview might not be real.

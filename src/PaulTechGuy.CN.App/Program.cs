@@ -4,11 +4,14 @@
 using System.Globalization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using PaulTechGuy.CN.Abstractions;
 using PaulTechGuy.CN.App.ViewModels;
 using PaulTechGuy.CN.App.Views;
+using PaulTechGuy.CN.Services;
 using PaulTechGuy.CN.FileSystem;
+using PaulTechGuy.CN.Journal;
 using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Rules;
 using Serilog;
@@ -107,6 +110,19 @@ public static class Program
         builder.Services.AddSingleton<FileScanner>();
         builder.Services.AddSingleton<FilenameDateParser>();
         builder.Services.AddSingleton<RuleEvaluator>();
+
+
+        // The journal is opened once and held: SQLite in WAL mode allows a single writer,
+
+        // and a run that reopened it per batch would fight itself.
+
+        builder.Services.AddSingleton(sp => SqliteJournal.Open(
+
+            paths.JournalDatabasePath,
+
+            sp.GetRequiredService<ILogger<SqliteJournal>>()));
+
+        builder.Services.AddSingleton<ApplyService>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<WorkbenchViewModel>();

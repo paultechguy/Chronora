@@ -209,26 +209,42 @@
 
         <Border Grid.Row="2" Padding="16,8" BorderThickness="0,1,0,0"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-            <Grid ColumnDefinitions="*,Auto,Auto">
-                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                <ProgressRing Grid.Column="0" Width="16" Height="16" Margin="0,0,8,0"
+                              IsActive="{x:Bind Workbench.IsApplying, Mode=OneWay}"
+                              Visibility="{x:Bind Workbench.IsApplying, Mode=OneWay}" />
+
+                <TextBlock Grid.Column="1" VerticalAlignment="Center"
                            Text="{x:Bind Workbench.ScanStatus, Mode=OneWay}"
+                           TextTrimming="CharacterEllipsis"
                            Style="{StaticResource CaptionTextBlockStyle}" />
+
+                <Button Grid.Column="2" Content="Cancel" Margin="0,0,8,0"
+                        Command="{x:Bind Workbench.CancelRunCommand}"
+                        Visibility="{x:Bind Workbench.IsApplying, Mode=OneWay}"
+                        Height="{StaticResource CnChromeButtonHeight}" />
+
+                <!-- Undo sits beside Apply rather than in a menu, because the moment someone
+                     wants it is the moment straight after the run they regret. -->
+                <Button Grid.Column="3" Content="Undo last run" Margin="0,0,8,0"
+                        Command="{x:Bind Workbench.UndoLastCommand}"
+                        IsEnabled="{x:Bind Workbench.CanUndo, Mode=OneWay}"
+                        Height="{StaticResource CnChromeButtonHeight}" />
 
                 <!--
                     This replaced a "Dry run" button. A dry run sitting beside a live
                     preview quietly tells the user the thing they have been looking at might
                     not be real; an export is the same reassurance and is actually useful.
                 -->
-                <Button Grid.Column="1" Content="Export preview (CSV)" Margin="0,0,8,0"
+                <Button Grid.Column="4" Content="Export preview (CSV)" Margin="0,0,8,0"
                         Click="OnExportPreview"
                         Height="{StaticResource CnChromeButtonHeight}" />
 
-                <Button Grid.Column="2" Style="{StaticResource AccentButtonStyle}"
+                <Button Grid.Column="5" Style="{StaticResource AccentButtonStyle}"
                         Content="{x:Bind Workbench.Summary.ApplyLabel, Mode=OneWay}"
+                        Click="OnApply"
                         MinWidth="{StaticResource CnCommandButtonMinWidth}"
-                        Height="{StaticResource CnChromeButtonHeight}"
-                        IsEnabled="False"
-                        ToolTipService.ToolTip="Applying arrives in the next milestone." />
+                        Height="{StaticResource CnChromeButtonHeight}" />
             </Grid>
         </Border>
     </Grid>

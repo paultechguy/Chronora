@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 using PaulTechGuy.CN.App.Views;
+using PaulTechGuy.CN.Journal;
 using Serilog;
 
 namespace PaulTechGuy.CN.App;
@@ -37,6 +38,14 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // A run still marked Running did not finish. Resolving that here, before any UI
+        // exists, means History never shows a run that is pretending to be in progress.
+        int interrupted = this._host.Services.GetRequiredService<SqliteJournal>().RecoverInterruptedRuns();
+        if (interrupted > 0)
+        {
+            Log.Warning("{Count} run(s) from a previous session did not finish.", interrupted);
+        }
+
         MainWindow window = this._host.Services.GetRequiredService<MainWindow>();
         window.Activate();
     }

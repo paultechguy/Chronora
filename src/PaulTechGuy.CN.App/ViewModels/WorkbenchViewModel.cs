@@ -7,7 +7,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Extensions.Logging;
 using PaulTechGuy.CN.Domain;
+using PaulTechGuy.CN.Services;
 using PaulTechGuy.CN.FileSystem;
+using PaulTechGuy.CN.Journal;
 using PaulTechGuy.CN.Rules;
 
 namespace PaulTechGuy.CN.App.ViewModels;
@@ -42,7 +44,7 @@ public enum SortChoice
 /// The rule the whole design rests on: an option change must never re-read the disk. The
 /// scan produces a sealed snapshot; every recompute after that is a pure function over it.
 /// </summary>
-public sealed partial class WorkbenchViewModel : ObservableObject
+public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 {
     /// <summary>
     /// Long enough to absorb typing, short enough to feel live. The recompute itself is
@@ -50,17 +52,31 @@ public sealed partial class WorkbenchViewModel : ObservableObject
     /// </summary>
     private static readonly TimeSpan RecomputeDebounce = TimeSpan.FromMilliseconds(120);
 
+    private static readonly string AppVersion =
+        typeof(WorkbenchViewModel).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+
     private readonly FileScanner _scanner;
     private readonly RuleEvaluator _evaluator;
+    private readonly ApplyService _apply;
+    private readonly SqliteJournal _journal;
     private readonly ILogger<WorkbenchViewModel> _logger;
 
     private readonly List<PlanRowViewModel> _allRows = [];
+    private readonly List<string> _roots = [];
     private CancellationTokenSource? _debounce;
+    private CancellationTokenSource? _run;
 
-    public WorkbenchViewModel(FileScanner scanner, RuleEvaluator evaluator, ILogger<WorkbenchViewModel> logger)
+    public WorkbenchViewModel(
+        FileScanner scanner,
+        RuleEvaluator evaluator,
+        ApplyService apply,
+        SqliteJournal journal,
+        ILogger<WorkbenchViewModel> logger)
     {
         this._scanner = scanner;
         this._evaluator = evaluator;
+        this._apply = apply;
+        this._journal = journal;
         this._logger = logger;
 
         this.AbsoluteDate = DateTimeOffset.Now.Date;
@@ -69,6 +85,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject
         this.Rows = [];
 
         this.ApplyDestination(DestinationChoice.Explorer);
+        this.RefreshHistory();
     }
 
     /// <summary>Rows as the grid shows them: filtered and sorted.</summary>
@@ -234,6 +251,19 @@ public sealed partial class WorkbenchViewModel : ObservableObject
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
 
+        if (!this._roots.Contains(folder, StringComparer.OrdinalIgnoreCase))
+
+
+        {
+
+
+            this._roots.Add(folder);
+
+
+        }
+
+
+
         this.IsScanning = true;
         this.ScanStatus = $"Reading {folder}…";
 
@@ -277,6 +307,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject
     public void Clear()
     {
         this._allRows.Clear();
+
+        this._roots.Clear();
         this.SelectedRow = null;
         this.ScanStatus = string.Empty;
         this.Recompute();
@@ -306,6 +338,194 @@ public sealed partial class WorkbenchViewModel : ObservableObject
 
     /// <summary>Called by the view when a checkbox changes, so the Apply count keeps up.</summary>
     public void RefreshSummary() => this.Summary = ChangeSummary.Build(this._allRows);
+
+    // ---- Applying ---------------------------------------------------------------------
+
+    [ObservableProperty]
+    public partial bool IsApplying { get; set; }
+
+    [ObservableProperty]
+    public partial double ApplyProgressPercent { get; set; }
+
+    [ObservableProperty]
+    public partial IReadOnlyList<JournalRun> History { get; set; } = [];
+
+    /// <summary>True when something has been applied and can still be put back.</summary>
+    public bool CanUndo => this.History.Any(r =>
+        r.Kind == RunKind.Apply && r.Status is RunStatus.Completed or RunStatus.PartiallyReverted);
+
+    /// <summary>
+    /// Writes the ticked rows that actually change something.
+    ///
+    /// The two conditions are separate on purpose: a ticked row with nothing to do is not
+    /// an error, and an unticked row that would change is not written. The button says
+    /// "Apply to N of M" so that distinction is visible rather than remembered.
+    /// </summary>
+    [RelayCommand]
+    public async Task ApplyAsync()
+    {
+        List<FilePlan> plans = [.. this._allRows
+            .Where(r => r.IsIncluded && r.Plan is { } p && p.WillWrite)
+            .Select(r => r.Plan!)];
+
+        if (plans.Count == 0)
+        {
+            this.ScanStatus = "Nothing to apply.";
+            return;
+        }
+
+        this._run?.Cancel();
+        this._run?.Dispose();
+        this._run = new CancellationTokenSource();
+
+        this.IsApplying = true;
+        this.ApplyProgressPercent = 0;
+
+        var progress = new Progress<ApplyProgress>(p =>
+        {
+            this.ApplyProgressPercent = p.Total == 0 ? 0 : 100.0 * p.Done / p.Total;
+            this.ScanStatus = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Writing {p.Done:N0} of {p.Total:N0}… {p.Written:N0} changed, {p.Failed:N0} failed");
+        });
+
+        try
+        {
+            var header = new RunHeader(
+                RunKind.Apply,
+                AppVersion,
+                ExifToolVersion: null,
+                TimeZoneInfo.Local.Id,
+                DescribeRecipe(),
+                this._roots);
+
+            ApplyOutcome outcome = await this._apply.ApplyAsync(plans, header, progress, this._run.Token);
+
+            this.ScanStatus = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Done. {outcome.Written:N0} changed, {outcome.Failed:N0} failed, {outcome.Skipped:N0} skipped.");
+
+            // The files on disk have moved on, so the snapshot the preview was built from
+            // is now stale. Re-reading is the honest thing to do rather than leaving the
+            // grid showing a plan that has already happened.
+            await this.RescanAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            this.ScanStatus = "Cancelled.";
+        }
+        finally
+        {
+            this.IsApplying = false;
+            this.ApplyProgressPercent = 0;
+            this.RefreshHistory();
+        }
+    }
+
+    [RelayCommand]
+    public void CancelRun() => this._run?.Cancel();
+
+    /// <summary>Puts the most recent apply back, skipping anything that has since changed.</summary>
+    [RelayCommand]
+    public async Task UndoLastAsync()
+    {
+        JournalRun? last = this.History.FirstOrDefault(r =>
+            r.Kind == RunKind.Apply && r.Status is RunStatus.Completed or RunStatus.PartiallyReverted);
+
+        if (last is null)
+        {
+            this.ScanStatus = "There is nothing to undo.";
+            return;
+        }
+
+        await this.RevertAsync(last.RunId, force: false);
+    }
+
+    /// <summary>Puts one run back. Force overrides the drift check, and is never the default.</summary>
+    public async Task RevertAsync(long runId, bool force)
+    {
+        this.IsApplying = true;
+
+        var progress = new Progress<ApplyProgress>(p =>
+        {
+            this.ApplyProgressPercent = p.Total == 0 ? 0 : 100.0 * p.Done / p.Total;
+            this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Undoing {p.Done:N0} of {p.Total:N0}…");
+        });
+
+        try
+        {
+            var header = new RunHeader(
+                RunKind.Revert,
+                AppVersion,
+                ExifToolVersion: null,
+                TimeZoneInfo.Local.Id,
+                $"Undo of run {runId}",
+                this._roots,
+                runId);
+
+            ApplyOutcome outcome = await this._apply.RevertAsync(runId, header, force, progress, CancellationToken.None);
+
+            this.ScanStatus = outcome.Failed == 0
+                ? string.Create(CultureInfo.CurrentCulture, $"Undone. {outcome.Written:N0} files put back.")
+                : string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Undone. {outcome.Written:N0} put back, {outcome.Failed:N0} left alone because they changed since.");
+
+            await this.RescanAsync();
+        }
+        finally
+        {
+            this.IsApplying = false;
+            this.ApplyProgressPercent = 0;
+            this.RefreshHistory();
+        }
+    }
+
+    public void RefreshHistory()
+    {
+        this.History = this._journal.ListRuns(50);
+        this.OnPropertyChanged(nameof(this.CanUndo));
+    }
+
+    /// <summary>
+    /// Re-reads the folders after a write, because the snapshot the preview was built from
+    /// describes a state that no longer exists.
+    /// </summary>
+    private async Task RescanAsync()
+    {
+        List<string> roots = [.. this._roots];
+        if (roots.Count == 0)
+        {
+            return;
+        }
+
+        this._allRows.Clear();
+
+        foreach (string root in roots)
+        {
+            await this.AddFolderAsync(root, ScanFilter.Default);
+        }
+    }
+
+    private string DescribeRecipe() => string.Create(
+        CultureInfo.InvariantCulture,
+        $"{{\"source\":\"{this.Source}\",\"mode\":\"{this.Mode}\",\"destination\":\"{this.Destination}\"}}");
+
+    /// <summary>
+    /// Cancels anything in flight. The debounce and the run each own a token source, and a
+    /// run that is still writing when the window closes has to be told to stop rather than
+    /// left to finish against a disposed journal.
+    /// </summary>
+    public void Dispose()
+    {
+        this._debounce?.Cancel();
+        this._debounce?.Dispose();
+        this._debounce = null;
+
+        this._run?.Cancel();
+        this._run?.Dispose();
+        this._run = null;
+    }
 
     // ---- Recompute --------------------------------------------------------------------
 

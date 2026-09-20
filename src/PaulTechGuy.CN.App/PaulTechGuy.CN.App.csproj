@@ -37,6 +37,7 @@
     <ProjectReference Include="..\PaulTechGuy.CN.Metadata\PaulTechGuy.CN.Metadata.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Repositories\PaulTechGuy.CN.Repositories.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Rules\PaulTechGuy.CN.Rules.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Services\PaulTechGuy.CN.Services.csproj" />
   </ItemGroup>
 
   <ItemGroup>
