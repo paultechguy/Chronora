@@ -54,9 +54,18 @@ public sealed partial class MainWindow : Window
             new DoubleTappedEventHandler(this.OnRowDoubleTapped),
             handledEventsToo: true);
 
-        // The same treatment for the same reason: a ListViewItem handles the right-click
-        // while deciding whether to show a context flyout of its own, so a ContextRequested
-        // hook declared in XAML would never see it either.
+        // The same treatment for the row menu, and it needs it just as badly: a
+        // ListViewItem claims the right-click on its way past.
+        this.FileList.AddHandler(
+            UIElement.RightTappedEvent,
+            new RightTappedEventHandler(this.OnRowRightTapped),
+            handledEventsToo: true);
+
+        // Registered as well, not instead, and only for Shift+F10 and the menu key.
+        // ContextRequested is the event the docs point you at for a context menu and it
+        // did not fire once on a right-click here - the log from a whole session of them
+        // has no handler entry and no exception. RightTapped above is what carries the
+        // mouse; this stays for the keyboard, and the log says which one actually fires.
         this.FileList.AddHandler(
             UIElement.ContextRequestedEvent,
             new TypedEventHandler<UIElement, ContextRequestedEventArgs>(this.OnRowContextRequested),
@@ -362,22 +371,73 @@ public sealed partial class MainWindow : Window
     private PlanRowViewModel? _menuRow;
 
     /// <summary>
-    /// Opens the row menu where the pointer is.
+    /// The mouse path, and the one that actually works.
+    ///
+    /// ContextRequested was the obvious event for this and it never fired once - the log
+    /// from a session full of right-clicks shows no handler entry and no exception. So the
+    /// menu hangs off RightTapped instead, which is the mechanism already proven on this
+    /// same list by the double-click fix.
+    /// </summary>
+    private void OnRowRightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (this.ShowRowMenu("right-click", e.OriginalSource, container => e.GetPosition(container)))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// The keyboard path - Shift+F10 and the menu key - kept separate because RightTapped
+    /// cannot see them. Whether it ever fires is an open question; the log says which.
+    /// </summary>
+    private void OnRowContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    {
+        bool shown = this.ShowRowMenu(
+            "keyboard",
+            e.OriginalSource,
+            container => e.TryGetPosition(container, out Point point) ? point : null);
+
+        if (shown)
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Opens the row menu, wherever the request came from.
     ///
     /// Selecting the row first is deliberate: the detail pane at the bottom follows the
     /// selection, so without this the menu would act on one file while the pane below it
     /// described another - which is exactly the mismatch that gets somebody to apply a
     /// change to the wrong photo.
     ///
-    /// Right-clicking below the last row resolves to nothing and is left alone, rather
-    /// than falling back to the selection. A menu that appears over empty space and acts
-    /// on a file somewhere off screen is worse than no menu.
+    /// A request that resolves to no row is left alone rather than falling back to the
+    /// selection. A menu that appears over empty space below the last row and acts on a
+    /// file somewhere off screen is worse than no menu.
     /// </summary>
-    private void OnRowContextRequested(UIElement sender, ContextRequestedEventArgs e)
+    /// <returns>False when there was no row under the request.</returns>
+    private bool ShowRowMenu(string via, object? source, Func<ListViewItem, Point?> position)
     {
-        if (FindContainer(e.OriginalSource) is not { Content: PlanRowViewModel row } container)
+        ListViewItem? container = FindContainer(source);
+
+        // Logged for the same reason the double-click is: this handler has already failed
+        // silently once, and an interaction that does nothing leaves nothing to diagnose.
+        Serilog.Log.Information(
+            "Row menu requested. via={Via} source={Source} resolved={Row}",
+            via,
+            (source as object)?.GetType().Name ?? "null",
+            (container?.Content as PlanRowViewModel)?.Name ?? "none");
+
+        if (container is not { Content: PlanRowViewModel row })
         {
-            return;
+            return false;
+        }
+
+        // Both paths can fire for one gesture. Whichever arrives first wins; the second
+        // finds the menu already up and leaves it alone rather than reopening it.
+        if (this.RowMenu.IsOpen)
+        {
+            return true;
         }
 
         this._menuRow = row;
@@ -397,10 +457,10 @@ public sealed partial class MainWindow : Window
             clear.Visibility = row.HasManualDate ? Visibility.Visible : Visibility.Collapsed;
         }
 
-        // Positioned against the row rather than the list, so the keyboard menu key - which
+        // Positioned against the row rather than the list, so a keyboard request - which
         // carries no pointer position - still opens the menu on the row it belongs to
-        // instead of at the top-left corner of a list that may be scrolled a long way down.
-        if (e.TryGetPosition(container, out Point point))
+        // instead of at the top-left corner of a list scrolled a long way down.
+        if (position(container) is { } point)
         {
             this.RowMenu.ShowAt(container, point);
         }
@@ -409,7 +469,7 @@ public sealed partial class MainWindow : Window
             this.RowMenu.ShowAt(container);
         }
 
-        e.Handled = true;
+        return true;
     }
 
     /// <summary>
