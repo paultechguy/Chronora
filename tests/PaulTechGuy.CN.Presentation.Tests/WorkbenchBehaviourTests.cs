@@ -427,3 +427,56 @@ public class WorkbenchSelectionTests
         }
     }
 }
+
+/// <summary>
+/// Clearing history: the only action in the app that destroys something no later work can
+/// rebuild. The files survive; the record of what their dates used to be does not, so
+/// everything already applied stops being undoable at once.
+///
+/// The typed word is the guard, so it is tested as a guard rather than as a formality.
+/// </summary>
+public class ClearHistoryTests
+{
+    [Fact]
+    public void The_exact_word_clears_it()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        int? removed = fixture.ViewModel.ClearHistory("DELETE");
+
+        removed.ShouldNotBeNull("the confirmation matched, so it should have run");
+        fixture.ViewModel.HasHistory.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// Anything else is refused, and refused means nothing happens - not a partial clear
+    /// and not a silent success.
+    /// </summary>
+    [Theory]
+    [InlineData("delete")]
+    [InlineData("Delete")]
+    [InlineData("DELETE ")]
+    [InlineData(" DELETE")]
+    [InlineData("")]
+    [InlineData("yes")]
+    [InlineData("DELET")]
+    public void Anything_other_than_the_exact_word_is_refused(string typed)
+    {
+        using var fixture = new WorkbenchFixture();
+
+        fixture.ViewModel.ClearHistory(typed).ShouldBeNull($"'{typed}' is not the confirmation word");
+    }
+
+    /// <summary>
+    /// Lower case is the one worth naming. It is what somebody types by habit, and an
+    /// ordinal comparison is the only thing that keeps it from matching.
+    /// </summary>
+    [Fact]
+    public void The_comparison_is_case_sensitive()
+    {
+        WorkbenchViewModel.ClearHistoryConfirmation.ShouldBe("DELETE");
+
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ClearHistory("delete").ShouldBeNull();
+    }
+}

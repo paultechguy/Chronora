@@ -1573,6 +1573,41 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             CultureInfo.CurrentCulture,
             $"Oldest run still here: {this.HistoryRows[^1].When}.");
 
+    /// <summary>
+    /// The word someone has to type to clear history.
+    ///
+    /// Typed rather than clicked, and compared exactly. This is the only action in the app
+    /// that destroys something no amount of later work can rebuild: the files survive, but
+    /// the record of what they used to look like does not, so every run stops being
+    /// undoable at once. A button people can hit by reflex is the wrong shape for that.
+    /// </summary>
+    public const string ClearHistoryConfirmation = "DELETE";
+
+    /// <summary>
+    /// Deletes every run. The caller is responsible for having got the typed confirmation
+    /// first; the word is checked here too so the rule lives with the action rather than
+    /// only in the dialog that happens to call it.
+    /// </summary>
+    /// <returns>How many runs went, or null when the confirmation did not match.</returns>
+    public int? ClearHistory(string typed)
+    {
+        if (!string.Equals(typed, ClearHistoryConfirmation, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        int removed = this._journal.ClearAll();
+        this.RefreshHistory();
+
+        this.ActionNotice = removed == 0
+            ? "History was already empty."
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"History cleared. {removed:N0} run{(removed == 1 ? string.Empty : "s")} deleted; nothing on disk changed.");
+
+        return removed;
+    }
+
     public void RefreshHistory()
     {
         this.History = this._journal.ListRuns(50);

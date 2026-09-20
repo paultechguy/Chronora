@@ -501,6 +501,43 @@ public sealed class SqliteJournal : IDisposable
         return removed;
     }
 
+    /// <summary>
+    /// Deletes every run, pinned ones included.
+    ///
+    /// This throws away the ability to undo anything the app has ever done, so it is only
+    /// ever reached from an explicit typed confirmation - never from retention, and never
+    /// as a side effect of something else.
+    ///
+    /// The files on disk are untouched. What it destroys is the record of what they used
+    /// to look like, which is the part that cannot be reconstructed afterwards.
+    /// </summary>
+    /// <returns>How many runs were removed.</returns>
+    public int ClearAll()
+    {
+        this.ThrowIfReadOnly();
+
+        using SqliteCommand command = this._connection.CreateCommand();
+
+        // run_files and run_field_changes follow their runs through the schema's cascade,
+        // so one delete covers all three tables.
+        command.CommandText = "DELETE FROM runs;";
+
+        int removed = command.ExecuteNonQuery();
+
+        // A journal somebody has just asked to empty should not still be occupying the
+        // space, and the WAL keeps the old pages until it is checkpointed.
+        using (SqliteCommand vacuum = this._connection.CreateCommand())
+        {
+            vacuum.CommandText = "VACUUM;";
+            _ = vacuum.ExecuteNonQuery();
+        }
+
+        this._logger.LogWarning(
+            "History cleared: {Count} run(s) deleted and no longer revertible.", removed);
+
+        return removed;
+    }
+
     /// <summary>The oldest run still available to undo, so retention is never a silent surprise.</summary>
     public DateTimeOffset? OldestRevertableRun()
     {

@@ -53,10 +53,17 @@
             </ListView.ItemTemplate>
         </ListView>
 
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"
-                    HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button Content="Refresh" Click="OnRefresh" />
-            <Button Content="Close" Click="OnClose" />
-        </StackPanel>
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,12,0,0" ColumnSpacing="8">
+
+            <!--
+                Far from the other two, because it is not the same kind of action. This is
+                the only thing in the app that destroys something no later work can rebuild.
+            -->
+            <Button Grid.Column="0" Content="Clear history…" Click="OnClearHistory"
+                    IsEnabled="{x:Bind Workbench.HasHistory, Mode=OneWay}" />
+
+            <Button Grid.Column="2" Content="Refresh" Click="OnRefresh" />
+            <Button Grid.Column="3" Content="Close" Click="OnClose" />
+        </Grid>
     </Grid>
 </Window>

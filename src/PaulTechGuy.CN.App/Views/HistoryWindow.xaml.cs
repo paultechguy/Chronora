@@ -38,6 +38,57 @@ public sealed partial class HistoryWindow : Window
 
     private void OnRefresh(object sender, RoutedEventArgs e) => this.Workbench.RefreshHistory();
 
+    /// <summary>
+    /// Deletes every run, behind a typed confirmation.
+    ///
+    /// Typed rather than clicked because of what it costs. The files on disk are untouched
+    /// - what goes is the record of what they used to look like, so everything the app has
+    /// ever done stops being undoable at once, and nothing can rebuild that. A dialog you
+    /// can dismiss with the space bar is the wrong shape for it.
+    ///
+    /// The Delete button stays disabled until the word matches exactly, so the dialog
+    /// cannot be completed by reflex.
+    /// </summary>
+    private async void OnClearHistory(object sender, RoutedEventArgs e)
+    {
+        var typed = new TextBox
+        {
+            PlaceholderText = WorkbenchViewModel.ClearHistoryConfirmation,
+            Header = $"Type {WorkbenchViewModel.ClearHistoryConfirmation} to confirm",
+        };
+
+        var panel = new StackPanel { Spacing = 12 };
+
+        panel.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Text = "This deletes every run Chronora has recorded, including pinned ones.\n\n"
+                + "Your files are not touched. What goes is the record of what their dates used to be, "
+                + "so nothing Chronora has already done can be undone afterwards. This cannot be reversed.",
+        });
+
+        panel.Children.Add(typed);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = this.Content.XamlRoot,
+            Title = "Clear all history?",
+            Content = panel,
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            IsPrimaryButtonEnabled = false,
+        };
+
+        typed.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled =
+            string.Equals(typed.Text, WorkbenchViewModel.ClearHistoryConfirmation, StringComparison.Ordinal);
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            _ = this.Workbench.ClearHistory(typed.Text);
+        }
+    }
+
     private void OnClose(object sender, RoutedEventArgs e) => this.Close();
 
     /// <summary>
