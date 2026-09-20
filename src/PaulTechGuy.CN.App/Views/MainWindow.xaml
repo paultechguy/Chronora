@@ -463,6 +463,24 @@
                         <Button Content="Save as template…" Click="OnSaveTemplate" />
                         <Button Content="Delete" Click="OnDeleteTemplate"
                                 IsEnabled="{x:Bind Workbench.CanDeleteActiveTemplate, Mode=OneWay}" />
+
+                        <!--
+                            A template is one small file on purpose, so the answer to "what
+                            settings did you use?" in a forum thread can be the file itself
+                            rather than a screenshot of this pane. Behind a menu because
+                            these are the rarest two actions here, and a row of four buttons
+                            would give them the same weight as saving one.
+                        -->
+                        <Button Content="&#xE712;" FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                ToolTipService.ToolTip="Share a template">
+                            <Button.Flyout>
+                                <MenuFlyout>
+                                    <MenuFlyoutItem Text="Export this template…" Click="OnExportTemplate"
+                                                    IsEnabled="{x:Bind Workbench.HasActiveTemplate, Mode=OneWay}" />
+                                    <MenuFlyoutItem Text="Import a template…" Click="OnImportTemplate" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
                     </StackPanel>
 
                     <TextBlock Text="Get the date from" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />

@@ -1147,6 +1147,73 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Writes the active template out as one small file.
+    ///
+    /// One file, not an export of everything, because the thing people actually want to do
+    /// is answer "what settings did you use?" with an attachment.
+    /// </summary>
+    private async void OnExportTemplate(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench.ActiveTemplate is not { } template)
+        {
+            return;
+        }
+
+        var picker = new FileSavePicker();
+        picker.FileTypeChoices.Add("Chronora template", [".json"]);
+        picker.SuggestedFileName = SafeFileName(template.Name);
+
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+        if (await picker.PickSaveFileAsync() is not { } file)
+        {
+            return;
+        }
+
+        this.Workbench.ScanStatus = this.Workbench.ExportActiveTemplate(file.Path)
+            ? $"Saved “{template.Name}” to {file.Name}."
+            : $"Could not write {file.Name}.";
+    }
+
+    private async void OnImportTemplate(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker();
+        picker.FileTypeFilter.Add(".json");
+
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+        if (await picker.PickSingleFileAsync() is not { } file)
+        {
+            return;
+        }
+
+        // A template arriving from outside is the one place a stranger's file reaches the
+        // app, so a bad one has to report rather than throw. ImportTemplate returns the
+        // problem instead of trusting the file.
+        string? problem = this.Workbench.ImportTemplate(file.Path);
+
+        this.Workbench.ScanStatus = problem ?? $"Imported “{this.Workbench.ActiveTemplate?.Name}”.";
+    }
+
+    /// <summary>
+    /// A template name turned into something a file system will accept, since the name is
+    /// free text and "Photos: 2019 → 2024" is a perfectly reasonable thing to have typed.
+    /// </summary>
+    private static string SafeFileName(string name)
+    {
+        var clean = new StringBuilder(name.Length);
+
+        foreach (char c in name)
+        {
+            _ = clean.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '-' : c);
+        }
+
+        string trimmed = clean.ToString().Trim();
+
+        return trimmed.Length > 0 ? trimmed : "chronora-template";
+    }
+
+    /// <summary>
     /// Deleting is confirmed. It is irreversible, and a template someone built by hand is
     /// not something they can reasonably reconstruct from memory.
     /// </summary>
