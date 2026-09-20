@@ -38,6 +38,14 @@
     <ProjectReference Include="..\PaulTechGuy.CN.Repositories\PaulTechGuy.CN.Repositories.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Rules\PaulTechGuy.CN.Rules.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Services\PaulTechGuy.CN.Services.csproj" />
+
+    <!--
+      The view models live in their own library rather than in this head, so they can be
+      tested. Every bug the author has had to find by hand in this app has been in view
+      model state - a computed property whose change notification was missing - and none of
+      it was reachable from a test while it sat inside a WinUI executable.
+    -->
+    <ProjectReference Include="..\PaulTechGuy.CN.Presentation\PaulTechGuy.CN.Presentation.csproj" />
   </ItemGroup>
 
   <ItemGroup>

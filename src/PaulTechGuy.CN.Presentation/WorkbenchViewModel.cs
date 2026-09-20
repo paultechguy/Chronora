@@ -14,7 +14,7 @@ using PaulTechGuy.CN.Journal;
 using PaulTechGuy.CN.Metadata;
 using PaulTechGuy.CN.Rules;
 
-namespace PaulTechGuy.CN.App.ViewModels;
+namespace PaulTechGuy.CN.Presentation;
 
 /// <summary>
 /// What the user came here to do. The first and only question until it is answered.
@@ -95,6 +95,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private readonly SqliteJournal _journal;
     private readonly ExifToolService _exifTool;
     private readonly IAppPaths _paths;
+    private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<WorkbenchViewModel> _logger;
 
     private readonly List<PlanRowViewModel> _allRows = [];
@@ -116,6 +117,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         SqliteJournal journal,
         ExifToolService exifTool,
         IAppPaths paths,
+        IUiDispatcher dispatcher,
         ILogger<WorkbenchViewModel> logger)
     {
         this._scanner = scanner;
@@ -124,6 +126,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._journal = journal;
         this._exifTool = exifTool;
         this._paths = paths;
+        this._dispatcher = dispatcher;
         this._logger = logger;
 
         this.AbsoluteDate = DateTimeOffset.Now.Date;
@@ -310,6 +313,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // of its inputs. Everything derived is raised together, from here, always.
         this.OnPropertyChanged(nameof(this.NeedsExifTool));
         this.OnPropertyChanged(nameof(this.EngineDetail));
+
+        // Depends on the intent as well as the list, so choosing an intent has to raise
+        // it. Without this the Start over button stayed disabled after picking an intent -
+        // precisely the moment someone who picked the wrong one wants it. Found by the
+        // notification test rather than by a person, which is the point of that test.
+        this.OnPropertyChanged(nameof(this.HasAnyFiles));
+        this.OnPropertyChanged(nameof(this.CanStartOver));
     }
 
     // ---- Source -----------------------------------------------------------------------
@@ -1156,17 +1166,20 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         var cts = new CancellationTokenSource();
         this._debounce = cts;
 
+        // TaskScheduler.Default plus an explicit dispatcher, rather than
+        // FromCurrentSynchronizationContext, which throws outright when there is no
+        // context and so tied this class to running inside a WinUI message pump.
         _ = Task.Delay(RecomputeDebounce, cts.Token).ContinueWith(
             t =>
             {
                 if (!t.IsCanceled)
                 {
-                    this.Recompute();
+                    this._dispatcher.Post(this.Recompute);
                 }
             },
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.FromCurrentSynchronizationContext());
+            TaskScheduler.Default);
     }
 
     /// <summary>

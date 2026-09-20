@@ -15,6 +15,7 @@
     <Project Path="src/PaulTechGuy.CN.Journal/PaulTechGuy.CN.Journal.csproj" />
     <Project Path="src/PaulTechGuy.CN.Repositories/PaulTechGuy.CN.Repositories.csproj" />
     <Project Path="src/PaulTechGuy.CN.Services/PaulTechGuy.CN.Services.csproj" />
+    <Project Path="src/PaulTechGuy.CN.Presentation/PaulTechGuy.CN.Presentation.csproj" />
     <Project Path="src/PaulTechGuy.CN.App/PaulTechGuy.CN.App.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -23,5 +24,6 @@
     <Project Path="tests/PaulTechGuy.CN.Journal.Tests/PaulTechGuy.CN.Journal.Tests.csproj" />
     <Project Path="tests/PaulTechGuy.CN.Services.Tests/PaulTechGuy.CN.Services.Tests.csproj" />
     <Project Path="tests/PaulTechGuy.CN.Metadata.Tests/PaulTechGuy.CN.Metadata.Tests.csproj" />
+    <Project Path="tests/PaulTechGuy.CN.Presentation.Tests/PaulTechGuy.CN.Presentation.Tests.csproj" />
   </Folder>
 </Solution>

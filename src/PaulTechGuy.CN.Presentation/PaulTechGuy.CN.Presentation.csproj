@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PaulTechGuy.CN.Presentation</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PaulTechGuy.CN.Abstractions\PaulTechGuy.CN.Abstractions.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Domain\PaulTechGuy.CN.Domain.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.FileSystem\PaulTechGuy.CN.FileSystem.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Journal\PaulTechGuy.CN.Journal.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Metadata\PaulTechGuy.CN.Metadata.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Rules\PaulTechGuy.CN.Rules.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Services\PaulTechGuy.CN.Services.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+</Project>

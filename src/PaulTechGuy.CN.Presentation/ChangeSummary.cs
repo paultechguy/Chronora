@@ -4,7 +4,7 @@
 using System.Globalization;
 using PaulTechGuy.CN.Domain;
 
-namespace PaulTechGuy.CN.App.ViewModels;
+namespace PaulTechGuy.CN.Presentation;
 
 /// <summary>
 /// One line of the summary band: what is happening to one field, across the whole run.

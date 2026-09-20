@@ -5,7 +5,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PaulTechGuy.CN.Domain;
 
-namespace PaulTechGuy.CN.App.ViewModels;
+namespace PaulTechGuy.CN.Presentation;
 
 /// <summary>
 /// One row of the grid.

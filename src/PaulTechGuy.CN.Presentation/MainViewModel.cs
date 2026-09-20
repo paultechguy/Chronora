@@ -4,7 +4,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using PaulTechGuy.CN.Abstractions;
 
-namespace PaulTechGuy.CN.App.ViewModels;
+namespace PaulTechGuy.CN.Presentation;
 
 /// <summary>
 /// Skeleton for milestone 1. The real one arrives with the workbench in milestone 5.

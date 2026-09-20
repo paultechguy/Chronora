@@ -7,7 +7,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using PaulTechGuy.CN.App.ViewModels;
+using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Domain;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;

@@ -4,7 +4,7 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using PaulTechGuy.CN.App.ViewModels;
+using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Metadata;
 
 namespace PaulTechGuy.CN.App.Views;

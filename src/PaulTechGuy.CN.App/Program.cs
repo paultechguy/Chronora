@@ -7,7 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.UI.Dispatching;
 using PaulTechGuy.CN.Abstractions;
-using PaulTechGuy.CN.App.ViewModels;
+using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.App.Views;
 using PaulTechGuy.CN.Services;
 using PaulTechGuy.CN.FileSystem;
@@ -104,6 +104,15 @@ public static class Program
 
         // Each layer contributes its own registrations, so this stays a list of intents.
         builder.Services.AddSingleton<IAppPaths>(paths);
+
+
+        // Captured on the UI thread, which is where BuildHost runs from inside
+
+        // Application.Start. The view model asks for "the UI thread" and this supplies it.
+
+        builder.Services.AddSingleton<IUiDispatcher>(
+
+            _ => new UiDispatcher(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()));
 
         // One registration per layer, so the root reads as a list of intents.
         builder.Services.AddSingleton<VolumeProbe>();
