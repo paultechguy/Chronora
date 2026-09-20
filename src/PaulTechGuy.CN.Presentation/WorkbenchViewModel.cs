@@ -185,6 +185,49 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool HasChosenIntent => this.Intent != WorkIntent.None;
 
     /// <summary>
+    /// The intent as a list position, so the radio group can be bound both ways.
+    ///
+    /// The radio buttons used to report their choice through a Checked handler and read
+    /// nothing back, which made them write-only: anything the view model decided for
+    /// itself - a template being applied, Start over clearing the run - left them showing
+    /// the previous answer while the state underneath had moved. The view model was right
+    /// and the control was lying about it.
+    ///
+    /// -1 means nothing is chosen, which is what lets Start over actually look like
+    /// starting over instead of leaving a stale answer selected above a hidden pane.
+    /// </summary>
+    public int IntentIndex
+    {
+        get => this.Intent switch
+        {
+            WorkIntent.FileDates => 0,
+            WorkIntent.PhotoDates => 1,
+            WorkIntent.Custom => 2,
+            _ => -1,
+        };
+
+        set
+        {
+            WorkIntent chosen = value switch
+            {
+                0 => WorkIntent.FileDates,
+                1 => WorkIntent.PhotoDates,
+                2 => WorkIntent.Custom,
+                _ => WorkIntent.None,
+            };
+
+            // The control echoes the value back when the binding pushes one in, so a
+            // no-op set has to stay a no-op. Otherwise reconciling to Custom would bounce
+            // back through ChooseIntent and stamp the default checkboxes over the edit
+            // that caused it.
+            if (chosen != WorkIntent.None && chosen != this.Intent)
+            {
+                this.ChooseIntent(chosen);
+            }
+        }
+    }
+
+    /// <summary>
     /// Whether photo targets may be written, and therefore whether they are shown.
     ///
     /// Derived from the intent rather than set independently, which is what stops the two
@@ -315,6 +358,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private void NotifyIntentDerived()
     {
         this.OnPropertyChanged(nameof(this.HasChosenIntent));
+
+        // The radio group's own binding. Without this the control keeps whatever was last
+        // clicked even after Start over cleared the intent underneath it.
+        this.OnPropertyChanged(nameof(this.IntentIndex));
         this.OnPropertyChanged(nameof(this.IsPhotoMode));
         this.OnPropertyChanged(nameof(this.ShowsFileDates));
         this.OnPropertyChanged(nameof(this.ShowsAdvancedFields));
@@ -585,9 +632,29 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial SourceChoice Source { get; set; } = SourceChoice.PickADate;
 
+    /// <summary>
+    /// The source as a list position, bound both ways for the same reason as
+    /// <see cref="IntentIndex" />: a template sets the source, and the control has to
+    /// follow. Choosing "photos sort wrong in Explorer" and being left looking at
+    /// "a date I pick" is the exact failure this fixes.
+    /// </summary>
+    public int SourceIndex
+    {
+        get => (int)this.Source;
+
+        set
+        {
+            if (value >= 0 && (SourceChoice)value != this.Source)
+            {
+                this.Source = (SourceChoice)value;
+            }
+        }
+    }
+
     partial void OnSourceChanged(SourceChoice value)
     {
         this.LeaveTemplateOnEdit();
+        this.OnPropertyChanged(nameof(this.SourceIndex));
         this.OnPropertyChanged(nameof(this.NeedsAbsoluteInput));
         this.OnPropertyChanged(nameof(this.NeedsShiftInput));
         this.OnPropertyChanged(nameof(this.NeedsCopyFromInput));

@@ -238,26 +238,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnIntentChecked(object sender, RoutedEventArgs e)
-    {
-        if (this.Workbench is not null
-            && sender is RadioButton { Tag: string tag }
-            && Enum.TryParse(tag, out WorkIntent intent))
-        {
-            this.Workbench.ChooseIntent(intent);
-        }
-    }
-
-    private void OnSourceChecked(object sender, RoutedEventArgs e)
-    {
-        if (this.Workbench is not null
-            && sender is RadioButton { Tag: string tag }
-            && Enum.TryParse(tag, out SourceChoice choice))
-        {
-            this.Workbench.Source = choice;
-        }
-    }
-
     private void OnSortChanged(object sender, SelectionChangedEventArgs e)
     {
         if (this.Workbench is not null

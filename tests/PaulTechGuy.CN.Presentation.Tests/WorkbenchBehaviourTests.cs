@@ -271,3 +271,125 @@ public class WorkbenchBehaviourTests
         fixture.ViewModel.Summary.ApplyLabel.ShouldContain("of 2");
     }
 }
+
+/// <summary>
+/// The controls that report a choice AND have to show one.
+///
+/// Both of these were reported from the running app, and both were the same fault: the
+/// radio groups raised a Checked event and read nothing back, so they were write-only.
+/// Whenever the view model decided something for itself - a template being applied, Start
+/// over clearing the run - the control kept displaying the previous answer.
+///
+/// The real fix is structural: the groups are bound two-way now instead of being driven by
+/// handlers. These tests cover the view-model half of that contract. They cannot prove the
+/// XAML is bound - only running it can - which is exactly why this class of bug keeps
+/// reaching a person first.
+/// </summary>
+public class WorkbenchSelectionTests
+{
+    /// <summary>
+    /// Reported: choosing "Photos sort wrong in Explorer" left the source showing "A date
+    /// I pick" while the run actually copied from another date.
+    /// </summary>
+    [Fact]
+    public void A_template_moves_the_source_selection_to_match_itself()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        DateTemplate explorer = fixture.ViewModel.Templates
+            .First(t => t.Id == "builtin.photos-sort-wrong-in-explorer");
+
+        fixture.ViewModel.UseTemplate(explorer);
+
+        fixture.ViewModel.Source.ShouldBe(SourceChoice.FromAnotherDate);
+        fixture.ViewModel.SourceIndex.ShouldBe((int)SourceChoice.FromAnotherDate);
+    }
+
+    [Fact]
+    public void A_template_moves_the_intent_selection_to_match_its_targets()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.PhotoDates);
+
+        DateTemplate explorer = fixture.ViewModel.Templates
+            .First(t => t.Id == "builtin.photos-sort-wrong-in-explorer");
+
+        fixture.ViewModel.UseTemplate(explorer);
+
+        // It writes file dates, so the answer above has to stop claiming photo dates.
+        fixture.ViewModel.Intent.ShouldBe(WorkIntent.FileDates);
+        fixture.ViewModel.IntentIndex.ShouldBe(0);
+    }
+
+    /// <summary>
+    /// Reported: after Start over the options were hidden but "Photo and video dates" was
+    /// still selected above them - the control contradicting the app.
+    /// </summary>
+    [Fact]
+    public async Task Starting_over_leaves_no_answer_selected()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.PhotoDates);
+        await fixture.LoadAsync("a.jpg");
+
+        fixture.ViewModel.StartOver();
+
+        fixture.ViewModel.Intent.ShouldBe(WorkIntent.None);
+        fixture.ViewModel.IntentIndex.ShouldBe(-1, "nothing should be selected after starting over");
+        fixture.ViewModel.HasChosenIntent.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Starting_over_also_clears_the_active_template()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+        fixture.ViewModel.UseTemplate(fixture.ViewModel.Templates[0]);
+
+        fixture.ViewModel.StartOver();
+
+        fixture.ViewModel.ActiveTemplate.ShouldBeNull();
+        fixture.ViewModel.HasActiveTemplate.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A two-way binding echoes the value back when it pushes one in. If that echo were
+    /// treated as a fresh choice, reconciling to Custom would bounce through ChooseIntent
+    /// and stamp the default checkboxes over the edit that caused it.
+    /// </summary>
+    [Fact]
+    public void Setting_the_selection_to_what_it_already_is_changes_nothing()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+        fixture.ViewModel.WriteAccessed = true;
+
+        fixture.ViewModel.Intent.ShouldBe(WorkIntent.Custom);
+
+        // The echo the control sends back after the binding updates it.
+        fixture.ViewModel.IntentIndex = fixture.ViewModel.IntentIndex;
+
+        fixture.ViewModel.WriteAccessed.ShouldBeTrue("the edit must survive the echo");
+        fixture.ViewModel.Intent.ShouldBe(WorkIntent.Custom);
+    }
+
+    [Fact]
+    public void The_selection_round_trips_through_the_index()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        foreach ((int index, WorkIntent expected) in new[]
+        {
+            (0, WorkIntent.FileDates),
+            (1, WorkIntent.PhotoDates),
+            (2, WorkIntent.Custom),
+        })
+        {
+            fixture.ViewModel.IntentIndex = index;
+
+            fixture.ViewModel.Intent.ShouldBe(expected);
+            fixture.ViewModel.IntentIndex.ShouldBe(index);
+        }
+    }
+}

@@ -256,14 +256,17 @@
                     -->
                     <TextBlock Text="What are you changing?"
                                Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,12,0,0" TextWrapping="Wrap" />
-                    <StackPanel Spacing="2">
-                        <RadioButton Content="File dates" GroupName="Intent"
-                                     Checked="OnIntentChecked" Tag="FileDates" />
-                        <RadioButton Content="Photo and video dates" GroupName="Intent"
-                                     Checked="OnIntentChecked" Tag="PhotoDates" />
-                        <RadioButton x:Name="CustomIntent" Content="Let me pick the fields" GroupName="Intent"
-                                     Checked="OnIntentChecked" Tag="Custom" />
-                    </StackPanel>
+                    <!--
+                        Bound both ways. These were Checked handlers with nothing read
+                        back, so a template or a Start over changed the state underneath
+                        and left the previous answer still selected - the control
+                        contradicting the app.
+                    -->
+                    <RadioButtons SelectedIndex="{x:Bind Workbench.IntentIndex, Mode=TwoWay}">
+                        <x:String>File dates</x:String>
+                        <x:String>Photo and video dates</x:String>
+                        <x:String>Let me pick the fields</x:String>
+                    </RadioButtons>
                     <TextBlock Text="{x:Bind Workbench.IntentNote, Mode=OneWay}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
 
@@ -307,16 +310,12 @@
                     </StackPanel>
 
                     <TextBlock Text="Get the date from" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
-                    <StackPanel Spacing="2">
-                        <RadioButton Content="A date I pick" GroupName="Src" IsChecked="True"
-                                     Checked="OnSourceChecked" Tag="PickADate" />
-                        <RadioButton Content="Shift the existing date" GroupName="Src"
-                                     Checked="OnSourceChecked" Tag="ShiftBy" />
-                        <RadioButton Content="Another date on the file" GroupName="Src"
-                                     Checked="OnSourceChecked" Tag="FromAnotherDate" />
-                        <RadioButton Content="The file name" GroupName="Src"
-                                     Checked="OnSourceChecked" Tag="FromFileName" />
-                    </StackPanel>
+                    <RadioButtons SelectedIndex="{x:Bind Workbench.SourceIndex, Mode=TwoWay}">
+                        <x:String>A date I pick</x:String>
+                        <x:String>Shift the existing date</x:String>
+                        <x:String>Another date on the file</x:String>
+                        <x:String>The file name</x:String>
+                    </RadioButtons>
 
                     <!--
                         Only the input the chosen source uses. Showing all three at once made
