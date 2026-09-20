@@ -16,4 +16,7 @@
     <Project Path="src/PaulTechGuy.CN.Repositories/PaulTechGuy.CN.Repositories.csproj" />
     <Project Path="src/PaulTechGuy.CN.App/PaulTechGuy.CN.App.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PaulTechGuy.CN.Rules.Tests/PaulTechGuy.CN.Rules.Tests.csproj" />
+  </Folder>
 </Solution>
