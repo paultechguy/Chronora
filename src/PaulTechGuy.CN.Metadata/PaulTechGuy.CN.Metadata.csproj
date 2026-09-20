@@ -3,6 +3,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>PaulTechGuy.CN.Metadata</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The version parser and the process runner are implementation detail, but they are
+         exactly the parts worth testing. Opening them to the test project keeps the public
+         surface honest rather than widening it for the tests. -->
+    <InternalsVisibleTo Include="PaulTechGuy.CN.Metadata.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PaulTechGuy.CN.Abstractions\PaulTechGuy.CN.Abstractions.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Domain\PaulTechGuy.CN.Domain.csproj" />

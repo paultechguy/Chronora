@@ -22,5 +22,6 @@
     <Project Path="tests/PaulTechGuy.CN.FileSystem.Tests/PaulTechGuy.CN.FileSystem.Tests.csproj" />
     <Project Path="tests/PaulTechGuy.CN.Journal.Tests/PaulTechGuy.CN.Journal.Tests.csproj" />
     <Project Path="tests/PaulTechGuy.CN.Services.Tests/PaulTechGuy.CN.Services.Tests.csproj" />
+    <Project Path="tests/PaulTechGuy.CN.Metadata.Tests/PaulTechGuy.CN.Metadata.Tests.csproj" />
   </Folder>
 </Solution>
