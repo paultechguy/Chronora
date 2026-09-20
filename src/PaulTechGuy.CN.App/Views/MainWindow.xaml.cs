@@ -341,8 +341,24 @@ public sealed partial class MainWindow : Window
     /// it, so the cast quietly failed and the handler returned. The container's Content is
     /// the item, always, whatever the template does.
     /// </summary>
-    private static PlanRowViewModel? FindRow(object? source) =>
-        FindContainer(source)?.Content as PlanRowViewModel;
+    private PlanRowViewModel? FindRow(object? source) => this.RowOf(FindContainer(source));
+
+    /// <summary>
+    /// The item a container is showing, asked of the ListView rather than read off the
+    /// container.
+    ///
+    /// ListViewItem.Content is empty here, and that is not a bug to fix: OnRowRealised
+    /// sets args.Handled = true, which is the documented way to tell the framework you are
+    /// filling the container yourself, and one of the things it then stops doing is
+    /// setting Content. The null DataContext that broke double-click was the same
+    /// behaviour seen from a different angle, and reading Content was the same mistake
+    /// made twice.
+    ///
+    /// ItemFromContainer goes through the container-to-index map, which the list keeps
+    /// either way.
+    /// </summary>
+    private PlanRowViewModel? RowOf(ListViewItem? container) =>
+        container is null ? null : this.FileList.ItemFromContainer(container) as PlanRowViewModel;
 
     /// <summary>
     /// Every type between the clicked element and the visual root, for the log.
@@ -469,13 +485,15 @@ public sealed partial class MainWindow : Window
         // The chain is logged, not just the type. Both a working and a broken walk report
         // source=TextBlock, so the type on its own says nothing about which one happened -
         // which is exactly why the first two attempts at this menu were guesswork.
+        PlanRowViewModel? found = this.RowOf(container);
+
         Serilog.Log.Information(
             "Row menu requested. via={Via} resolved={Row} chain={Chain}",
             via,
-            (container?.Content as PlanRowViewModel)?.Name ?? "none",
+            found?.Name ?? "none",
             AncestorChain(source));
 
-        if (container is not { Content: PlanRowViewModel row })
+        if (container is null || found is not { } row)
         {
             return false;
         }
@@ -836,14 +854,19 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        PlanRowViewModel? row = FindRow(e.OriginalSource) ?? this.Workbench.SelectedRow;
+        // No fallback to the selection any more. There was one, and it is why this looked
+        // fixed while the row lookup underneath it was broken: you select a row by
+        // clicking it and then double-click the same row, so the fallback always had the
+        // right answer and the lookup was never exercised. It cost hours on the context
+        // menu, which had no selection to hide behind.
+        PlanRowViewModel? row = this.FindRow(e.OriginalSource);
 
-        // Logged because this handler has now failed to fire twice for different reasons,
-        // and a double-click that does nothing leaves nothing behind to diagnose.
+        // Logged because this handler has now failed three times for three different
+        // reasons, and a double-click that does nothing leaves nothing behind to diagnose.
         Serilog.Log.Information(
-            "Row double-clicked. source={Source} resolved={Row}",
-            e.OriginalSource?.GetType().Name ?? "null",
-            row?.Name ?? "none");
+            "Row double-clicked. resolved={Row} chain={Chain}",
+            row?.Name ?? "none",
+            AncestorChain(e.OriginalSource));
 
         if (row is null)
         {
