@@ -43,6 +43,7 @@ public readonly record struct FilenameParseResult(
 public sealed class FilenameDateParser
 {
     private readonly ConcurrentDictionary<string, Regex> _compiled = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, FilenamePattern> _custom = new(StringComparer.Ordinal);
     private readonly IReadOnlyList<FilenamePattern> _patterns;
     private readonly int _minYear;
     private readonly int _maxYear;
@@ -107,12 +108,33 @@ public sealed class FilenameDateParser
         return FilenameParseResult.None;
     }
 
+    /// <summary>
+    /// Adds a pattern the user built, for this session.
+    ///
+    /// Registered rather than added to the list every file is tried against, and that is
+    /// deliberate: a pattern built from one filename is a statement about THAT shape of
+    /// name, and letting it compete with the built-ins on everything else is how a pattern
+    /// meant for one camera starts claiming dates out of serial numbers. It is used only
+    /// when a rule names it.
+    /// </summary>
+    public void Register(FilenamePattern pattern)
+    {
+        ArgumentNullException.ThrowIfNull(pattern);
+
+        this._custom[pattern.Id] = pattern;
+
+        // Dropped so an edited pattern reusing an id cannot keep matching with the regex
+        // it was compiled from last time.
+        _ = this._compiled.TryRemove(pattern.Id, out _);
+    }
+
     /// <summary>Parses with one named pattern, which is what DateSource.FromFileName asks for.</summary>
     public FilenameParseResult ParseWith(string path, string patternId)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
-        FilenamePattern? pattern = this._patterns.FirstOrDefault(p => p.Id == patternId)
+        FilenamePattern? pattern = this._custom.GetValueOrDefault(patternId)
+            ?? this._patterns.FirstOrDefault(p => p.Id == patternId)
             ?? BuiltInPatterns.ById(patternId);
 
         if (pattern is null)

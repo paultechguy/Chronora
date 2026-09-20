@@ -333,6 +333,33 @@ public sealed partial class MainWindow : Window
 
     private AboutWindow? _about;
 
+    /// <summary>
+    /// Opens the chip builder on one real filename.
+    ///
+    /// The selected row when there is one, because that is the file the person is looking
+    /// at and probably the one that is not being recognised. Otherwise the first in the
+    /// list - building a pattern needs a concrete name, and asking somebody to pick one
+    /// before they can start is a step in the way of the thing itself.
+    /// </summary>
+    private async void OnBuildFilenamePattern(object sender, RoutedEventArgs e)
+    {
+        PlanRowViewModel? row = this.Workbench.SelectedRow ?? this.Workbench.Rows.FirstOrDefault();
+
+        if (row is null)
+        {
+            this.Workbench.ScanStatus = "Add some files first, then Chronora can learn from one of their names.";
+            return;
+        }
+
+        await FilenamePatternDialog.ShowAsync(
+            this.Content.XamlRoot,
+            this.Workbench,
+            Path.GetFileNameWithoutExtension(row.File.FullPath));
+    }
+
+    private void OnForgetFilenamePattern(object sender, RoutedEventArgs e) =>
+        this.Workbench.ForgetFilenamePattern();
+
 
     /// <summary>
     /// Fills a row's thumbnail as its container is realised, in two phases.

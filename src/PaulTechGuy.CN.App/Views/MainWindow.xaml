@@ -550,6 +550,31 @@
                         </ComboBox.ItemTemplate>
                     </ComboBox>
 
+                    <!--
+                        Chronora tries its own list of known filename shapes first, and for
+                        most people that is the end of it. This is the escape hatch for the
+                        camera nobody has heard of - and it is a chip builder rather than a
+                        regex box because the person who needs an escape hatch is the one
+                        the built-ins just failed.
+                    -->
+                    <StackPanel Spacing="8" Visibility="{x:Bind Workbench.NeedsFilenameInput, Mode=OneWay}">
+                        <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Text="Chronora recognises most camera and phone file names on its own. If yours is not one of them, show it which numbers are the date." />
+
+                        <Button Content="Teach it this file name…" HorizontalAlignment="Stretch"
+                                Click="OnBuildFilenamePattern"
+                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}" />
+
+                        <StackPanel Spacing="4" Visibility="{x:Bind Workbench.HasCustomPattern, Mode=OneWay}">
+                            <TextBlock Text="{x:Bind Workbench.CustomPatternTokens, Mode=OneWay}"
+                                       FontFamily="Consolas" TextWrapping="Wrap"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                            <HyperlinkButton Content="Use the built-in patterns instead"
+                                             Click="OnForgetFilenamePattern" />
+                        </StackPanel>
+                    </StackPanel>
+
                     <TextBlock Text="Write it to" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
                     <StackPanel Spacing="2">
                         <!--

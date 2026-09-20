@@ -98,6 +98,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private readonly ExifToolService _exifTool;
     private readonly MetadataGateway _metadata;
     private readonly TemplateStore _templates;
+
+    /// <summary>
+    /// The same instance the evaluator holds, which is the whole reason it is injected
+    /// here: a pattern registered on this object is one the evaluator can already use.
+    /// </summary>
+    private readonly FilenameDateParser _filenames;
     private readonly IAppPaths _paths;
     private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<WorkbenchViewModel> _logger;
@@ -128,10 +134,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         ExifToolService exifTool,
         MetadataGateway metadata,
         TemplateStore templates,
+        FilenameDateParser filenames,
         IAppPaths paths,
         IUiDispatcher dispatcher,
         ILogger<WorkbenchViewModel> logger)
     {
+        this._filenames = filenames;
         this._scanner = scanner;
         this._evaluator = evaluator;
         this._apply = apply;
@@ -705,6 +713,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.NeedsAbsoluteInput));
         this.OnPropertyChanged(nameof(this.NeedsShiftInput));
         this.OnPropertyChanged(nameof(this.NeedsCopyFromInput));
+        this.OnPropertyChanged(nameof(this.NeedsFilenameInput));
         this.NotifyIntentDerived();
         this.QueueRecompute();
     }
@@ -717,6 +726,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool NeedsShiftInput => this.Source == SourceChoice.ShiftBy;
 
     public bool NeedsCopyFromInput => this.Source == SourceChoice.FromAnotherDate;
+
+    public bool NeedsFilenameInput => this.Source == SourceChoice.FromFileName;
 
     [ObservableProperty]
     public partial DateTimeOffset? AbsoluteDate { get; set; }
@@ -1643,6 +1654,118 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             ?? row.File.Times.Created;
     }
 
+    // ---- A pattern the user built ---------------------------------------------------
+
+    /// <summary>
+    /// One id, reused. There is only ever one hand-built pattern in play, and giving each
+    /// attempt its own id would leave a session quietly accumulating dead patterns that
+    /// an old recipe could still name.
+    /// </summary>
+    public const string CustomPatternId = "user.built";
+
+    /// <summary>The tokens of the pattern built here, or null when there is not one.</summary>
+    [ObservableProperty]
+    public partial string? CustomPatternTokens { get; set; }
+
+    public bool HasCustomPattern => this.CustomPatternTokens is not null;
+
+    partial void OnCustomPatternTokensChanged(string? value) =>
+        this.OnPropertyChanged(nameof(this.HasCustomPattern));
+
+    /// <summary>
+    /// Takes the pattern built from one filename and points the run at it.
+    ///
+    /// Named explicitly by the recipe rather than thrown in with the built-ins, so it is
+    /// used on every file but competes with nothing. A pattern built from one camera's
+    /// filenames, let loose on the general matching path, starts finding dates in serial
+    /// numbers.
+    /// </summary>
+    public void UseFilenamePattern(string tokens, DatePrecision precision)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tokens);
+
+        this._filenames.Register(new FilenamePattern(
+            CustomPatternId,
+            "Your pattern",
+            PatternMode.Tokens,
+            tokens,
+            PatternScope.FileNameWithoutExtension,
+            precision));
+
+        this.CustomPatternTokens = tokens;
+        this.Source = SourceChoice.FromFileName;
+
+        this.ScanStatus = "Using the pattern you built from the file name.";
+
+        this.Recompute();
+    }
+
+    /// <summary>Goes back to trying the built-in patterns.</summary>
+    public void ForgetFilenamePattern()
+    {
+        this.CustomPatternTokens = null;
+        this.ScanStatus = "Back to the file name patterns Chronora knows.";
+
+        this.Recompute();
+    }
+
+    /// <summary>
+    /// What a candidate pattern would do to the files already loaded, without committing
+    /// to it.
+    ///
+    /// Through the real parser rather than a bare regex match, so the plausibility and
+    /// ambiguity gates apply here exactly as they will in the run. A preview that counted
+    /// regex hits would happily promise 1,284 matches and then deliver far fewer.
+    /// </summary>
+    public FilenamePatternPreview PreviewFilenamePattern(string tokens, DatePrecision precision)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tokens);
+
+        var trial = new FilenameDateParser();
+
+        trial.Register(new FilenamePattern(
+            "preview",
+            "preview",
+            PatternMode.Tokens,
+            tokens,
+            PatternScope.FileNameWithoutExtension,
+            precision));
+
+        int matched = 0;
+        var samples = new List<string>();
+
+        foreach (PlanRowViewModel row in this._allRows)
+        {
+            FilenameParseResult result;
+
+            try
+            {
+                result = trial.ParseWith(row.File.FullPath, "preview");
+            }
+            catch (FormatException)
+            {
+                // A half-finished pattern. Nothing matches, which is the honest answer.
+                return new FilenamePatternPreview(0, this._allRows.Count, []);
+            }
+
+            if (!result.Success)
+            {
+                continue;
+            }
+
+            matched++;
+
+            if (samples.Count < 3)
+            {
+                samples.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"{row.Name} → {result.Match.Value:yyyy-MM-dd HH:mm}"));
+            }
+        }
+
+        return new FilenamePatternPreview(matched, this._allRows.Count, samples);
+    }
+
     // ---- Remembering the last run's shape -----------------------------------------------
 
     /// <summary>
@@ -2392,7 +2515,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             SourceChoice.ShiftBy => new DateSource.Shift(TimeSpan.FromHours(this.ShiftHours), ShiftBasis.WallClock),
             SourceChoice.FromAnotherDate => new DateSource.CopyFrom(Aggregate.FirstPresent, [this.CopyFromField]),
-            SourceChoice.FromFileName => new DateSource.FromFileName(string.Empty),
+            SourceChoice.FromFileName => new DateSource.FromFileName(
+                this.CustomPatternTokens is null ? string.Empty : CustomPatternId),
             // Unset until a date is picked. The targets stay in the recipe either way, so
             // the app goes on saying that photo dates need ExifTool and that a field
             // cannot be written - warnings that are just as true before the date is chosen.

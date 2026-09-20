@@ -76,14 +76,20 @@ internal sealed class WorkbenchFixture : IDisposable
         this.Metadata = new MetadataGateway(
             exifTool, new MetadataReader(), new MetadataWriter(), NullLogger<MetadataGateway>.Instance);
 
+        // One parser, shared, exactly as the container hands out one singleton. Two would
+        // build and run fine and then quietly fail the only thing that matters: a pattern
+        // registered by the view model has to be one the evaluator can find.
+        var filenames = new FilenameDateParser();
+
         this.ViewModel = new WorkbenchViewModel(
             new FileScanner(writer, volumes),
-            new RuleEvaluator(),
+            new RuleEvaluator(filenames),
             new ApplyService(writer, volumes, this.Journal, NullLogger<ApplyService>.Instance, this.Metadata),
             this.Journal,
             exifTool,
             this.Metadata,
             new TemplateStore(paths),
+            filenames,
             paths,
             new ImmediateDispatcher(),
             NullLogger<WorkbenchViewModel>.Instance);
