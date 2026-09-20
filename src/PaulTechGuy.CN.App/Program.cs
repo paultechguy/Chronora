@@ -158,6 +158,7 @@ public static class Program
         builder.Services.AddSingleton<MetadataGateway>();
 
         builder.Services.AddSingleton<TemplateStore>();
+        builder.Services.AddSingleton<SettingsStore>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<WorkbenchViewModel>();

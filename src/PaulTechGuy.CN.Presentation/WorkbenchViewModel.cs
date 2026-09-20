@@ -1643,6 +1643,72 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             ?? row.File.Times.Created;
     }
 
+    // ---- Remembering the last run's shape -----------------------------------------------
+
+    /// <summary>
+    /// Restores the options from a previous session.
+    ///
+    /// Order matters. Choosing the intent sets the write targets as a side effect - that is
+    /// its job - so the saved targets have to land after it, or picking an intent last time
+    /// would quietly undo the boxes that were ticked after it.
+    ///
+    /// Nothing here loads files or sets a date, so restoring cannot produce a plan. The app
+    /// still opens with nothing to apply.
+    /// </summary>
+    public void ApplySettings(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (Enum.TryParse(settings.Intent, out WorkIntent intent) && intent != WorkIntent.None)
+        {
+            this.ChooseIntent(intent);
+        }
+
+        this.WriteCreated = settings.WriteCreated;
+        this.WriteModified = settings.WriteModified;
+        this.WriteAccessed = settings.WriteAccessed;
+        this.WriteChanged = settings.WriteChanged;
+        this.WriteTaken = settings.WriteTaken;
+
+        if (Enum.TryParse(settings.Source, out SourceChoice source))
+        {
+            this.Source = source;
+        }
+
+        if (Enum.TryParse(settings.CopyFromField, out DateField copyFrom))
+        {
+            this.CopyFromField = copyFrom;
+        }
+
+        if (Enum.TryParse(settings.Sort, out SortChoice sort))
+        {
+            this.Sort = sort;
+        }
+
+        this.ShiftHours = settings.ShiftHours;
+        this.ShowOnlyChanging = settings.ShowOnlyChanging;
+        this.ShowOnlyProblems = settings.ShowOnlyProblems;
+    }
+
+    /// <summary>Copies the current options into the settings about to be written.</summary>
+    public void CaptureSettings(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        settings.Intent = this.Intent.ToString();
+        settings.Source = this.Source.ToString();
+        settings.WriteCreated = this.WriteCreated;
+        settings.WriteModified = this.WriteModified;
+        settings.WriteAccessed = this.WriteAccessed;
+        settings.WriteChanged = this.WriteChanged;
+        settings.WriteTaken = this.WriteTaken;
+        settings.CopyFromField = this.CopyFromField.ToString();
+        settings.ShiftHours = this.ShiftHours;
+        settings.Sort = this.Sort.ToString();
+        settings.ShowOnlyChanging = this.ShowOnlyChanging;
+        settings.ShowOnlyProblems = this.ShowOnlyProblems;
+    }
+
     /// <summary>
     /// A row writing to fields outside the file system has to be planned in photo mode,
     /// whatever mode the rest of the run is in - otherwise the metadata target is filtered

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 using PaulTechGuy.CN.App.Views;
 using PaulTechGuy.CN.Journal;
+using PaulTechGuy.CN.Repositories;
 using Serilog;
 
 namespace PaulTechGuy.CN.App;
@@ -52,8 +53,20 @@ public partial class App : Application
             Log.Warning("{Count} run(s) from a previous session did not finish.", interrupted);
         }
 
+        SettingsStore settings = this._host.Services.GetRequiredService<SettingsStore>();
+
         MainWindow window = this._host.Services.GetRequiredService<MainWindow>();
 
+        // After the window exists, because restoring the options runs a recompute and the
+        // dispatcher it posts to belongs to the UI thread the window set up. Nothing is
+        // loaded yet, so this recomputes an empty list - which is the point: the shape of
+        // the last run comes back, a plan does not.
+        window.Workbench.ApplySettings(settings.Current);
+
+        if (settings.IsReadOnly)
+        {
+            Log.Warning("Settings are read-only and will not be saved: {Reason}", settings.ReadOnlyReason);
+        }
 
         MainWindowHandle = window;
         window.Activate();

@@ -13,6 +13,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PaulTechGuy.CN.Presentation;
+using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Domain;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
@@ -29,10 +30,24 @@ public sealed partial class MainWindow : Window
     private const int MinimumWidth = 980;
     private const int MinimumHeight = 640;
 
-    public MainWindow(MainViewModel viewModel, WorkbenchViewModel workbench)
+    private readonly SettingsStore _settings;
+
+    /// <summary>
+    /// The last bounds the window had while NOT maximized.
+    ///
+    /// Tracked rather than read at closing time, because AppWindow reports the maximized
+    /// bounds while maximized and there is no "restore rectangle" to ask for. Saving what
+    /// is on screen would mean that closing maximized, then unmaximizing next time, leaves
+    /// a window exactly the size of the display with a title bar - which is the one shape
+    /// a person cannot easily get out of.
+    /// </summary>
+    private RectInt32 _restoredBounds;
+
+    public MainWindow(MainViewModel viewModel, WorkbenchViewModel workbench, SettingsStore settings)
     {
         this.ViewModel = viewModel;
         this.Workbench = workbench;
+        this._settings = settings;
 
         this.InitializeComponent();
 
@@ -41,8 +56,8 @@ public sealed partial class MainWindow : Window
         this.ExtendsContentIntoTitleBar = true;
         this.SetTitleBar(this.AppTitleBar);
 
-        this.AppWindow.Resize(new SizeInt32(1360, 880));
-        this.AppWindow.Changed += OnAppWindowChanged;
+        this.RestorePlacement();
+        this.AppWindow.Changed += this.OnAppWindowChanged;
 
         // handledEventsToo, which is the whole point. A ListViewItem marks tap events as
         // handled while doing its own selection, so a DoubleTapped hook declared on the
@@ -77,6 +92,8 @@ public sealed partial class MainWindow : Window
         // it did not shut down, because it did not.
         this.Closed += (_, _) =>
         {
+            this.SavePlacement();
+
             this._history?.Close();
             this._history = null;
         };
@@ -86,21 +103,96 @@ public sealed partial class MainWindow : Window
 
     public WorkbenchViewModel Workbench { get; }
 
-    /// <summary>WinUI has no MinWidth on a Window, so the clamp is applied on resize.</summary>
-    private static void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    /// <summary>
+    /// WinUI has no MinWidth on a Window, so the clamp is applied on resize. The same
+    /// event is where the restorable bounds get remembered.
+    /// </summary>
+    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
-        if (!args.DidSizeChange)
+        if (!args.DidSizeChange && !args.DidPositionChange)
         {
             return;
         }
 
-        int width = Math.Max(sender.Size.Width, MinimumWidth);
-        int height = Math.Max(sender.Size.Height, MinimumHeight);
-
-        if (width != sender.Size.Width || height != sender.Size.Height)
+        if (args.DidSizeChange)
         {
-            sender.Resize(new SizeInt32(width, height));
+            int width = Math.Max(sender.Size.Width, MinimumWidth);
+            int height = Math.Max(sender.Size.Height, MinimumHeight);
+
+            if (width != sender.Size.Width || height != sender.Size.Height)
+            {
+                sender.Resize(new SizeInt32(width, height));
+                return;
+            }
         }
+
+        // Only while ordinary. Maximized and minimized bounds are not somewhere to reopen.
+        if (sender.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Restored })
+        {
+            this._restoredBounds = new RectInt32(
+                sender.Position.X,
+                sender.Position.Y,
+                sender.Size.Width,
+                sender.Size.Height);
+        }
+    }
+
+    /// <summary>
+    /// Puts the window back where it was, if where it was still exists.
+    ///
+    /// The monitor check is the part that matters. A window restored to the coordinates of
+    /// a second screen that has since been unplugged opens completely off the desktop -
+    /// running, in the task bar, and impossible to reach with the mouse.
+    /// </summary>
+    private void RestorePlacement()
+    {
+        AppSettings saved = this._settings.Current;
+
+        var fallback = new SizeInt32(1360, 880);
+
+        if (saved is { WindowX: { } x, WindowY: { } y, WindowWidth: { } w, WindowHeight: { } h }
+            && w >= MinimumWidth
+            && h >= MinimumHeight
+            && DisplayArea.GetFromRect(new RectInt32(x, y, w, h), DisplayAreaFallback.None) is not null)
+        {
+            this.AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
+            this._restoredBounds = new RectInt32(x, y, w, h);
+        }
+        else
+        {
+            this.AppWindow.Resize(fallback);
+        }
+
+        if (saved.WindowMaximized && this.AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.Maximize();
+        }
+    }
+
+    /// <summary>
+    /// Records where the window was, and hands the options their turn to be recorded too.
+    ///
+    /// On close rather than on every change. Losing a window size to a crash costs one
+    /// resize; writing a file on every drag of a window edge costs a great deal more.
+    /// </summary>
+    private void SavePlacement()
+    {
+        AppSettings saved = this._settings.Current;
+
+        saved.WindowMaximized =
+            this.AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized };
+
+        if (this._restoredBounds is { Width: > 0, Height: > 0 })
+        {
+            saved.WindowX = this._restoredBounds.X;
+            saved.WindowY = this._restoredBounds.Y;
+            saved.WindowWidth = this._restoredBounds.Width;
+            saved.WindowHeight = this._restoredBounds.Height;
+        }
+
+        this.Workbench.CaptureSettings(saved);
+
+        _ = this._settings.Save();
     }
 
     private async void OnAddFolder(object sender, RoutedEventArgs e)
