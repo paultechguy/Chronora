@@ -79,6 +79,9 @@ public class ApplyServiceTests
     private static readonly RunHeader Header =
         new(RunKind.Apply, "0.1.0", null, "UTC", "{}", ["test"]);
 
+    /// <summary>The ambient test token, so a cancelled test run stops these promptly.</summary>
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
     private static FilePlan PlanFor(string path, ScannedFile file, DateTimeOffset to)
     {
         var evaluator = new RuleEvaluator();
@@ -97,7 +100,7 @@ public class ApplyServiceTests
         var scanner = new FileScanner(ws.Writer);
         ScannedFile file = null!;
 
-        await foreach (ScannedFile f in scanner.ScanAsync(ws.Files, ScanFilter.Default))
+        await foreach (ScannedFile f in scanner.ScanAsync(ws.Files, ScanFilter.Default, Ct))
         {
             if (string.Equals(f.FullPath, path, StringComparison.OrdinalIgnoreCase))
             {
@@ -121,13 +124,13 @@ public class ApplyServiceTests
 
         (ScannedFile file, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
 
         applied.Written.ShouldBe(1);
         applied.Status.ShouldBe(RunStatus.Completed);
         ws.Read(path).Created!.Value.ShouldBe(Target);
 
-        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header);
+        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, false, null, Ct);
 
         undone.Written.ShouldBe(1);
         ws.Read(path).Created!.Value.ShouldBe(Original);
@@ -145,7 +148,7 @@ public class ApplyServiceTests
         string path = ws.CreateFile("photo.jpg", Original);
         (_, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
 
         var recorded = ws.Journal.ReadRevertable(applied.RunId);
         JournalFieldChange created = recorded.Single().Changes.First(c => c.Field == DateField.FileCreated);
@@ -165,13 +168,13 @@ public class ApplyServiceTests
         string path = ws.CreateFile("photo.jpg", Original);
         (_, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
 
         // Somebody else, later.
         var theirs = new DateTimeOffset(2025, 6, 1, 8, 0, 0, TimeSpan.Zero);
         _ = ws.Writer.Write(path, new TimestampSet(theirs, null, null, null), isDirectory: false);
 
-        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header);
+        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, false, null, Ct);
 
         undone.Written.ShouldBe(0);
         undone.Failed.ShouldBe(1);
@@ -186,10 +189,10 @@ public class ApplyServiceTests
         string path = ws.CreateFile("photo.jpg", Original);
         (_, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
         _ = ws.Writer.Write(path, new TimestampSet(new DateTimeOffset(2025, 6, 1, 8, 0, 0, TimeSpan.Zero), null, null, null), isDirectory: false);
 
-        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, force: true);
+        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, force: true, progress: null, cancellationToken: Ct);
 
         undone.Written.ShouldBe(1);
         ws.Read(path).Created!.Value.ShouldBe(Original);
@@ -203,10 +206,10 @@ public class ApplyServiceTests
         string path = ws.CreateFile("photo.jpg", Original);
         (_, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
         File.Delete(path);
 
-        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header);
+        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, false, null, Ct);
 
         undone.Status.ShouldBe(RunStatus.Completed);
         undone.Failed.ShouldBe(1);
@@ -223,8 +226,8 @@ public class ApplyServiceTests
         string path = ws.CreateFile("photo.jpg", Original);
         (_, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header);
-        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header);
+        ApplyOutcome applied = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
+        ApplyOutcome undone = await ws.Apply.RevertAsync(applied.RunId, Header, false, null, Ct);
 
         IReadOnlyList<JournalRun> history = ws.Journal.ListRuns();
 
@@ -251,7 +254,7 @@ public class ApplyServiceTests
         var seen = new List<ApplyProgress>();
         var progress = new Progress<ApplyProgress>(seen.Add);
 
-        ApplyOutcome outcome = await ws.Apply.ApplyAsync(plans, Header, progress);
+        ApplyOutcome outcome = await ws.Apply.ApplyAsync(plans, Header, progress, Ct);
 
         outcome.Written.ShouldBe(5);
 
@@ -268,7 +271,7 @@ public class ApplyServiceTests
         string path = ws.CreateFile("photo.jpg", Target);
         (_, FilePlan plan) = await ScanOneAsync(ws, path, Target);
 
-        ApplyOutcome outcome = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome outcome = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
 
         outcome.Written.ShouldBe(0);
         outcome.Skipped.ShouldBe(1);
@@ -286,7 +289,7 @@ public class ApplyServiceTests
 
         var scanner = new FileScanner(ws.Writer);
         ScannedFile file = null!;
-        await foreach (ScannedFile f in scanner.ScanAsync(ws.Files, ScanFilter.Default))
+        await foreach (ScannedFile f in scanner.ScanAsync(ws.Files, ScanFilter.Default, Ct))
         {
             file = f;
         }
@@ -302,7 +305,7 @@ public class ApplyServiceTests
         FilePlan plan = new RuleEvaluator().Evaluate(
             file, recipe, new EvaluationContext(ClockContext.Local, DateTimeOffset.UtcNow, MetadataEngineAvailable: true));
 
-        ApplyOutcome outcome = await ws.Apply.ApplyAsync([plan], Header);
+        ApplyOutcome outcome = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
 
         outcome.Written.ShouldBe(0);
         outcome.Skipped.ShouldBe(1);
