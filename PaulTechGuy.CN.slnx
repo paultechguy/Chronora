@@ -19,5 +19,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/PaulTechGuy.CN.Rules.Tests/PaulTechGuy.CN.Rules.Tests.csproj" />
     <Project Path="tests/PaulTechGuy.CN.FileSystem.Tests/PaulTechGuy.CN.FileSystem.Tests.csproj" />
+    <Project Path="tests/PaulTechGuy.CN.Journal.Tests/PaulTechGuy.CN.Journal.Tests.csproj" />
   </Folder>
 </Solution>
