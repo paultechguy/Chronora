@@ -303,6 +303,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.ShowsAdvancedFields));
         this.OnPropertyChanged(nameof(this.Mode));
         this.OnPropertyChanged(nameof(this.IntentNote));
+
+        // Depends on the intent AND on the engine, so it has to be raised from both
+        // places. Splitting the notifications by which input changed is what let this go
+        // missing twice: whoever adds the next computed property will think about only one
+        // of its inputs. Everything derived is raised together, from here, always.
+        this.OnPropertyChanged(nameof(this.NeedsExifTool));
+        this.OnPropertyChanged(nameof(this.EngineDetail));
     }
 
     // ---- Source -----------------------------------------------------------------------
@@ -315,6 +322,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.NeedsAbsoluteInput));
         this.OnPropertyChanged(nameof(this.NeedsShiftInput));
         this.OnPropertyChanged(nameof(this.NeedsCopyFromInput));
+        this.NotifyIntentDerived();
         this.QueueRecompute();
     }
 
@@ -349,7 +357,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial DateField CopyFromField { get; set; } = DateField.FileModified;
 
-    partial void OnCopyFromFieldChanged(DateField value) => this.QueueRecompute();
+    partial void OnCopyFromFieldChanged(DateField value)
+    {
+        this.NotifyIntentDerived();
+        this.QueueRecompute();
+    }
 
     // ---- Targets ----------------------------------------------------------------------
 
@@ -489,8 +501,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnEngineStatusChanged(EngineStatus value)
     {
-        this.OnPropertyChanged(nameof(this.NeedsExifTool));
-        this.OnPropertyChanged(nameof(this.EngineDetail));
+        this.NotifyIntentDerived();
         this.Recompute();
     }
 
@@ -499,8 +510,22 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// affordance that opens the consent pane - visibly unavailable rather than hidden,
     /// because hiding it would make the app look like it cannot do what it promises.
     /// </summary>
-    public bool NeedsExifTool =>
-        !this.EngineStatus.Available && (this.BuildRecipe().NeedsMetadataWrite || this.BuildRecipe().NeedsMetadataRead);
+    public bool NeedsExifTool
+    {
+        get
+        {
+            if (this.EngineStatus.Available)
+            {
+                return false;
+            }
+
+            Recipe recipe = this.BuildRecipe();
+
+            // Reading counts as much as writing. "Copy the photo's taken date onto the
+            // file dates" writes nothing but file dates and still cannot run without it.
+            return recipe.NeedsMetadataWrite || recipe.NeedsMetadataRead;
+        }
+    }
 
     public string EngineDetail => this.EngineStatus.Detail;
 
