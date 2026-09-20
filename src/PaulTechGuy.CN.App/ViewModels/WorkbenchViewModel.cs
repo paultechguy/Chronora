@@ -9,7 +9,9 @@ using Microsoft.Extensions.Logging;
 using PaulTechGuy.CN.Domain;
 using PaulTechGuy.CN.Services;
 using PaulTechGuy.CN.FileSystem;
+using PaulTechGuy.CN.Abstractions;
 using PaulTechGuy.CN.Journal;
+using PaulTechGuy.CN.Metadata;
 using PaulTechGuy.CN.Rules;
 
 namespace PaulTechGuy.CN.App.ViewModels;
@@ -91,6 +93,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private readonly RuleEvaluator _evaluator;
     private readonly ApplyService _apply;
     private readonly SqliteJournal _journal;
+    private readonly ExifToolService _exifTool;
+    private readonly IAppPaths _paths;
     private readonly ILogger<WorkbenchViewModel> _logger;
 
     private readonly List<PlanRowViewModel> _allRows = [];
@@ -110,12 +114,16 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         RuleEvaluator evaluator,
         ApplyService apply,
         SqliteJournal journal,
+        ExifToolService exifTool,
+        IAppPaths paths,
         ILogger<WorkbenchViewModel> logger)
     {
         this._scanner = scanner;
         this._evaluator = evaluator;
         this._apply = apply;
         this._journal = journal;
+        this._exifTool = exifTool;
+        this._paths = paths;
         this._logger = logger;
 
         this.AbsoluteDate = DateTimeOffset.Now.Date;
@@ -468,6 +476,75 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             this.IsScanning = false;
         }
+    }
+
+    // ---- ExifTool ---------------------------------------------------------------------
+
+    /// <summary>
+    /// What the engine can do right now, revalidated rather than remembered. A copy the
+    /// user manages can be upgraded or uninstalled between sessions.
+    /// </summary>
+    [ObservableProperty]
+    public partial EngineStatus EngineStatus { get; set; } = Metadata.EngineStatus.NotConfigured;
+
+    partial void OnEngineStatusChanged(EngineStatus value)
+    {
+        this.OnPropertyChanged(nameof(this.NeedsExifTool));
+        this.OnPropertyChanged(nameof(this.EngineDetail));
+        this.Recompute();
+    }
+
+    /// <summary>
+    /// True when the current recipe wants metadata and cannot have it. Drives the one
+    /// affordance that opens the consent pane - visibly unavailable rather than hidden,
+    /// because hiding it would make the app look like it cannot do what it promises.
+    /// </summary>
+    public bool NeedsExifTool =>
+        !this.EngineStatus.Available && (this.BuildRecipe().NeedsMetadataWrite || this.BuildRecipe().NeedsMetadataRead);
+
+    public string EngineDetail => this.EngineStatus.Detail;
+
+    /// <summary>Checks where things stand. Reads the disk; touches the network only if asked later.</summary>
+    public async Task RefreshEngineAsync(CancellationToken cancellationToken = default) =>
+        this.EngineStatus = await this._exifTool.RefreshAsync(this._paths.DataDirectory, cancellationToken).ConfigureAwait(true);
+
+    /// <summary>Everything the consent pane needs to describe the choice honestly.</summary>
+    public IReadOnlyList<ExifToolCandidate> FindExistingExifTool() => this._exifTool.FindExisting();
+
+    public Task<ExifToolManifest?> GetExifToolOfferAsync(CancellationToken cancellationToken = default) =>
+        this._exifTool.GetOfferAsync(cancellationToken);
+
+    public async Task<EngineStatus> UseExistingExifToolAsync(string path, CancellationToken cancellationToken = default)
+    {
+        this.EngineStatus = await this._exifTool
+            .UseExistingAsync(path, this._paths.DataDirectory, cancellationToken)
+            .ConfigureAwait(true);
+
+        return this.EngineStatus;
+    }
+
+    public async Task<EngineStatus> InstallExifToolAsync(IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+    {
+        this.EngineStatus = await this._exifTool
+            .InstallAsync(this._paths.DataDirectory, progress, cancellationToken)
+            .ConfigureAwait(true);
+
+        return this.EngineStatus;
+    }
+
+    public async Task<EngineStatus> RepairExifToolAsync(IProgress<double>? progress = null, CancellationToken cancellationToken = default)
+    {
+        this.EngineStatus = await this._exifTool
+            .RepairAsync(this._paths.DataDirectory, progress, cancellationToken)
+            .ConfigureAwait(true);
+
+        return this.EngineStatus;
+    }
+
+    public void RemoveExifTool()
+    {
+        this._exifTool.Remove(this._paths.DataDirectory);
+        this.EngineStatus = this._exifTool.Status;
     }
 
     // ---- Reversible actions -----------------------------------------------------------
@@ -1074,7 +1151,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public void Recompute()
     {
         Recipe recipe = this.BuildRecipe();
-        var context = new EvaluationContext(ClockContext.Local, DateTimeOffset.Now, MetadataEngineAvailable: false);
+
+        // The real state, not an assumption. A machine-wide ExifTool can be upgraded or
+        // uninstalled between sessions, so the preview reflects whatever the last
+        // validation found rather than what was true when the app started.
+        var context = new EvaluationContext(
+            ClockContext.Local,
+            DateTimeOffset.Now,
+            this._exifTool.Status.Available);
 
         foreach (PlanRowViewModel row in this._allRows)
         {

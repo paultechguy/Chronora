@@ -12,6 +12,7 @@ using PaulTechGuy.CN.App.Views;
 using PaulTechGuy.CN.Services;
 using PaulTechGuy.CN.FileSystem;
 using PaulTechGuy.CN.Journal;
+using PaulTechGuy.CN.Metadata;
 using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Rules;
 using Serilog;
@@ -111,18 +112,33 @@ public static class Program
         builder.Services.AddSingleton<FilenameDateParser>();
         builder.Services.AddSingleton<RuleEvaluator>();
 
-
         // The journal is opened once and held: SQLite in WAL mode allows a single writer,
-
         // and a run that reopened it per batch would fight itself.
 
         builder.Services.AddSingleton(sp => SqliteJournal.Open(
-
             paths.JournalDatabasePath,
-
             sp.GetRequiredService<ILogger<SqliteJournal>>()));
 
         builder.Services.AddSingleton<ApplyService>();
+
+        // ExifTool. Nothing here touches the network until the user asks for it: the
+        // locator only reads the disk, and the manifest and installer are reached solely
+        // from an explicit choice in the consent pane.
+        builder.Services.AddSingleton(_ =>
+        {
+            var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+            client.DefaultRequestHeaders.Add(
+                "User-Agent",
+                $"Chronora/{typeof(Program).Assembly.GetName().Version?.ToString() ?? "0.0.0"}");
+
+            return client;
+        });
+
+        builder.Services.AddSingleton<ExifToolLocator>();
+        builder.Services.AddSingleton<ExifToolValidator>();
+        builder.Services.AddSingleton<ExifToolManifestSource>();
+        builder.Services.AddSingleton<ExifToolInstaller>();
+        builder.Services.AddSingleton<ExifToolService>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<WorkbenchViewModel>();

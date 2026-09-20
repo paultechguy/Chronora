@@ -138,6 +138,14 @@ public sealed partial class MainWindow : Window
 
     private void OnDismissNudge(InfoBar sender, object args) => this.Workbench.DismissNudge();
 
+    /// <summary>
+    /// Opens the consent pane. Only ever reached from this button, which appears only
+    /// once the user has asked for something that needs ExifTool - so the question is
+    /// never put to somebody who has not shown they want the answer.
+    /// </summary>
+    private async void OnSetUpExifTool(object sender, RoutedEventArgs e) =>
+        _ = await ExifToolConsent.ShowAsync(this.Content.XamlRoot, this.Workbench);
+
     private void OnIntentChecked(object sender, RoutedEventArgs e)
     {
         if (this.Workbench is not null

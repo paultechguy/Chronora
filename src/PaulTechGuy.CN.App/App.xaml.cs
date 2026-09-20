@@ -36,6 +36,12 @@ public partial class App : Application
     /// </summary>
     public static IServiceProvider Services { get; private set; } = null!;
 
+    /// <summary>
+    /// The main window, so an unpackaged file picker has something to parent to. An
+    /// unpackaged app has no implicit window and the dialog simply never appears without it.
+    /// </summary>
+    public static Window MainWindowHandle { get; private set; } = null!;
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         // A run still marked Running did not finish. Resolving that here, before any UI
@@ -47,7 +53,15 @@ public partial class App : Application
         }
 
         MainWindow window = this._host.Services.GetRequiredService<MainWindow>();
+
+
+        MainWindowHandle = window;
         window.Activate();
+
+        // Revalidated at every launch rather than trusted. A copy the user manages can
+        // have been upgraded, uninstalled or quarantined since the last session, and a
+        // remembered path is a starting point, never a promise.
+        _ = window.Workbench.RefreshEngineAsync();
     }
 
     private static void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)

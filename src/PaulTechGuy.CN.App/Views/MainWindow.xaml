@@ -103,6 +103,21 @@
                     </InfoBar>
 
                     <!--
+                        The metadata half is unavailable. Shown rather than hidden: hiding
+                        it would make the app look like it cannot do what it promises, and
+                        the user has already asked for something that needs it. One
+                        affordance, which opens the consent pane.
+                    -->
+                    <InfoBar IsOpen="{x:Bind Workbench.NeedsExifTool, Mode=OneWay}"
+                             Message="{x:Bind Workbench.EngineDetail, Mode=OneWay}"
+                             Title="Photo dates need a free helper"
+                             Severity="Warning" IsClosable="False">
+                        <InfoBar.ActionButton>
+                            <Button Content="Set up ExifTool" Click="OnSetUpExifTool" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+
+                    <!--
                         The content contradicts the chosen intent. Said once, acted on only
                         if asked: the app knows a folder of documents has no Taken date, and
                         staying quiet would withhold the answer, while changing the choice
