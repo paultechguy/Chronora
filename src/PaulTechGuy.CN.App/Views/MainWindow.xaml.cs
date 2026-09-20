@@ -237,7 +237,7 @@ public sealed partial class MainWindow : Window
             // Lookups only. Nothing in phase 0 may wait for anything: this ran the icon
             // build here once and froze the app on the first row, because producing an
             // ImageSource ends in SetBitmapAsync and that completes ON the UI thread.
-            bool haveThumbnail = ThumbnailProvider.TryGetCached(row.File.FullPath, out ImageSource? ready);
+            bool haveThumbnail = ThumbnailProvider.TryGetThumbnail(row.File.FullPath, out ImageSource? ready);
 
             if (haveThumbnail)
             {
@@ -292,6 +292,14 @@ public sealed partial class MainWindow : Window
         {
             // Scrolled away from. Normal, not a fault.
         }
+        catch (Exception ex)
+        {
+            // Catch-all, and it has to be. This is async void, so anything escaping here
+            // is rethrown on the UI thread during layout and kills the process outright -
+            // which is how a thumbnail, the most cosmetic thing in the app, took Chronora
+            // down. A row keeping its icon is not worth a crash.
+            Serilog.Log.Warning(ex, "Could not load a thumbnail for {Path}.", row.File.FullPath);
+        }
     }
 
     /// <summary>
@@ -305,9 +313,34 @@ public sealed partial class MainWindow : Window
     /// UseShellExecute is the whole point of the call: it resolves the user's own file
     /// association instead of trying to run the file, which is what the default would do.
     /// </summary>
+    /// <summary>
+    /// Which row a click landed on, found by walking up to the ListViewItem.
+    ///
+    /// Not DataContext, which is what this used and why double-clicking a row did nothing
+    /// at all: a compiled x:Bind template does not set DataContext on the elements inside
+    /// it, so the cast quietly failed and the handler returned. The container's Content is
+    /// the item, always, whatever the template does.
+    /// </summary>
+    private static PlanRowViewModel? FindRow(object? source)
+    {
+        DependencyObject? node = source as DependencyObject;
+
+        while (node is not null)
+        {
+            if (node is ListViewItem { Content: PlanRowViewModel row })
+            {
+                return row;
+            }
+
+            node = VisualTreeHelper.GetParent(node);
+        }
+
+        return null;
+    }
+
     private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
-        if ((e.OriginalSource as FrameworkElement)?.DataContext is not PlanRowViewModel row)
+        if (FindRow(e.OriginalSource) is not { } row)
         {
             // The double-click landed on the list rather than on a row.
             return;

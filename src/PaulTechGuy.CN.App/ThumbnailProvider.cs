@@ -6,88 +6,99 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PaulTechGuy.CN.Domain;
-using Windows.Graphics.Imaging;
-using Windows.Security.Cryptography;
-using Windows.Storage.Streams;
+using WinRT;
 
 namespace PaulTechGuy.CN.App;
 
 /// <summary>
 /// The picture Explorer would show, in two tiers.
 ///
-/// The tiers exist because of what a spike measured on real files rather than because they
-/// looked tidy:
+/// The tiers come from what a spike measured on real files:
 ///
 ///   icon, cached per extension    ~2.5 ms once, then nothing
 ///   thumbnail already cached      4 - 15 ms
 ///   thumbnail to be generated     13 - 203 ms  (the 203 was a phone video)
 ///
-/// A frame is 16 ms, so even a CACHED thumbnail is too slow to fetch on the UI thread, and
-/// a screenful of twenty uncached rows measured 1.26 seconds. That is the whole argument
-/// for doing it this way: an icon lands immediately from a dictionary, and the real
-/// thumbnail replaces it when it arrives from a background queue.
+/// A frame is 16 ms and a screenful of twenty uncached rows measured 1.26 seconds, so the
+/// Shell is only ever called off the UI thread, with an icon standing in until the real
+/// thumbnail arrives.
 ///
-/// Windows picks the video frame, which is the part worth having - its media handler
+/// PIXELS are cached, never ImageSource objects, and that is the load-bearing part rather
+/// than an optimisation. Caching the ImageSource meant handing ONE instance to many Image
+/// controls at once; a SoftwareBitmapSource owns a disposable composition surface, so
+/// recycling a row released a surface other rows were still showing. That took the process
+/// down with STATUS_STOWED_EXCEPTION - a COM failure with no managed stack - on the second
+/// drop, which is the first drop that recycles containers.
+///
+/// Every row now gets its own WriteableBitmap over shared bytes. Building one is a 37 KB
+/// memcpy needing no await, which also lets the immediate tier be synchronous without the
+/// UI-thread deadlock an earlier version had.
+///
+/// Windows picks the video frame, which is the part worth having: its media handler
 /// already skips the blank opening that makes a home-made "grab frame zero" useless.
 ///
-/// A cloud-only file is never hydrated to draw a picture. The app refuses to pull
-/// gigabytes out of OneDrive to read a date; doing it for a thumbnail would be worse.
+/// A cloud-only file is never hydrated to draw a picture.
 /// </summary>
 internal static class ThumbnailProvider
 {
     /// <summary>
     /// 96 is one of the sizes the Shell thumbnail cache already keeps, so asking for it
-    /// avoids a resize that gains nothing. Displayed smaller, which keeps it crisp when
-    /// Windows is scaled.
+    /// avoids a resize that gains nothing.
     /// </summary>
     private const int RequestedSize = 96;
 
     /// <summary>
-    /// How many Shell calls may be in flight. Scrolling fast through thousands of rows
-    /// would otherwise queue a request per row, and the ones still running would all be for
-    /// rows that left the screen long ago.
+    /// How many Shell calls may be in flight. Scrolling fast would otherwise queue one per
+    /// row, and the ones still running would all be for rows that had left the screen.
     /// </summary>
     private static readonly SemaphoreSlim Gate = new(3, 3);
 
-    /// <summary>One icon per extension, which is what makes the immediate tier free.</summary>
-    private static readonly ConcurrentDictionary<string, ImageSource?> IconsByExtension =
+    /// <summary>Raw pixels per extension. Safe to share, because bytes have no owner.</summary>
+    private static readonly ConcurrentDictionary<string, Pixels?> IconPixels =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Thumbnails already produced, so scrolling back up does not pay for them twice.
-    ///
-    /// Bounded, because a 50,000 file run would otherwise hold 50,000 bitmaps. When it
-    /// fills it is cleared rather than evicted one at a time: this is a convenience cache
-    /// in front of the Shell's own, and the cost of being wrong is one re-fetch.
+    /// Raw pixels per file. Bounded, or 50,000 files would be held forever; cleared
+    /// wholesale rather than evicted one at a time, since the cost of being wrong is one
+    /// re-fetch in front of the Shell's own cache.
     /// </summary>
     private const int MaxCachedThumbnails = 512;
 
-    private static readonly ConcurrentDictionary<string, ImageSource> ThumbnailsByPath =
+    private static readonly ConcurrentDictionary<string, Pixels> ThumbnailPixels =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The icon for this kind of file, if one has already been built.
+    /// A fresh image of this file type's icon, when the pixels are already known.
     ///
-    /// A pure dictionary lookup and nothing else. It used to do the work here instead, on
-    /// the grounds that the result had to be available during layout - and that froze the
-    /// app on the first row: building an ImageSource ends in SoftwareBitmapSource.
-    /// SetBitmapAsync, which completes ON the UI thread, so blocking the UI thread to wait
-    /// for it is a guaranteed deadlock rather than merely a slow call.
-    ///
-    /// So nothing here waits for anything. The first file of an extension shows an empty
-    /// slot for a few milliseconds while <see cref="EnsureIconAsync" /> fills the cache,
-    /// and every file after it is a lookup.
+    /// Synchronous and safe during layout: after the first file of an extension it is a
+    /// dictionary lookup plus a small memcpy. No await, so no UI-thread deadlock, and a
+    /// new bitmap every time, so no two rows share one.
     /// </summary>
     public static bool TryGetIcon(ScannedFile file, out ImageSource? icon)
     {
         ArgumentNullException.ThrowIfNull(file);
 
-        return IconsByExtension.TryGetValue(ExtensionOf(file), out icon);
+        icon = null;
+
+        if (!IconPixels.TryGetValue(ExtensionOf(file), out Pixels? pixels))
+        {
+            return false;
+        }
+
+        icon = pixels is { } bits ? ToImage(bits) : null;
+        return true;
+    }
+
+    /// <summary>A fresh image of this file's thumbnail, when one has already been fetched.</summary>
+    public static bool TryGetThumbnail(string path, out ImageSource? image)
+    {
+        image = ThumbnailPixels.TryGetValue(path, out Pixels bits) ? ToImage(bits) : null;
+        return image is not null;
     }
 
     /// <summary>
-    /// Builds this extension's icon if it is not already known. Cheap and cached: measured
-    /// at about 2.5 ms, paid once per extension for the whole session.
+    /// Fetches this extension's icon if it is not already known. About 2.5 ms, paid once
+    /// per extension for the whole session.
     /// </summary>
     public static async Task<ImageSource?> EnsureIconAsync(ScannedFile file, CancellationToken cancellationToken)
     {
@@ -95,34 +106,25 @@ internal static class ThumbnailProvider
 
         string extension = ExtensionOf(file);
 
-        if (IconsByExtension.TryGetValue(extension, out ImageSource? cached))
+        if (!IconPixels.TryGetValue(extension, out Pixels? cached))
         {
-            return cached;
+            // Built from THIS file, then kept under its extension: the Shell needs a real
+            // path to resolve an association, and every file of that type will match it.
+            cached = await Task.Run(
+                    () => ReadBitmapFrom(Extract(file.FullPath, SIIGBF.IconOnly)), cancellationToken)
+                .ConfigureAwait(true);
+
+            IconPixels[extension] = cached;
         }
 
-        // Built from THIS file, then kept under its extension: the Shell needs a real path
-        // to resolve an association, and every other file of that type will match it.
-        Pixels? pixels = await Task.Run(
-            () => ReadBitmapFrom(Extract(file.FullPath, SIIGBF.IconOnly)), cancellationToken).ConfigureAwait(true);
-
-        ImageSource? icon = pixels is { } bits ? await ToImageAsync(bits).ConfigureAwait(true) : null;
-
-        IconsByExtension[extension] = icon;
-        return icon;
+        return cached is { } bits ? ToImage(bits) : null;
     }
 
-    private static string ExtensionOf(ScannedFile file) =>
-        file.IsDirectory ? "<folder>" : Path.GetExtension(file.FullPath);
-
-    /// <summary>Whether a real thumbnail is already in hand, so no work needs scheduling.</summary>
-    public static bool TryGetCached(string path, out ImageSource? image) =>
-        ThumbnailsByPath.TryGetValue(path, out image);
-
     /// <summary>
-    /// The real thumbnail, off the UI thread.
+    /// The real thumbnail, fetched off the UI thread.
     ///
-    /// Returns null when there is nothing better than the icon already showing, which is
-    /// the normal outcome for a text file and for a cloud-only file with nothing cached.
+    /// Null means there is nothing better than the icon already showing, which is the
+    /// normal answer for a text file and for a cloud-only file with nothing cached.
     /// </summary>
     public static async Task<ImageSource?> LoadAsync(ScannedFile file, CancellationToken cancellationToken)
     {
@@ -135,9 +137,9 @@ internal static class ThumbnailProvider
 
         string path = file.FullPath;
 
-        if (ThumbnailsByPath.TryGetValue(path, out ImageSource? done))
+        if (ThumbnailPixels.TryGetValue(path, out Pixels done))
         {
-            return done;
+            return ToImage(done);
         }
 
         // A cloud-only file may only offer what Windows has already cached. Without this
@@ -152,7 +154,8 @@ internal static class ThumbnailProvider
 
         try
         {
-            pixels = await Task.Run(() => ReadBitmapFrom(Extract(path, flags)), cancellationToken).ConfigureAwait(true);
+            pixels = await Task.Run(() => ReadBitmapFrom(Extract(path, flags)), cancellationToken)
+                .ConfigureAwait(true);
         }
         finally
         {
@@ -164,35 +167,43 @@ internal static class ThumbnailProvider
             return null;
         }
 
-        ImageSource image = await ToImageAsync(bits).ConfigureAwait(true);
-
-        if (ThumbnailsByPath.Count >= MaxCachedThumbnails)
+        if (ThumbnailPixels.Count >= MaxCachedThumbnails)
         {
-            ThumbnailsByPath.Clear();
+            ThumbnailPixels.Clear();
         }
 
-        ThumbnailsByPath[path] = image;
-        return image;
+        ThumbnailPixels[path] = bits;
+        return ToImage(bits);
     }
 
     /// <summary>Dropped when the list is replaced, so a stale path cannot show a stale picture.</summary>
-    public static void Forget() => ThumbnailsByPath.Clear();
+    public static void Forget() => ThumbnailPixels.Clear();
 
-    private static async Task<ImageSource> ToImageAsync(Pixels bits)
+    private static string ExtensionOf(ScannedFile file) =>
+        file.IsDirectory ? "<folder>" : Path.GetExtension(file.FullPath);
+
+    /// <summary>
+    /// A new bitmap over the cached bytes, for one Image and no other.
+    ///
+    /// WriteableBitmap rather than SoftwareBitmapSource: it is created synchronously, owns
+    /// no disposable composition surface, and writing to it needs no await. All three
+    /// matter here - the async version deadlocked the UI thread and the shared version
+    /// killed the process when a row was recycled.
+    ///
+    /// The buffer is reached through IBufferByteAccess because IBuffer.AsStream lived in
+    /// System.Runtime.WindowsRuntime, which .NET 5 removed.
+    /// </summary>
+    private static WriteableBitmap ToImage(Pixels bits)
     {
-        // CryptographicBuffer rather than IBuffer.AsStream(): that extension lived in
-        // System.Runtime.WindowsRuntime, which .NET 5 removed.
-        IBuffer buffer = CryptographicBuffer.CreateFromByteArray(bits.Data);
+        var bitmap = new WriteableBitmap(bits.Width, bits.Height);
 
-        // The Shell hands back premultiplied BGRA, which is what the compositor wants, so
-        // nothing is converted here.
-        using SoftwareBitmap bitmap = SoftwareBitmap.CreateCopyFromBuffer(
-            buffer, BitmapPixelFormat.Bgra8, bits.Width, bits.Height, BitmapAlphaMode.Premultiplied);
+        IBufferByteAccess access = bitmap.PixelBuffer.As<IBufferByteAccess>();
+        access.Buffer(out nint destination);
 
-        var source = new SoftwareBitmapSource();
-        await source.SetBitmapAsync(bitmap);
+        Marshal.Copy(bits.Data, 0, destination, bits.Data.Length);
+        bitmap.Invalidate();
 
-        return source;
+        return bitmap;
     }
 
     private readonly record struct Pixels(int Width, int Height, byte[] Data);
@@ -337,6 +348,15 @@ internal static class ThumbnailProvider
         public int biYPelsPerMeter;
         public uint biClrUsed;
         public uint biClrImportant;
+    }
+
+    /// <summary>Direct access to a WinRT buffer's bytes, which has no managed equivalent.</summary>
+    [ComImport]
+    [Guid("905a0fef-bc53-11df-8c49-001e4fc686da")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IBufferByteAccess
+    {
+        void Buffer(out nint buffer);
     }
 
     [ComImport]
