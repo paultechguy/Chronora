@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/PaulTechGuy.CN.Domain/PaulTechGuy.CN.Domain.csproj" />
+    <Project Path="src/PaulTechGuy.CN.Abstractions/PaulTechGuy.CN.Abstractions.csproj" />
+    <Project Path="src/PaulTechGuy.CN.FileSystem/PaulTechGuy.CN.FileSystem.csproj" />
+    <Project Path="src/PaulTechGuy.CN.Metadata/PaulTechGuy.CN.Metadata.csproj" />
+    <Project Path="src/PaulTechGuy.CN.Rules/PaulTechGuy.CN.Rules.csproj" />
+    <Project Path="src/PaulTechGuy.CN.Journal/PaulTechGuy.CN.Journal.csproj" />
+    <Project Path="src/PaulTechGuy.CN.Repositories/PaulTechGuy.CN.Repositories.csproj" />
+    <Project Path="src/PaulTechGuy.CN.App/PaulTechGuy.CN.App.csproj" />
+  </Folder>
+</Solution>

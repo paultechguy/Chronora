@@ -1,0 +1,107 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>PaulTechGuy.CN.App</RootNamespace>
+    <AssemblyName>Chronora</AssemblyName>
+    <UseWinUI>true</UseWinUI>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <EnableMsixTooling>false</EnableMsixTooling>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Deployment">
+    <!-- Unpackaged: the build produces a plain folder that can be copied anywhere. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- Carrying the Windows App SDK in the output removes the runtime prerequisite. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+
+    <SelfContained Condition="'$(Configuration)' == 'Release'">true</SelfContained>
+
+    <!-- PublishSingleFile breaks WinRT activation for an unpackaged WinUI head. Leave it off. -->
+    <PublishSingleFile Condition="'$(Configuration)' == 'Release'">false</PublishSingleFile>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Release'">true</PublishReadyToRun>
+
+    <!-- The WinUI XAML compiler emits its own entry point; Program.cs replaces it. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PaulTechGuy.CN.Abstractions\PaulTechGuy.CN.Abstractions.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Domain\PaulTechGuy.CN.Domain.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.FileSystem\PaulTechGuy.CN.FileSystem.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Journal\PaulTechGuy.CN.Journal.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Metadata\PaulTechGuy.CN.Metadata.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Repositories\PaulTechGuy.CN.Repositories.csproj" />
+    <ProjectReference Include="..\PaulTechGuy.CN.Rules\PaulTechGuy.CN.Rules.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Extensions.Hosting" />
+    <PackageReference Include="Serilog.Settings.Configuration" />
+    <PackageReference Include="Serilog.Sinks.Async" />
+    <PackageReference Include="Serilog.Sinks.Debug" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!--
+    The Windows App SDK ships 86 .mui language folders. Keeping two removes most of them
+    from the publish output without affecting an English-only app.
+  -->
+  <!--
+    The Windows App SDK ships 86 .mui language folders (172 files). Keeping en-us and en-GB
+    removes roughly 80 MB from an English-only app.
+
+    The hook matters: this has to run BEFORE the SDK adds its payload files, and it globs the
+    component package paths directly. Hanging it off ResolveAssemblyReferences instead looks
+    right, builds clean, and silently does nothing.
+  -->
+  <Target Name="TrimWinUILanguageResources"
+          BeforeTargets="AddMicrosoftWindowsAppSDKPayloadFilesFromComponents"
+          DependsOnTargets="GetWindowsAppSDKNativePlatform">
+    <ItemGroup>
+      <_ChronoraMuiFile
+          Include="%(WindowsAppSdkComponentPackages.Identity)runtimes-framework\win-$(NativePlatform)\native\**\*.mui" />
+
+      <MicrosoftWindowsAppSDKFilesExcluded
+          Include="@(_ChronoraMuiFile)"
+          Condition="!$([System.String]::Copy('%(Identity)').Contains('\en-us\'))
+                     and !$([System.String]::Copy('%(Identity)').Contains('\en-GB\'))" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    CRITICAL for an unpackaged head. A folder publish otherwise omits $(TargetName).pri and
+    App.xbf, and the app dies before its first window with:
+      "Cannot locate resource from 'ms-appx:///Views/MainWindow.xaml'"
+    This is not theoretical; Marqora hit it and the fix is the same here.
+  -->
+  <Target Name="PublishWinUIResources" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_ChronoraRuntimeResource Include="$(TargetDir)$(TargetName).pri" />
+      <_ChronoraRuntimeResource Include="$(TargetDir)App.xbf" />
+      <ResolvedFileToPublish Include="@(_ChronoraRuntimeResource)"
+                             RelativePath="%(Filename)%(Extension)"
+                             CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -1,0 +1,41 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# Rider / VS Code
+.idea/
+.vscode/
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+*.snupkg
+packages/
+
+# ExifTool is NEVER committed. It is GPL/Artistic and this repo is Apache-2.0.
+# build/Get-ExifTool.ps1 fetches a local copy for integration tests only; it must
+# never reach the build output or a release zip.
+vendor/
+tools/exiftool/
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Local debug profiles (per-developer)
+**/Properties/launchSettings.json
+
+# Local AI assistant instructions (kept on disk, not published)
+CLAUDE.md
+.claude/
