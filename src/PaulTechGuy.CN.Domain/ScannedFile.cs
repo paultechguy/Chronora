@@ -60,6 +60,15 @@ public enum FileTraits
 
     /// <summary>Path over the legacy limit, so every native call needs the extended prefix.</summary>
     LongPath = 1 << 6,
+
+    /// <summary>
+    /// This file's QuickTime dates were read as UTC rather than as local time.
+    ///
+    /// Recorded because it is an inference, not a fact. The atom is specified as UTC and
+    /// a great many cameras write local time into it anyway, so the decision is made per
+    /// file against the EXIF date - and the user is entitled to see which way it went.
+    /// </summary>
+    QuickTimeReadAsUtc = 1 << 7,
 }
 
 /// <summary>

@@ -8,6 +8,14 @@
     <ProjectReference Include="..\PaulTechGuy.CN.Domain\PaulTechGuy.CN.Domain.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.FileSystem\PaulTechGuy.CN.FileSystem.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Journal\PaulTechGuy.CN.Journal.csproj" />
+
+    <!--
+      Services is the orchestration layer, so it is the one place allowed to know about
+      several concrete layers at once. The apply order - metadata BEFORE the filesystem
+      timestamps, because ExifTool rewrites the file and moves them - can only be enforced
+      somewhere that can see both.
+    -->
+    <ProjectReference Include="..\PaulTechGuy.CN.Metadata\PaulTechGuy.CN.Metadata.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />

@@ -65,16 +65,23 @@ internal sealed class WorkbenchFixture : IDisposable
         var exifTool = new ExifToolService(
             new ExifToolLocator(),
             new ExifToolValidator(),
-            new ExifToolManifestSource(http),
+            new ExifToolManifestSource(http) { LocalDirectory = paths.DataDirectory },
             new ExifToolInstaller(http),
             NullLogger<ExifToolService>.Instance);
+
+        // No consent has been recorded in this temp folder, so the engine reports
+        // unavailable and the gateway never starts a process. That is the state most of
+        // these tests are about: everything still has to work with no ExifTool.
+        this.Metadata = new MetadataGateway(
+            exifTool, new MetadataReader(), new MetadataWriter(), NullLogger<MetadataGateway>.Instance);
 
         this.ViewModel = new WorkbenchViewModel(
             new FileScanner(writer, volumes),
             new RuleEvaluator(),
-            new ApplyService(writer, volumes, this.Journal, NullLogger<ApplyService>.Instance),
+            new ApplyService(writer, volumes, this.Journal, NullLogger<ApplyService>.Instance, this.Metadata),
             this.Journal,
             exifTool,
+            this.Metadata,
             paths,
             new ImmediateDispatcher(),
             NullLogger<WorkbenchViewModel>.Instance);
@@ -83,6 +90,8 @@ internal sealed class WorkbenchFixture : IDisposable
     public string Files { get; }
 
     public SqliteJournal Journal { get; }
+
+    public MetadataGateway Metadata { get; }
 
     public WorkbenchViewModel ViewModel { get; }
 
@@ -106,6 +115,7 @@ internal sealed class WorkbenchFixture : IDisposable
     public void Dispose()
     {
         this.ViewModel.Dispose();
+        this.Metadata.DisposeAsync().AsTask().GetAwaiter().GetResult();
         this.Journal.Dispose();
         SqliteConnection.ClearAllPools();
 

@@ -47,15 +47,54 @@ public sealed class ExifToolManifestSource(HttpClient http, ILogger<ExifToolMani
     /// </summary>
     public const string DefaultUrl = "https://paultechguy.github.io/Chronora/exiftool.json";
 
+    /// <summary>
+    /// The copy that ships beside the executable, naming whatever was current when the
+    /// release was built.
+    /// </summary>
+    public const string LocalFileName = "exiftool.json";
+
     private readonly HttpClient _http = http;
     private readonly ILogger<ExifToolManifestSource> _logger = logger ?? NullLogger<ExifToolManifestSource>.Instance;
 
     /// <summary>
-    /// Reads the manifest. Returns null rather than throwing: an unreachable manifest is a
-    /// situation the consent pane has to explain anyway, alongside the other ways a
-    /// download can fail on a managed network.
+    /// Where the shipped copy is looked for. Defaults to the folder the app runs from;
+    /// settable so a test does not have to write next to the test runner.
+    /// </summary>
+    public string LocalDirectory { get; set; } = AppContext.BaseDirectory;
+
+    /// <summary>
+    /// Reads the manifest: the published copy first, then the one that shipped with the app.
+    ///
+    /// The order is the whole design. Remote first is what lets a stale pin be corrected
+    /// in a commit rather than a release. Local second is what stops an unreachable site
+    /// from taking the feature away entirely - a corporate proxy, an outage, or the pages
+    /// site simply not being up yet would otherwise leave someone reading "Chronora could
+    /// not reach the list of available versions" with a perfectly good pinned version
+    /// sitting unused in the install folder.
+    ///
+    /// Both carry a hash, so neither route installs anything unverified.
     /// </summary>
     public async Task<ExifToolManifest?> FetchAsync(string? url = null, CancellationToken cancellationToken = default)
+    {
+        if (await this.FetchPublishedAsync(url, cancellationToken).ConfigureAwait(false) is { } published)
+        {
+            return published;
+        }
+
+        if (this.ReadLocal() is { } local)
+        {
+            this._logger.LogInformation(
+                "Using the ExifTool manifest that shipped with the app, which offers version {Version}.",
+                local.Version);
+
+            return local;
+        }
+
+        return null;
+    }
+
+    /// <summary>The copy on the project's pages, which is the authority whenever it answers.</summary>
+    private async Task<ExifToolManifest?> FetchPublishedAsync(string? url, CancellationToken cancellationToken)
     {
         string source = url ?? DefaultUrl;
 
@@ -77,6 +116,41 @@ public sealed class ExifToolManifestSource(HttpClient http, ILogger<ExifToolMani
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
         {
             this._logger.LogWarning(ex, "Could not read the ExifTool manifest from {Url}.", source);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The copy in the install folder. Missing is the ordinary case for a dev build and
+    /// is not worth a warning.
+    /// </summary>
+    internal ExifToolManifest? ReadLocal()
+    {
+        string path = Path.Combine(this.LocalDirectory, LocalFileName);
+
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+
+            using FileStream stream = File.OpenRead(path);
+            ExifToolManifest? manifest = JsonSerializer.Deserialize(stream, ManifestJsonContext.Default.ExifToolManifest);
+
+            if (manifest is null || !IsUsable(manifest))
+            {
+                // Worth a warning here, unlike a missing file: a malformed one that shipped
+                // means the release itself is wrong.
+                this._logger.LogWarning("The ExifTool manifest at {Path} is missing required fields.", path);
+                return null;
+            }
+
+            return manifest;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            this._logger.LogWarning(ex, "Could not read the ExifTool manifest at {Path}.", path);
             return null;
         }
     }

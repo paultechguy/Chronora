@@ -32,7 +32,7 @@ public sealed record ExifToolResult(string StandardOutput, string StandardError,
 /// Commands are serialised. The protocol is a single pair of pipes with no request ids in
 /// the payload, so two commands in flight would interleave their output irrecoverably.
 /// </summary>
-public sealed class ExifToolSession : IAsyncDisposable
+public sealed class ExifToolSession : IExifToolSession, IAsyncDisposable
 {
     /// <summary>
     /// Arguments that go on every command, and each one is load-bearing.
@@ -53,6 +53,19 @@ public sealed class ExifToolSession : IAsyncDisposable
         // real photo library is full of malformed tags.
         "-m",
     ];
+
+    /// <summary>
+    /// Tags the -echo4 line that carries a command's exit status.
+    ///
+    /// It must not begin with '#'. In an ExifTool argfile - which is what -@ - makes
+    /// stdin - a line starting with '#' is a COMMENT and is silently dropped. This was
+    /// "##cn", and the consequence was total: the status line vanished, -echo4 took the
+    /// following "-executeN" as its own argument instead, so the command never ran, no
+    /// {ready} was ever emitted, and every single metadata operation blocked until its
+    /// five-minute timeout. Nothing reported an error; it simply hung.
+    /// </summary>
+    private static string StatusPrefix(int commandNumber) =>
+        string.Create(CultureInfo.InvariantCulture, $"==cn{commandNumber}:");
 
     private readonly Process _process;
     private readonly Channel<string> _stdout = Channel.CreateUnbounded<string>();
@@ -126,7 +139,7 @@ public sealed class ExifToolSession : IAsyncDisposable
         {
             int number = ++this._commandNumber;
             string readySentinel = string.Create(CultureInfo.InvariantCulture, $"{{ready{number}}}");
-            string statusPrefix = string.Create(CultureInfo.InvariantCulture, $"##cn{number}:");
+            string statusPrefix = StatusPrefix(number);
 
             var block = new StringBuilder();
 

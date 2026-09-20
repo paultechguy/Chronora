@@ -140,6 +140,26 @@
   </Target>
 
   <!--
+    Ship the manifest beside the app as well as publishing it to the pages site.
+
+    The app prefers the published copy, so a stale pin can still be corrected in a commit
+    rather than a release. But a proxy, an outage, or a pages site that is not up yet would
+    otherwise take the whole feature away while a perfectly good pinned version sat unused
+    in the install folder. This copy carries a hash like any other, so the fallback route
+    installs nothing unverified.
+  -->
+  <Target Name="CopyExifToolManifest" BeforeTargets="Build;PrepareForPublish">
+    <ItemGroup>
+      <_ShippedManifest Include="$(MSBuildThisFileDirectory)..\..\docs\exiftool.json" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_ShippedManifest)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true"
+          Condition="Exists('%(_ShippedManifest.FullPath)')" />
+  </Target>
+
+  <!--
     CRITICAL for an unpackaged head. A folder publish otherwise omits $(TargetName).pri and
     App.xbf, and the app dies before its first window with:
       "Cannot locate resource from 'ms-appx:///Views/MainWindow.xaml'"

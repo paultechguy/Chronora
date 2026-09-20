@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using PaulTechGuy.CN.Domain;
 using PaulTechGuy.CN.FileSystem;
 using PaulTechGuy.CN.Journal;
+using PaulTechGuy.CN.Metadata;
 using PaulTechGuy.CN.Rules;
 using Shouldly;
 
@@ -51,6 +52,42 @@ internal sealed class Workspace : IDisposable
         _ = this.Writer.TryRead(path, false, out TimestampSet times, out _);
         return times;
     }
+
+    /// <summary>An apply path wired to a stand-in ExifTool.</summary>
+    public ApplyService ApplyWith(IMetadataWriteGateway engine) => new(
+        this.Writer,
+        new VolumeProbe(),
+        this.Journal,
+        Microsoft.Extensions.Logging.Abstractions.NullLogger<ApplyService>.Instance,
+        engine);
+
+    /// <summary>Scans the workspace and evaluates a plan writing <paramref name="targets" />.</summary>
+    public async Task<FilePlan> PlanAsync(DateTimeOffset value, DateField[] targets, string? named = null)
+    {
+        var scanner = new FileScanner(this.Writer);
+        ScannedFile? file = null;
+
+        await foreach (ScannedFile f in scanner.ScanAsync(this.Files, ScanFilter.Default, TestContext.Current.CancellationToken))
+        {
+            if (named is null || string.Equals(f.FileName, named, StringComparison.OrdinalIgnoreCase))
+            {
+                file = f;
+            }
+        }
+
+        var recipe = new Recipe(
+            [new DateRule(new DateSource.Absolute(value), new HashSet<DateField>(targets), RuleGuards.None)],
+            ScanFilter.Default,
+            AppMode.PhotoDates);
+
+        return new RuleEvaluator().Evaluate(
+            file!,
+            recipe,
+            new EvaluationContext(ClockContext.Local, DateTimeOffset.UtcNow, MetadataEngineAvailable: true));
+    }
+
+    public Task<FilePlan> PlanPhotoDateAsync(DateTimeOffset value) =>
+        this.PlanAsync(value, [DateField.ExifDateTimeOriginal]);
 
     public void Dispose()
     {
@@ -278,36 +315,201 @@ public class ApplyServiceTests
     }
 
     /// <summary>
-    /// Metadata is not written yet, and the run says so rather than silently reporting
-    /// success. "No ExifTool" is a supported state, not a lie.
+    /// A photo date asked for with no engine to write it fails, with a sentence. It does
+    /// NOT report success, and it does not quietly become a skip: the user asked for
+    /// something specific and did not get it.
     /// </summary>
     [Fact]
-    public async Task A_metadata_target_is_skipped_with_a_reason_until_exiftool_exists()
+    public async Task A_metadata_target_fails_with_a_reason_when_there_is_no_engine()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        ApplyOutcome outcome = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Written.ShouldBe(0);
+        outcome.Failed.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// The ordering rule, which is the whole reason this class exists.
+    ///
+    /// ExifTool rewrites the file, so it has to run before the timestamps are set.
+    /// Afterwards would mean the rewrite silently moved the dates the user just chose, and
+    /// the preview they approved would have been a lie.
+    /// </summary>
+    [Fact]
+    public async Task The_photo_date_is_written_before_the_file_dates()
     {
         using var ws = new Workspace();
         string path = ws.CreateFile("photo.jpg", Original);
 
-        var scanner = new FileScanner(ws.Writer);
-        ScannedFile file = null!;
-        await foreach (ScannedFile f in scanner.ScanAsync(ws.Files, ScanFilter.Default, Ct))
+        var engine = new RecordingGateway();
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanAsync(
+            Target,
+            [DateField.ExifDateTimeOriginal, DateField.FileCreated, DateField.FileModified]);
+
+        ApplyOutcome outcome = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Written.ShouldBe(1);
+        engine.Requests.Count.ShouldBe(1, "one command per file, so a failure is attributable");
+
+        // The timestamps are only written after the engine has been called, so the state
+        // on disk afterwards is the planned one rather than whatever the rewrite left.
+        ws.Read(path).Created!.Value.UtcDateTime.ShouldBe(Target.UtcDateTime, TimeSpan.FromSeconds(2));
+        ws.Read(path).Modified!.Value.UtcDateTime.ShouldBe(Target.UtcDateTime, TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
+    /// The half of the ordering rule that is easy to miss.
+    ///
+    /// Someone who asks only to change a photo's Taken date has not asked for its Modified
+    /// date to move - but rewriting the file moves it. So the timestamps the plan does not
+    /// mention are put back to exactly what they were.
+    /// </summary>
+    [Fact]
+    public async Task A_photo_only_change_leaves_the_file_dates_where_they_were()
+    {
+        using var ws = new Workspace();
+        string path = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+
+        // Stands in for what ExifTool does to a file it rewrites.
+        engine.OnWrite = p => ws.Writer.Write(
+            p, new TimestampSet(null, DateTimeOffset.UtcNow, null, null), isDirectory: false);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+
+        ApplyOutcome outcome = await ws.ApplyWith(engine).ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Written.ShouldBe(1);
+        ws.Read(path).Modified!.Value.UtcDateTime.ShouldBe(
+            Original.UtcDateTime,
+            TimeSpan.FromSeconds(2),
+            "the rewrite moved Modified and nobody asked for that");
+    }
+
+    /// <summary>
+    /// A failed metadata write abandons the file entirely. Applying the file dates anyway
+    /// and then reporting a failure would leave the user unable to tell which half landed.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_photo_write_leaves_the_file_dates_alone_too()
+    {
+        using var ws = new Workspace();
+        string path = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway { Succeeds = false };
+
+        FilePlan plan = await ws.PlanAsync(
+            Target, [DateField.ExifDateTimeOriginal, DateField.FileModified]);
+
+        ApplyOutcome outcome = await ws.ApplyWith(engine).ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Failed.ShouldBe(1);
+        ws.Read(path).Modified!.Value.UtcDateTime.ShouldBe(Original.UtcDateTime, TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
+    /// The date target expands into its companion tags. Writing DateTimeOriginal alone
+    /// loses the offset and leaves any existing sub-second behind, describing a moment
+    /// that never happened.
+    /// </summary>
+    [Fact]
+    public async Task A_photo_date_is_written_with_its_offset_and_subsecond_companions()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+
+        _ = await ws.ApplyWith(engine).ApplyAsync([plan], Header, null, Ct);
+
+        IReadOnlyList<string> tags = [.. engine.Requests[0].Assignments.Select(a => a.Tag)];
+
+        tags.ShouldContain("ExifIFD:DateTimeOriginal");
+        tags.ShouldContain("ExifIFD:OffsetTimeOriginal");
+        tags.ShouldContain("ExifIFD:SubSecTimeOriginal");
+    }
+
+    /// <summary>A run that touches no bytes needs no backup, and says so by not making one.</summary>
+    [Fact]
+    public async Task A_file_date_only_run_never_asks_for_a_backup()
+    {
+        using var ws = new Workspace();
+        string path = ws.CreateFile("notes.txt", Original);
+
+        var engine = new RecordingGateway();
+        FilePlan plan = await ws.PlanAsync(Target, [DateField.FileModified], "notes.txt");
+
+        _ = await ws.ApplyWith(engine).ApplyAsync([plan], Header, null, Ct);
+
+        engine.Requests.ShouldBeEmpty("no metadata was involved, so ExifTool should never have been called");
+        File.Exists(path + "_original").ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Backups_are_on_by_default_and_can_be_turned_off()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway();
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanPhotoDateAsync(Target);
+        _ = await apply.ApplyAsync([plan], Header, null, Ct);
+        engine.BackupsRequested[0].ShouldBeTrue();
+
+        apply.KeepBackups = false;
+        _ = await apply.ApplyAsync([plan], Header, null, Ct);
+        engine.BackupsRequested[1].ShouldBeFalse();
+    }
+}
+
+/// <summary>
+/// An ExifTool that always agrees, and writes down what it was asked to do.
+///
+/// The apply ORDER is what these tests are about, and the order is invisible in the
+/// result: a run that wrote metadata after the timestamps reports exactly the same
+/// success as one that got it right, while having silently undone half of it.
+/// </summary>
+internal sealed class RecordingGateway : IMetadataWriteGateway
+{
+    public bool Available { get; set; } = true;
+
+    public bool Succeeds { get; set; } = true;
+
+    /// <summary>Lets a test imitate the side effect of rewriting the file.</summary>
+    public Action<string>? OnWrite { get; set; }
+
+    public List<MetadataWriteRequest> Requests { get; } = [];
+
+    public List<bool> BackupsRequested { get; } = [];
+
+    public Task<MetadataWriteResult> WriteAsync(
+        MetadataWriteRequest request,
+        bool keepBackup = true,
+        CancellationToken cancellationToken = default)
+    {
+        this.Requests.Add(request);
+        this.BackupsRequested.Add(keepBackup);
+
+        if (this.Succeeds)
         {
-            file = f;
+            this.OnWrite?.Invoke(request.Path);
         }
 
-        var recipe = new Recipe(
-            [new DateRule(
-                new DateSource.Absolute(Target),
-                new HashSet<DateField> { DateField.ExifDateTimeOriginal },
-                RuleGuards.None)],
-            ScanFilter.Default,
-            AppMode.PhotoDates);
-
-        FilePlan plan = new RuleEvaluator().Evaluate(
-            file, recipe, new EvaluationContext(ClockContext.Local, DateTimeOffset.UtcNow, MetadataEngineAvailable: true));
-
-        ApplyOutcome outcome = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
-
-        outcome.Written.ShouldBe(0);
-        outcome.Skipped.ShouldBe(1);
+        return Task.FromResult(new MetadataWriteResult(
+            request.Path,
+            this.Succeeds,
+            WriteDestination.Embedded,
+            null,
+            this.Succeeds ? null : "Pretend failure."));
     }
 }

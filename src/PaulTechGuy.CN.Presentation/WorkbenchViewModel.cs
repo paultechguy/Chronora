@@ -94,6 +94,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private readonly ApplyService _apply;
     private readonly SqliteJournal _journal;
     private readonly ExifToolService _exifTool;
+    private readonly MetadataGateway _metadata;
     private readonly IAppPaths _paths;
     private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<WorkbenchViewModel> _logger;
@@ -116,6 +117,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         ApplyService apply,
         SqliteJournal journal,
         ExifToolService exifTool,
+        MetadataGateway metadata,
         IAppPaths paths,
         IUiDispatcher dispatcher,
         ILogger<WorkbenchViewModel> logger)
@@ -125,6 +127,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._apply = apply;
         this._journal = journal;
         this._exifTool = exifTool;
+        this._metadata = metadata;
         this._paths = paths;
         this._dispatcher = dispatcher;
         this._logger = logger;
@@ -441,6 +444,81 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     // ---- Scanning ---------------------------------------------------------------------
 
     /// <summary>
+    /// The second pass: the dates that live inside the files.
+    ///
+    /// Deliberately behind the timestamp scan rather than part of it. Four NTFS timestamps
+    /// come back in microseconds and ExifTool takes milliseconds per file, so running them
+    /// together would mean staring at an empty grid; running them in sequence means the
+    /// list appears at once and the photo dates fill in underneath.
+    ///
+    /// Costs nothing when there is no engine, which is the normal state for someone who
+    /// only ever changes file dates.
+    /// </summary>
+    private async Task ReadMetadataAsync(CancellationToken cancellationToken)
+    {
+        if (!this._metadata.Available)
+        {
+            return;
+        }
+
+        List<PlanRowViewModel> candidates = [.. this._allRows.Where(r => MetadataGateway.CanRead(r.File))];
+
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        this.IsReadingMetadata = true;
+        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Reading photo dates from {candidates.Count:N0} files…");
+
+        try
+        {
+            var progress = new Progress<int>(done => this.ScanStatus = string.Create(
+                CultureInfo.CurrentCulture, $"Read photo dates from {done:N0} of {candidates.Count:N0} files…"));
+
+            IReadOnlyDictionary<string, FileMetadata> read = await this._metadata
+                .ReadAsync([.. candidates.Select(r => r.File)], progress, cancellationToken)
+                .ConfigureAwait(true);
+
+            foreach (PlanRowViewModel row in candidates)
+            {
+                if (read.TryGetValue(row.File.FullPath, out FileMetadata? file))
+                {
+                    row.Enrich(file.Values, file.QuickTimeReadAsUtc);
+                }
+            }
+
+            this.ScanStatus = string.Create(
+                CultureInfo.CurrentCulture, $"Read photo dates from {read.Count:N0} of {candidates.Count:N0} files.");
+
+            // The snapshot changed, so every plan built against the old one is stale.
+            this.Recompute();
+        }
+        catch (OperationCanceledException)
+        {
+            this.ScanStatus = "Cancelled.";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            // The file dates are already on screen and still correct, so this costs the
+            // photo dates rather than the whole scan.
+            this._logger.LogWarning(ex, "Could not read photo dates.");
+            this.ScanStatus = "The file dates were read, but the photo dates could not be.";
+        }
+        finally
+        {
+            this.IsReadingMetadata = false;
+        }
+    }
+
+    /// <summary>
+    /// True while the second pass runs. Separate from IsScanning because the list is
+    /// already usable: the file dates are there and only the photo dates are still filling.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool IsReadingMetadata { get; set; }
+
+    /// <summary>
     /// Reads a folder once. Everything the preview needs is captured here and then sealed;
     /// nothing below re-reads the disk.
     /// </summary>
@@ -484,6 +562,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files from {folder}.");
             this.Recompute();
+
+            await this.ReadMetadataAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -705,6 +785,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.ScanStatus = this.ActionNotice;
             this.Recompute();
             this.CheckIntentAgainstContent();
+
+            await this.ReadMetadataAsync(cancellationToken).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {

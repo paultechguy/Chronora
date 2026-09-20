@@ -149,6 +149,14 @@ public static class Program
         builder.Services.AddSingleton<ExifToolInstaller>();
         builder.Services.AddSingleton<ExifToolService>();
 
+        builder.Services.AddSingleton<MetadataReader>();
+        builder.Services.AddSingleton<MetadataWriter>();
+
+        // Owns the running ExifTool process. A singleton because starting one costs about
+        // a second of Perl boot, so a session is kept alive across scans rather than
+        // started per run.
+        builder.Services.AddSingleton<MetadataGateway>();
+
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<WorkbenchViewModel>();
         builder.Services.AddSingleton<MainWindow>();

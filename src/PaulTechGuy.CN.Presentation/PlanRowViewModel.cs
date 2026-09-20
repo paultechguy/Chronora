@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Collections.Frozen;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PaulTechGuy.CN.Domain;
@@ -24,7 +25,33 @@ public sealed partial class PlanRowViewModel : ObservableObject
         this.IsIncluded = true;
     }
 
-    public ScannedFile File { get; }
+    /// <summary>
+    /// The sealed snapshot this row was built from.
+    ///
+    /// Replaced exactly once, when the metadata pass catches up with the timestamp scan.
+    /// The grid fills immediately from the fast filesystem read and the photo dates arrive
+    /// behind it, because ExifTool is orders of magnitude slower than reading four
+    /// timestamps and a blank window while it works would be the wrong trade.
+    /// </summary>
+    public ScannedFile File { get; private set; }
+
+    /// <summary>
+    /// Attaches the dates read from inside the file. The same file, with more known about
+    /// it - so the snapshot rule still holds: this happens once, before the preview settles,
+    /// and never again in response to an option changing.
+    /// </summary>
+    public void Enrich(FrozenDictionary<DateField, MetadataValue> metadata, bool quickTimeReadAsUtc)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+
+        this.File = this.File with
+        {
+            Metadata = metadata,
+            Traits = quickTimeReadAsUtc ? this.File.Traits | FileTraits.QuickTimeReadAsUtc : this.File.Traits,
+        };
+
+        this.OnPropertyChanged(nameof(this.File));
+    }
 
     public string Name { get; }
 

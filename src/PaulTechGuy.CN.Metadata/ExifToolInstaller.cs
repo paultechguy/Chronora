@@ -62,6 +62,24 @@ public sealed class ExifToolInstaller(HttpClient http, ILogger<ExifToolInstaller
                     + "yourself and point Chronora at it instead.");
             }
 
+            // Checked before the hash, because these two failures need different sentences.
+            //
+            // A host that answers with a web page instead of the file is a real and current
+            // hazard: exiftool.org now hands its downloads to SourceForge, whose ordinary
+            // /download links serve an HTML interstitial. That arrives here as a perfectly
+            // successful 200 whose bytes are not an archive - and reported as a checksum
+            // mismatch it reads as "someone tampered with your download", which is alarming
+            // and wrong. It is a dead link, and it should say so.
+            if (!await LooksLikeZipAsync(archive, cancellationToken).ConfigureAwait(false))
+            {
+                this._logger.LogWarning("The download from {Url} was not a zip archive.", manifest.Url);
+
+                return InstallResult.Failed(
+                    $"What came back from {manifest.Url} was a web page rather than the ExifTool download, so "
+                    + "nothing was installed. The link has most likely moved. You can install ExifTool yourself "
+                    + "and point Chronora at it instead.");
+            }
+
             string actual = await ExifToolValidator.ComputeSha256Async(archive, cancellationToken).ConfigureAwait(false);
 
             if (!string.Equals(actual, manifest.Sha256, StringComparison.OrdinalIgnoreCase))
@@ -82,6 +100,23 @@ public sealed class ExifToolInstaller(HttpClient http, ILogger<ExifToolInstaller
         {
             TryDelete(scratch);
         }
+    }
+
+    /// <summary>
+    /// Whether the downloaded file starts with a local-file-header signature.
+    ///
+    /// "PK\x03\x04" is the first four bytes of every non-empty zip. This is not a security
+    /// check - the hash is - it is there so a dead link produces "the link has moved"
+    /// rather than a checksum mismatch that sounds like an attack.
+    /// </summary>
+    internal static async Task<bool> LooksLikeZipAsync(string path, CancellationToken cancellationToken)
+    {
+        await using FileStream stream = File.OpenRead(path);
+
+        byte[] magic = new byte[4];
+        int read = await stream.ReadAtLeastAsync(magic, 4, throwOnEndOfStream: false, cancellationToken).ConfigureAwait(false);
+
+        return read == 4 && magic[0] == 0x50 && magic[1] == 0x4B && magic[2] == 0x03 && magic[3] == 0x04;
     }
 
     private async Task DownloadAsync(
