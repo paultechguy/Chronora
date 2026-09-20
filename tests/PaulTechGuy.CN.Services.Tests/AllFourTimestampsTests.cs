@@ -63,6 +63,47 @@ public class AllFourTimestampsTests
         times.Created.ShouldBe(Target);
         times.Modified.ShouldBe(Target);
         times.Accessed.ShouldBe(Target);
+
+        // The fourth. NTFS updates ChangeTime whenever a file's metadata changes, and
+        // setting the timestamps IS a metadata change - so whether the value asked for
+        // survives its own write is a question about the filesystem, not about the code,
+        // and it is worth knowing the answer rather than assuming one.
+        times.Changed.ShouldBe(Target, "ChangeTime was asked for and should have stuck");
+    }
+
+    /// <summary>
+    /// Reading a file is entitled to move its Accessed time, on a volume where last-access
+    /// updates are switched on. Chronora reads every file it shows - to scan it, and again
+    /// to make a thumbnail - so a value that was written correctly can still be different
+    /// by the time somebody looks at it in Explorer.
+    ///
+    /// This does not assert which way it goes, because it differs by machine. It records
+    /// what this one does, so a report of "the times do not match" can be checked against
+    /// it instead of guessed at.
+    /// </summary>
+    [Fact]
+    public async Task What_reading_a_file_afterwards_does_to_its_accessed_time()
+    {
+        using var ws = new Workspace();
+        string path = ws.CreateFile("c.txt", Original);
+
+        FilePlan plan = await ws.PlanAsync(
+            Target,
+            [DateField.FileCreated, DateField.FileModified, DateField.FileAccessed]);
+
+        _ = await ws.Apply.ApplyAsync([plan], Header, null, Ct);
+
+        TimestampSet straightAfter = ws.Read(path);
+
+        _ = await File.ReadAllTextAsync(path, Ct);
+
+        TimestampSet afterReading = ws.Read(path);
+
+        straightAfter.Accessed.ShouldBe(Target, "the write itself must land");
+
+        // Recorded, not required. If this machine bumps it, so will Explorer.
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"Accessed after a read: {afterReading.Accessed:O} (written {Target:O})");
     }
 
     /// <summary>

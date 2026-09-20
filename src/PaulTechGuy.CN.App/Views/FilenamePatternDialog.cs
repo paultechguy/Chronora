@@ -75,8 +75,19 @@ internal static class FilenamePatternDialog
         panel.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Text = "Click a number, then say what it is. A four-digit year clicked on a longer "
-                + "run takes the first four digits and leaves the rest for the month and day.",
+            Text = "Click a number, then say what it is.",
+        });
+
+        // A worked example, because the splitting behaviour is the part nobody guesses:
+        // clicking Year on one long run takes the first four digits and hands the rest
+        // back, which is what makes a camera filename workable at all.
+        panel.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.75,
+            Text = "For IMG_20240315_142530, click 20240315 and choose Year: it takes 2024 and "
+                + "leaves 0315 beside it. Click 0315 and choose Month to take 03, then the "
+                + "remaining 15 as Day. Same again on 142530 for the time, if you want one.",
         });
 
         var scroller = new ScrollViewer
@@ -133,6 +144,16 @@ internal static class FilenamePatternDialog
             status.Message = string.Create(
                 CultureInfo.CurrentCulture,
                 $"Matches {preview.Matched:N0} of {preview.Total:N0} files.");
+
+            // Said out loud, because otherwise it looks exactly like a bug. A pattern with
+            // no hour or minute sets the date and leaves each field's existing time of day
+            // alone rather than inventing midnight - so afterwards the dates all match and
+            // the times do not, which is a reasonable thing to be alarmed by.
+            if (builder.Precision == DatePrecision.Day)
+            {
+                status.Message += " This pattern has no time in it, so each file keeps the "
+                    + "time of day it already has.";
+            }
 
             samples.Text = string.Join(Environment.NewLine, preview.Samples);
             dialog.IsPrimaryButtonEnabled = preview.Matched > 0;
