@@ -56,20 +56,16 @@ public static class BuiltInTemplates
     private static readonly IReadOnlySet<DateField> FileDates =
         new HashSet<DateField> { DateField.FileCreated, DateField.FileModified };
 
-    private static readonly IReadOnlySet<DateField> Taken =
-        new HashSet<DateField> { DateField.ExifDateTimeOriginal };
-
     /// <summary>
-    /// A video keeps its own date in a QuickTime atom, nowhere near where a photo keeps
-    /// one. That is why a run aimed at photos silently skips every video in the folder.
+    /// The date a camera records, wherever that particular camera keeps it.
+    ///
+    /// Both are named because a photo has the EXIF one and a video has the QuickTime one,
+    /// and a folder off a phone has both. DateFieldCatalog.AppliesTo drops whichever does
+    /// not fit each file, so one template covers the whole folder instead of making
+    /// someone sort their own files first.
     /// </summary>
-    private static readonly IReadOnlySet<DateField> Video =
-        new HashSet<DateField>
-        {
-            DateField.QuickTimeCreateDate,
-            DateField.FileCreated,
-            DateField.FileModified,
-        };
+    private static readonly IReadOnlySet<DateField> Taken =
+        new HashSet<DateField> { DateField.ExifDateTimeOriginal, DateField.QuickTimeCreateDate };
 
     private static readonly IReadOnlySet<DateField> Everything =
         new HashSet<DateField>
@@ -77,55 +73,56 @@ public static class BuiltInTemplates
             DateField.FileCreated,
             DateField.FileModified,
             DateField.ExifDateTimeOriginal,
+            DateField.QuickTimeCreateDate,
         };
 
     /// <summary>
-    /// In the order they are offered. The order is the recommendation: the first two are
-    /// the two directions of the single most common job in this whole domain.
+    /// In the order they are offered, and the order is the recommendation: the first two
+    /// are the two directions of the single most common job in this whole domain.
+    ///
+    /// None of them is split by file type. Which tag holds a date is the app's problem,
+    /// not the user's, so every one of these covers photos and videos together - a folder
+    /// off a phone always holds both.
     /// </summary>
     public static IReadOnlyList<DateTemplate> All { get; } =
     [
         new DateTemplate(
             "builtin.photos-sort-wrong-in-explorer",
-            "Photos sort wrong in Explorer",
-            "Copies each photo's Taken date onto its file dates, so Explorer and anything "
-            + "else that sorts by file date finally agrees with when the picture was taken.",
-            new DateSource.CopyFrom(Aggregate.FirstPresent, [DateField.ExifDateTimeOriginal]),
+            "Photos and videos sort wrong in Explorer",
+            "Copies the date the camera recorded onto the file dates, so Explorer and "
+            + "anything else that sorts by file date finally agrees with when it was taken.",
+
+            // Both sources named, earliest wins. A photo has only the EXIF one and a video
+            // only the QuickTime one, so in practice each file has exactly one to offer -
+            // and naming both is what lets this run over a folder holding both.
+            new DateSource.CopyFrom(
+                Aggregate.Earliest,
+                [DateField.ExifDateTimeOriginal, DateField.QuickTimeCreateDate]),
             FileDates,
             RuleGuards.None,
             IsBuiltIn: true),
 
-        // The id is deliberately unchanged from when this was called "Photos land on
-        // today in Google Photos". Ids are what saved references point at; renaming one
-        // would orphan them, and the name is the part that was wrong.
+        // One template, not one per file type. The difference between a photo and a video
+        // here is not a difference in what the user wants - it is only a difference in
+        // which tag holds the date, and that is the app's problem rather than theirs.
+        //
+        // The id is unchanged from when this was "Photos land on today in Google Photos".
+        // Ids are what saved references point at; the name was the part that was wrong.
         new DateTemplate(
             "builtin.photos-land-on-today-in-google-photos",
-            "Photo “taken” date is missing",
-            "The reverse. Scans, WhatsApp downloads and Facebook exports usually have a "
-            + "sensible file date and no Taken date at all, which is why photo libraries "
-            + "pile them onto today. This fills the Taken date in from the file date, and "
-            + "leaves photos that already have one alone.",
+            "Photo or video “taken” date is missing",
+            "Scans, downloads and phone exports often have a sensible file date and no "
+            + "taken date at all, which is why photo libraries pile them onto today. This "
+            + "fills in the missing one from the file date, and leaves anything that "
+            + "already has one alone.",
             new DateSource.CopyFrom(Aggregate.Earliest, [DateField.FileModified, DateField.FileCreated]),
             Taken,
 
-            // Only where there is nothing already. A photo that knows when it was taken
-            // knows better than its file date does, and overwriting that would be the
-            // most destructive thing in the starting set. The name says "missing" rather
-            // than "wrong" so that it describes what this actually does.
+            // Only where there is nothing already. A file that knows when it was recorded
+            // knows better than its file date does, and overwriting that would be the most
+            // destructive thing in the starting set. The name says "missing" rather than
+            // "wrong" so that it describes what this actually does.
             new RuleGuards(OnlyIfTargetEmpty: true),
-            IsBuiltIn: true),
-
-        new DateTemplate(
-            "builtin.video-date-is-wrong",
-            "Video date is wrong",
-            "Sets a video's own recorded date, and its file dates, from the earliest date "
-            + "it already has. Videos carry their date in a different place from photos, "
-            + "so a run aimed at photos leaves them behind.",
-            new DateSource.CopyFrom(
-                Aggregate.Earliest,
-                [DateField.QuickTimeCreateDate, DateField.FileCreated, DateField.FileModified]),
-            Video,
-            RuleGuards.None,
             IsBuiltIn: true),
 
         new DateTemplate(
@@ -135,7 +132,12 @@ public static class BuiltInTemplates
             + "file has picked up a spread of dates and you want them to agree.",
             new DateSource.CopyFrom(
                 Aggregate.Earliest,
-                [DateField.ExifDateTimeOriginal, DateField.FileCreated, DateField.FileModified]),
+                [
+                    DateField.ExifDateTimeOriginal,
+                    DateField.QuickTimeCreateDate,
+                    DateField.FileCreated,
+                    DateField.FileModified,
+                ]),
             Everything,
             RuleGuards.None,
             IsBuiltIn: true),

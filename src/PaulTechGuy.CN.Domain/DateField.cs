@@ -117,6 +117,45 @@ public static class DateFieldCatalog
     public static FieldGenre GenreOf(DateField field) => Get(field).Genre;
 
     /// <summary>
+    /// Whether this field means anything for this kind of file.
+    ///
+    /// A video keeps its date in a QuickTime atom and a photo keeps one in EXIF, and
+    /// neither has the other's. Without this, a rule targeting both would try to write an
+    /// EXIF tag into an MP4 and a QuickTime tag into a JPEG - so one template could not
+    /// cover a folder holding both, which is exactly what a phone produces.
+    ///
+    /// Filesystem dates apply to everything, folders included. That is the whole reason
+    /// the simple path works on any file at all.
+    /// </summary>
+    public static bool AppliesTo(DateField field, MediaKind kind)
+    {
+        if (GenreOf(field) == FieldGenre.FileSystem)
+        {
+            return true;
+        }
+
+        return field switch
+        {
+            DateField.QuickTimeCreateDate or DateField.QuickTimeModifyDate =>
+                kind == MediaKind.Video,
+
+            // EXIF lives in images. PNG can carry it, and DNG and raw are images whose
+            // EXIF is read even when the write goes to a sidecar.
+            DateField.ExifDateTimeOriginal or DateField.ExifCreateDate or DateField.ExifModifyDate =>
+                kind is MediaKind.Jpeg or MediaKind.Heic or MediaKind.Tiff or MediaKind.Png
+                    or MediaKind.Dng or MediaKind.RawProprietary,
+
+            // XMP is a container of its own and rides along in almost anything, video
+            // included.
+            DateField.XmpDateCreated => kind != MediaKind.Other,
+
+            DateField.IptcDateCreated => kind is MediaKind.Jpeg or MediaKind.Tiff,
+
+            _ => false,
+        };
+    }
+
+    /// <summary>
     /// The fields a given mode may WRITE. Note this constrains targets only: a File dates
     /// rule may still READ a metadata field, which is what makes "copy the photo's Taken
     /// date onto the file dates" reachable from the simple mode.

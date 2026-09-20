@@ -71,6 +71,16 @@ public sealed class RuleEvaluator
 
             foreach (DateField target in rule.Targets)
             {
+                // A field this kind of file simply does not have produces nothing at all,
+                // rather than a blocked row. One template covering photos and videos is
+                // the point - a phone folder holds both - and reporting "no QuickTime
+                // date" against every JPEG would bury the real problems in noise about a
+                // field nobody asked for on that file.
+                if (!DateFieldCatalog.AppliesTo(target, file.Kind))
+                {
+                    continue;
+                }
+
                 PlannedChange change = this.EvaluateOne(file, rule, target, ruleIndex, context);
                 byField[target] = change;
             }
