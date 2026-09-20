@@ -2,7 +2,8 @@
     x:Class="PaulTechGuy.CN.App.Views.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:vm="using:PaulTechGuy.CN.Presentation">
+    xmlns:vm="using:PaulTechGuy.CN.Presentation"
+    xmlns:domain="using:PaulTechGuy.CN.Domain">
 
     <!--
         The whole window accepts a drop, not just the file list. When the list is empty
@@ -267,6 +268,43 @@
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
 
                     <StackPanel Spacing="8" Visibility="{x:Bind Workbench.HasChosenIntent, Mode=OneWay}">
+
+                    <!--
+                        Templates sit above the individual options because for most people
+                        they ARE the answer: "photos sort wrong in Explorer" is the whole
+                        job, and assembling it from a source dropdown and five checkboxes
+                        is work nobody wanted to do.
+                    -->
+                    <TextBlock Text="Start from a common job"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
+
+                    <ComboBox x:Name="TemplatePicker"
+                              ItemsSource="{x:Bind Workbench.Templates, Mode=OneWay}"
+                              SelectedItem="{x:Bind Workbench.ActiveTemplate, Mode=OneWay}"
+                              SelectionChanged="OnTemplateChosen"
+                              PlaceholderText="Choose a template…"
+                              HorizontalAlignment="Stretch">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate x:DataType="domain:DateTemplate">
+                                <TextBlock Text="{x:Bind Name}" TextWrapping="NoWrap" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+
+                    <!--
+                        A template can mean more than the controls below can express - an
+                        aggregate across several source fields, for one - so its own words
+                        are the only place that part of the run is stated. Not decoration.
+                    -->
+                    <InfoBar IsOpen="{x:Bind Workbench.HasActiveTemplate, Mode=OneWay}"
+                             Message="{x:Bind Workbench.ActiveTemplateNote, Mode=OneWay}"
+                             Severity="Informational" IsClosable="False" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Save as template…" Click="OnSaveTemplate" />
+                        <Button Content="Delete" Click="OnDeleteTemplate"
+                                IsEnabled="{x:Bind Workbench.CanDeleteActiveTemplate, Mode=OneWay}" />
+                    </StackPanel>
 
                     <TextBlock Text="Get the date from" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
                     <StackPanel Spacing="2">

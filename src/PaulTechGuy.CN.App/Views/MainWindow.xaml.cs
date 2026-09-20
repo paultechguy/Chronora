@@ -146,6 +146,98 @@ public sealed partial class MainWindow : Window
     private async void OnSetUpExifTool(object sender, RoutedEventArgs e) =>
         _ = await ExifToolConsent.ShowAsync(this.Content.XamlRoot, this.Workbench);
 
+    private void OnTemplateChosen(object sender, SelectionChangedEventArgs e)
+    {
+        if (this.Workbench is not null && sender is ComboBox { SelectedItem: DateTemplate template })
+        {
+            this.Workbench.UseTemplate(template);
+        }
+    }
+
+    /// <summary>
+    /// Saves the current options under a name.
+    ///
+    /// Modal, because it is a decide-now question with a consequence, and because a
+    /// non-modal name prompt is a thing people click away from and then cannot find.
+    /// </summary>
+    private async void OnSaveTemplate(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench is null)
+        {
+            return;
+        }
+
+        var name = new TextBox { PlaceholderText = "Name", Header = "Template name" };
+        var description = new TextBox
+        {
+            PlaceholderText = "What is this for?",
+            Header = "Description (optional)",
+            AcceptsReturn = true,
+            Height = 72,
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        var error = new InfoBar { IsOpen = false, Severity = InfoBarSeverity.Error, IsClosable = false };
+
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(name);
+        panel.Children.Add(description);
+        panel.Children.Add(error);
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = this.Content.XamlRoot,
+            Title = "Save as template",
+            Content = panel,
+            PrimaryButtonText = "Save",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        // Held open on a bad name rather than closing and reporting the problem somewhere
+        // else, because the fix belongs in the box the name was typed into.
+        dialog.PrimaryButtonClick += (_, args) =>
+        {
+            string? problem = this.Workbench.SaveCurrentAsTemplate(name.Text, description.Text);
+
+            if (problem is not null)
+            {
+                args.Cancel = true;
+                error.Message = problem;
+                error.IsOpen = true;
+            }
+        };
+
+        _ = await dialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// Deleting is confirmed. It is irreversible, and a template someone built by hand is
+    /// not something they can reasonably reconstruct from memory.
+    /// </summary>
+    private async void OnDeleteTemplate(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench?.ActiveTemplate is not { IsBuiltIn: false } template)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = this.Content.XamlRoot,
+            Title = "Delete this template?",
+            Content = $"“{template.Name}” will be removed. The files in your list are not affected.",
+            PrimaryButtonText = "Delete",
+            CloseButtonText = "Keep it",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            this.Workbench.DeleteActiveTemplate();
+        }
+    }
+
     private void OnIntentChecked(object sender, RoutedEventArgs e)
     {
         if (this.Workbench is not null

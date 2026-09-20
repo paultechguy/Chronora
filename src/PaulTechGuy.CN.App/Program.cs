@@ -157,6 +157,8 @@ public static class Program
         // started per run.
         builder.Services.AddSingleton<MetadataGateway>();
 
+        builder.Services.AddSingleton<TemplateStore>();
+
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<WorkbenchViewModel>();
         builder.Services.AddSingleton<MainWindow>();

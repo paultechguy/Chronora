@@ -201,6 +201,38 @@ public class WorkbenchNotificationTests
     }
 
     /// <summary>
+    /// Using a template moves the checkboxes, the source, the intent label and the
+    /// template notice all at once - the largest single state change in the app, and so
+    /// the most likely place for the missing-notification bug to reappear.
+    /// </summary>
+    [Fact]
+    public void Using_a_template_announces_everything_it_changes()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        using var watcher = new NotificationWatcher(fixture.ViewModel);
+        fixture.ViewModel.UseTemplate(fixture.ViewModel.Templates[0]);
+
+        watcher.SilentChanges().ShouldBeEmpty();
+    }
+
+    /// <summary>And stepping back out of one, which is triggered by an ordinary edit.</summary>
+    [Fact]
+    public void Leaving_a_template_announces_everything_it_changes()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+        fixture.ViewModel.UseTemplate(fixture.ViewModel.Templates[0]);
+
+        using var watcher = new NotificationWatcher(fixture.ViewModel);
+        fixture.ViewModel.WriteAccessed = true;
+
+        watcher.SilentChanges().ShouldBeEmpty();
+        fixture.ViewModel.ActiveTemplate.ShouldBeNull("an edit takes the template out of charge");
+    }
+
+    /// <summary>
     /// A guard on the guard. If the watcher cannot detect a deliberately unannounced
     /// change then every test above is passing for the wrong reason.
     /// </summary>

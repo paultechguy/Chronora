@@ -9,6 +9,7 @@ using PaulTechGuy.CN.Abstractions;
 using PaulTechGuy.CN.FileSystem;
 using PaulTechGuy.CN.Journal;
 using PaulTechGuy.CN.Metadata;
+using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Rules;
 using PaulTechGuy.CN.Services;
 
@@ -82,6 +83,7 @@ internal sealed class WorkbenchFixture : IDisposable
             this.Journal,
             exifTool,
             this.Metadata,
+            new TemplateStore(paths),
             paths,
             new ImmediateDispatcher(),
             NullLogger<WorkbenchViewModel>.Instance);

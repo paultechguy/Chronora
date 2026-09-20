@@ -12,6 +12,7 @@ using PaulTechGuy.CN.FileSystem;
 using PaulTechGuy.CN.Abstractions;
 using PaulTechGuy.CN.Journal;
 using PaulTechGuy.CN.Metadata;
+using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Rules;
 
 namespace PaulTechGuy.CN.Presentation;
@@ -95,6 +96,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private readonly SqliteJournal _journal;
     private readonly ExifToolService _exifTool;
     private readonly MetadataGateway _metadata;
+    private readonly TemplateStore _templates;
     private readonly IAppPaths _paths;
     private readonly IUiDispatcher _dispatcher;
     private readonly ILogger<WorkbenchViewModel> _logger;
@@ -108,6 +110,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private bool _applyingIntent;
 
+    /// <summary>
+    /// Same idea for templates: using one ticks boxes, and a ticked box would otherwise be
+    /// read as the user editing their way out of the template they just chose.
+    /// </summary>
+    private bool _applyingTemplate;
+
     private CancellationTokenSource? _debounce;
     private CancellationTokenSource? _run;
 
@@ -118,6 +126,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         SqliteJournal journal,
         ExifToolService exifTool,
         MetadataGateway metadata,
+        TemplateStore templates,
         IAppPaths paths,
         IUiDispatcher dispatcher,
         ILogger<WorkbenchViewModel> logger)
@@ -128,6 +137,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._journal = journal;
         this._exifTool = exifTool;
         this._metadata = metadata;
+        this._templates = templates;
         this._paths = paths;
         this._dispatcher = dispatcher;
         this._logger = logger;
@@ -136,6 +146,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.AbsoluteTime = new TimeSpan(12, 0, 0);
         this.Summary = ChangeSummary.Empty;
         this.Rows = [];
+        this.Templates = templates.All;
         this.RefreshHistory();
     }
 
@@ -325,6 +336,250 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.CanStartOver));
     }
 
+    // ---- Templates --------------------------------------------------------------------
+
+    /// <summary>Built-ins followed by the user's own.</summary>
+    [ObservableProperty]
+    public partial IReadOnlyList<DateTemplate> Templates { get; set; } = [];
+
+    /// <summary>
+    /// The template currently driving the run, or null when the options pane is.
+    ///
+    /// This is kept as the authoritative rule rather than being flattened into the
+    /// checkboxes, because some templates say more than the pane can. "Make every date
+    /// consistent" reads the EARLIEST of three fields; the pane offers one field and no
+    /// aggregate. Flattening it would quietly turn it into something else that still
+    /// carried its name, which is the worst of both.
+    ///
+    /// The pane still shows the template's targets, and the preview still shows every
+    /// resulting change per file, so nothing about the run is hidden - the name and its
+    /// description carry the part the controls cannot express.
+    /// </summary>
+    [ObservableProperty]
+    public partial DateTemplate? ActiveTemplate { get; set; }
+
+    public bool HasActiveTemplate => this.ActiveTemplate is not null;
+
+    public string ActiveTemplateNote => this.ActiveTemplate?.Description ?? string.Empty;
+
+    /// <summary>A built-in cannot be overwritten or deleted; it can be duplicated.</summary>
+    public bool CanDeleteActiveTemplate => this.ActiveTemplate is { IsBuiltIn: false };
+
+    /// <summary>
+    /// Puts a template in charge. The checkboxes move to match its targets so the pane is
+    /// never describing a different run from the one that will happen.
+    /// </summary>
+    [RelayCommand]
+    public void UseTemplate(DateTemplate? template)
+    {
+        if (template is null)
+        {
+            return;
+        }
+
+        this._applyingTemplate = true;
+
+        try
+        {
+            this.WriteCreated = template.Targets.Contains(DateField.FileCreated);
+            this.WriteModified = template.Targets.Contains(DateField.FileModified);
+            this.WriteAccessed = template.Targets.Contains(DateField.FileAccessed);
+            this.WriteChanged = template.Targets.Contains(DateField.FileChanged);
+            this.WriteTaken = template.Targets.Contains(DateField.ExifDateTimeOriginal);
+
+            switch (template.Source)
+            {
+                case DateSource.Absolute absolute:
+                    this.Source = SourceChoice.PickADate;
+                    this.AbsoluteDate = absolute.Value.Date;
+                    this.AbsoluteTime = absolute.Value.TimeOfDay;
+                    break;
+
+                case DateSource.Shift shift:
+                    this.Source = SourceChoice.ShiftBy;
+                    this.ShiftHours = shift.Delta.TotalHours;
+                    break;
+
+                case DateSource.CopyFrom copy:
+                    this.Source = SourceChoice.FromAnotherDate;
+
+                    // The pane shows the first field. When the template names more, the
+                    // template stays in charge and its description says what it really does.
+                    this.CopyFromField = copy.Fields.Count > 0 ? copy.Fields[0] : DateField.FileModified;
+                    break;
+
+                case DateSource.FromFileName:
+                    this.Source = SourceChoice.FromFileName;
+                    break;
+
+                default:
+                    break;
+            }
+
+            this.ActiveTemplate = template;
+        }
+        finally
+        {
+            this._applyingTemplate = false;
+        }
+
+        // The ticked set has moved, so the intent label has to catch up with it.
+        this.ReconcileIntent();
+
+        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”.");
+        this.NotifyTemplateState();
+        this.QueueRecompute();
+    }
+
+    /// <summary>
+    /// Saves the current options under a name.
+    /// </summary>
+    /// <returns>Null on success, or a sentence explaining why not.</returns>
+    public string? SaveCurrentAsTemplate(string name, string description = "")
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "Give the template a name first.";
+        }
+
+        if (BuiltInTemplates.All.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            return $"“{name}” is the name of a template that ships with Chronora. Pick another.";
+        }
+
+        if (this._templates.IsReadOnly)
+        {
+            return this._templates.ReadOnlyReason;
+        }
+
+        Recipe recipe = this.BuildRecipe();
+        DateRule rule = recipe.Rules[0];
+
+        var template = new DateTemplate(
+            Guid.NewGuid().ToString("N"),
+            name.Trim(),
+            description.Trim(),
+            rule.Source,
+            rule.Targets,
+            rule.Guards);
+
+        if (!this._templates.Save(template))
+        {
+            return "Chronora could not write the templates file.";
+        }
+
+        this.ReloadTemplates();
+        this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == template.Id) ?? template;
+        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”.");
+        this.NotifyTemplateState();
+
+        return null;
+    }
+
+    [RelayCommand]
+    public void DeleteActiveTemplate()
+    {
+        if (this.ActiveTemplate is not { IsBuiltIn: false } template)
+        {
+            return;
+        }
+
+        _ = this._templates.Delete(template.Id);
+        this.ReloadTemplates();
+
+        this.ActiveTemplate = null;
+        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”.");
+        this.NotifyTemplateState();
+        this.QueueRecompute();
+    }
+
+    /// <summary>Copies a template so it can be edited, which is how a built-in is adapted.</summary>
+    public string? DuplicateActiveTemplate(string newName)
+    {
+        if (this.ActiveTemplate is not { } template)
+        {
+            return "Choose a template first.";
+        }
+
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            return "Give the copy a name.";
+        }
+
+        DateTemplate copy = TemplateStore.Duplicate(template, newName.Trim());
+
+        if (!this._templates.Save(copy))
+        {
+            return "Chronora could not write the templates file.";
+        }
+
+        this.ReloadTemplates();
+        this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == copy.Id) ?? copy;
+        this.ActionNotice = string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”.");
+        this.NotifyTemplateState();
+
+        return null;
+    }
+
+    public bool ExportActiveTemplate(string path) =>
+        this.ActiveTemplate is { } template && this._templates.Export(template, path);
+
+    public string? ImportTemplate(string path)
+    {
+        DateTemplate? imported = this._templates.Import(path);
+
+        if (imported is null)
+        {
+            return "That file is not a Chronora template.";
+        }
+
+        if (!this._templates.Save(imported))
+        {
+            return "Chronora could not write the templates file.";
+        }
+
+        this.ReloadTemplates();
+        this.UseTemplate(this.Templates.FirstOrDefault(t => t.Id == imported.Id));
+
+        return null;
+    }
+
+    private void ReloadTemplates()
+    {
+        this._templates.Reload();
+        this.Templates = this._templates.All;
+    }
+
+    /// <summary>
+    /// Steps out of a template when the user edits an option it was responsible for.
+    ///
+    /// Announced rather than silent. The template can mean more than the pane shows, so
+    /// dropping it can change the run in a way the controls do not visibly account for -
+    /// and an unexplained change to what Apply will do is the one thing this app must
+    /// never do.
+    /// </summary>
+    private void LeaveTemplateOnEdit()
+    {
+        if (this._applyingTemplate || this.ActiveTemplate is not { } template)
+        {
+            return;
+        }
+
+        this.ActiveTemplate = null;
+        this.ActionNotice = string.Create(
+            CultureInfo.CurrentCulture,
+            $"Stopped using “{template.Name}” because you changed the options.");
+
+        this.NotifyTemplateState();
+    }
+
+    private void NotifyTemplateState()
+    {
+        this.OnPropertyChanged(nameof(this.HasActiveTemplate));
+        this.OnPropertyChanged(nameof(this.ActiveTemplateNote));
+        this.OnPropertyChanged(nameof(this.CanDeleteActiveTemplate));
+    }
+
     // ---- Source -----------------------------------------------------------------------
 
     [ObservableProperty]
@@ -332,6 +587,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnSourceChanged(SourceChoice value)
     {
+        this.LeaveTemplateOnEdit();
         this.OnPropertyChanged(nameof(this.NeedsAbsoluteInput));
         this.OnPropertyChanged(nameof(this.NeedsShiftInput));
         this.OnPropertyChanged(nameof(this.NeedsCopyFromInput));
@@ -351,17 +607,29 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial DateTimeOffset AbsoluteDate { get; set; }
 
-    partial void OnAbsoluteDateChanged(DateTimeOffset value) => this.QueueRecompute();
+    partial void OnAbsoluteDateChanged(DateTimeOffset value)
+    {
+        this.LeaveTemplateOnEdit();
+        this.QueueRecompute();
+    }
 
     [ObservableProperty]
     public partial TimeSpan AbsoluteTime { get; set; }
 
-    partial void OnAbsoluteTimeChanged(TimeSpan value) => this.QueueRecompute();
+    partial void OnAbsoluteTimeChanged(TimeSpan value)
+    {
+        this.LeaveTemplateOnEdit();
+        this.QueueRecompute();
+    }
 
     [ObservableProperty]
     public partial double ShiftHours { get; set; }
 
-    partial void OnShiftHoursChanged(double value) => this.QueueRecompute();
+    partial void OnShiftHoursChanged(double value)
+    {
+        this.LeaveTemplateOnEdit();
+        this.QueueRecompute();
+    }
 
     /// <summary>
     /// The field a copy reads from. Includes metadata fields even in File dates mode, which
@@ -372,6 +640,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnCopyFromFieldChanged(DateField value)
     {
+        this.LeaveTemplateOnEdit();
         this.NotifyIntentDerived();
         this.QueueRecompute();
     }
@@ -383,6 +652,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnWriteCreatedChanged(bool value)
     {
+        this.LeaveTemplateOnEdit();
         this.ReconcileIntent();
         this.QueueRecompute();
     }
@@ -392,6 +662,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnWriteModifiedChanged(bool value)
     {
+        this.LeaveTemplateOnEdit();
         this.ReconcileIntent();
         this.QueueRecompute();
     }
@@ -401,6 +672,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnWriteAccessedChanged(bool value)
     {
+        this.LeaveTemplateOnEdit();
         this.ReconcileIntent();
         this.QueueRecompute();
     }
@@ -410,6 +682,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnWriteChangedChanged(bool value)
     {
+        this.LeaveTemplateOnEdit();
         this.ReconcileIntent();
         this.QueueRecompute();
     }
@@ -419,6 +692,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnWriteTakenChanged(bool value)
     {
+        this.LeaveTemplateOnEdit();
         this.ReconcileIntent();
         this.QueueRecompute();
     }
@@ -871,6 +1145,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         bool onlyProblems = this.ShowOnlyProblems;
         (bool created, bool modified, bool accessed, bool changed, bool taken) =
             (this.WriteCreated, this.WriteModified, this.WriteAccessed, this.WriteChanged, this.WriteTaken);
+        DateTemplate? template = this.ActiveTemplate;
 
         this._allRows.Clear();
         this._roots.Clear();
@@ -879,9 +1154,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.DismissNudge();
 
         this._applyingIntent = true;
+        this._applyingTemplate = true;
 
         try
         {
+            this.ActiveTemplate = null;
             this.Intent = WorkIntent.None;
             this.Source = SourceChoice.PickADate;
             this.Sort = SortChoice.Name;
@@ -896,9 +1173,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         finally
         {
             this._applyingIntent = false;
+            this._applyingTemplate = false;
         }
 
         this.NotifyIntentDerived();
+        this.NotifyTemplateState();
         this.Recompute();
 
         this.ActionNotice = "Started over.";
@@ -908,9 +1187,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this._roots.AddRange(roots);
 
             this._applyingIntent = true;
+            this._applyingTemplate = true;
 
             try
             {
+                this.ActiveTemplate = template;
                 this.Intent = intent;
                 this.Source = source;
                 this.Sort = sort;
@@ -925,9 +1206,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             finally
             {
                 this._applyingIntent = false;
+                this._applyingTemplate = false;
             }
 
             this.NotifyIntentDerived();
+            this.NotifyTemplateState();
         };
     }
 
@@ -1319,6 +1602,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     private Recipe BuildRecipe()
     {
+        // A template that is in charge stays in charge, because it can say more than the
+        // pane can show - an aggregate over several source fields, for instance. Its
+        // targets are still reflected in the checkboxes, so the pane is never describing
+        // a different run; it just cannot express all of this one.
+        if (this.ActiveTemplate is { } template)
+        {
+            return new Recipe([template.ToRule()], ScanFilter.Default, this.Mode);
+        }
+
         var targets = new HashSet<DateField>();
 
         if (this.WriteCreated)
