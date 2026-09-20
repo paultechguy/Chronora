@@ -98,6 +98,19 @@ public sealed partial class PlanRowViewModel : ObservableObject
         : ChangeStatus.Unchanged;
 
     /// <summary>
+    /// Line two, marked when the row is carrying a date of its own.
+    ///
+    /// A per-row override with nothing on the row to show for it is the worst kind of
+    /// hidden state: two rows with identical summaries would be taking their date from
+    /// different places, and the only way to tell which is which would be clicking every
+    /// one. The marker goes first because it changes how the rest of the line reads.
+    /// </summary>
+    public static string FormatSummary(FilePlan? plan, DateTimeOffset? manual) =>
+        manual is null
+            ? FormatSummary(plan)
+            : string.Create(CultureInfo.CurrentCulture, $"by hand · {FormatSummary(plan)}");
+
+    /// <summary>
     /// Line two, adaptive within a fixed row height.
     ///
     /// The three cases exist because a count badge is lossy in exactly the way this app is
