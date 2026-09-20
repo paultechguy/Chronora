@@ -774,6 +774,49 @@ public sealed partial class MainWindow : Window
             time.Time = new TimeSpan(moment.Hour, moment.Minute, moment.Second);
         };
 
+        // The same four fields the options pane offers, because the dialog is answering
+        // the same two questions for one file - which date, and where it goes - and a
+        // dialog that answered only the first would send the date into whatever the run
+        // happened to be writing, which for a singled-out file is the thing most likely to
+        // be wrong about it.
+        IReadOnlySet<DateField> seeded = this.Workbench.DefaultTargetsFor(row);
+
+        var boxes = new List<(DateField Field, CheckBox Box)>();
+
+        foreach ((DateField field, string label, string? tip) in RowMenuTargets)
+        {
+            // A field this file cannot carry is left out rather than shown disabled. There
+            // is no Taken date on a text file and never will be, so a greyed box only
+            // raises a question with no answer.
+            if (!WorkbenchViewModel.CanTarget(row, field))
+            {
+                continue;
+            }
+
+            var box = new CheckBox { Content = label, IsChecked = seeded.Contains(field) };
+
+            if (tip is not null)
+            {
+                ToolTipService.SetToolTip(box, tip);
+            }
+
+            boxes.Add((field, box));
+        }
+
+        var targets = new StackPanel { Spacing = 2 };
+
+        targets.Children.Add(new TextBlock
+        {
+            Text = "Write it to",
+            Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"],
+            Margin = new Thickness(0, 6, 0, 2),
+        });
+
+        foreach ((_, CheckBox box) in boxes)
+        {
+            targets.Children.Add(box);
+        }
+
         var panel = new StackPanel { Spacing = 12 };
 
         panel.Children.Add(new TextBlock
@@ -785,13 +828,14 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(date);
         panel.Children.Add(time);
         panel.Children.Add(now);
+        panel.Children.Add(targets);
 
         panel.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.7,
-            Text = "This file alone uses this date. The rest of the run is unchanged, and the "
-                + "fields it writes to stay whatever you chose.",
+            Text = "This file alone uses this date and these fields. The rest of the run is "
+                + "unchanged.",
         });
 
         var dialog = new ContentDialog
@@ -804,13 +848,44 @@ public sealed partial class MainWindow : Window
             DefaultButton = ContentDialogButton.Primary,
         };
 
-        if (await dialog.ShowAsync() == ContentDialogResult.Primary && date.Date is { } picked)
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary || date.Date is not { } picked)
         {
-            this.Workbench.SetManualDate(
-                row,
-                new DateTimeOffset(picked.Date.Add(time.Time), DateTimeOffset.Now.Offset));
+            return;
         }
+
+        HashSet<DateField> chosen = [.. boxes.Where(b => b.Box.IsChecked == true).Select(b => b.Field)];
+
+        if (chosen.Count == 0)
+        {
+            // Nothing ticked means nothing to write, and saying so beats recording an
+            // override that silently does nothing and then shows "by hand" on the row.
+            this.Workbench.ScanStatus = $"{row.Name} was left alone - no fields were ticked.";
+            return;
+        }
+
+        this.Workbench.SetManualDate(
+            row,
+            new DateTimeOffset(picked.Date.Add(time.Time), DateTimeOffset.Now.Offset),
+            chosen);
     }
+
+    /// <summary>
+    /// The fields the row dialog offers, in the order and wording the options pane uses.
+    ///
+    /// Changed (NTFS) is deliberately absent, exactly as it is from the pane's main list:
+    /// Explorer never shows it, so leaving it alone surprises nobody.
+    /// </summary>
+    private static readonly (DateField Field, string Label, string? Tip)[] RowMenuTargets =
+    [
+        (DateField.FileCreated, "Created", null),
+        (DateField.FileModified, "Modified", null),
+        (DateField.FileAccessed, "Accessed",
+            "Explorer shows this next to Created and Modified. Windows usually stops updating "
+            + "it, so a date set here tends to stay put."),
+        (DateField.ExifDateTimeOriginal, "Taken (photo)",
+            "The date the photo or video records as when it was taken. Photo libraries read "
+            + "this and ignore the file dates, so on its own it is often exactly right."),
+    ];
 
     /// <summary>
     /// Hands a file to whatever normally opens it, with one place to report a failure.

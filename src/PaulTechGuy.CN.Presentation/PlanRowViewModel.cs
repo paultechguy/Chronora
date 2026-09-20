@@ -71,9 +71,23 @@ public sealed partial class PlanRowViewModel : ObservableObject
     [ObservableProperty]
     public partial DateTimeOffset? ManualDate { get; set; }
 
-    public bool HasManualDate => this.ManualDate is not null;
+    /// <summary>
+    /// The fields this row writes, when it does not follow the run's.
+    ///
+    /// Separate from the date because the two are genuinely separate questions, and a file
+    /// singled out by hand is often singled out because the run's answer to THIS one is
+    /// wrong for it - a video in a folder of stills, a document among photos.
+    /// </summary>
+    [ObservableProperty]
+    public partial IReadOnlySet<DateField>? ManualTargets { get; set; }
+
+    /// <summary>True when anything about this row has been set by hand.</summary>
+    public bool HasManualDate => this.ManualDate is not null || this.ManualTargets is not null;
 
     partial void OnManualDateChanged(DateTimeOffset? value) =>
+        this.OnPropertyChanged(nameof(this.HasManualDate));
+
+    partial void OnManualTargetsChanged(IReadOnlySet<DateField>? value) =>
         this.OnPropertyChanged(nameof(this.HasManualDate));
 
     /// <summary>

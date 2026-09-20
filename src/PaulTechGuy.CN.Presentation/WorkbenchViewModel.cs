@@ -1644,13 +1644,58 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Sets a date for this file alone. Null clears it and hands the row back to the run.
+    /// A row writing to fields outside the file system has to be planned in photo mode,
+    /// whatever mode the rest of the run is in - otherwise the metadata target is filtered
+    /// straight back out and the row silently does nothing.
     /// </summary>
-    public void SetManualDate(PlanRowViewModel row, DateTimeOffset? value)
+    private static AppMode ModeFor(IReadOnlySet<DateField> targets, AppMode runMode) =>
+        targets.Any(t => DateFieldCatalog.GenreOf(t) != FieldGenre.FileSystem)
+            ? AppMode.PhotoDates
+            : runMode;
+
+    /// <summary>
+    /// Which fields a single row would write, and which it is allowed to offer.
+    ///
+    /// The run's own targets are the starting point, minus anything this file cannot carry
+    /// - there is no Taken date on a text file, and offering one produces a tick that the
+    /// recipe silently drops. If that leaves nothing at all, the file dates everybody
+    /// recognises are a better answer than an empty dialog.
+    /// </summary>
+    public IReadOnlySet<DateField> DefaultTargetsFor(PlanRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (row.ManualTargets is { } chosen)
+        {
+            return chosen;
+        }
+
+        HashSet<DateField> applicable =
+        [
+            .. this.BuildRecipe().Rules[0].Targets.Where(t => DateFieldCatalog.AppliesTo(t, row.File.Kind)),
+        ];
+
+        return applicable.Count > 0 ? applicable : [DateField.FileCreated, DateField.FileModified];
+    }
+
+    /// <summary>Whether a field can be written to this file at all.</summary>
+    public static bool CanTarget(PlanRowViewModel row, DateField field)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        return DateFieldCatalog.AppliesTo(field, row.File.Kind);
+    }
+
+    /// <summary>
+    /// Sets a date and the fields it goes into, for this file alone. Null for both clears
+    /// the override and hands the row back to the run.
+    /// </summary>
+    public void SetManualDate(PlanRowViewModel row, DateTimeOffset? value, IReadOnlySet<DateField>? targets = null)
     {
         ArgumentNullException.ThrowIfNull(row);
 
         row.ManualDate = value;
+        row.ManualTargets = targets;
 
         this.ScanStatus = value is { } set
             ? string.Create(CultureInfo.CurrentCulture, $"{row.Name} is set to {set:yyyy-MM-dd HH:mm} by hand.")
@@ -2104,16 +2149,22 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // Unset source rather than an empty recipe precisely so the targets survive.
         IReadOnlySet<DateField> targets = recipe.Rules[0].Targets;
 
+        DateSource runSource = recipe.Rules[0].Source;
+
         foreach (PlanRowViewModel row in this._allRows)
         {
-            // A hand-typed date replaces the source for that row and nothing else: its
-            // targets, guards and mode stay exactly as the run says. The override is about
-            // WHERE the date comes from, not about exempting the file from the rules.
-            Recipe forRow = row.ManualDate is { } manual
+            // A row set by hand answers the same two questions the pane asks - which date,
+            // and which fields - for itself. Either can be overridden without the other,
+            // so a file can take the run's date into different fields, or its own date
+            // into the run's fields.
+            Recipe forRow = row.HasManualDate
                 ? new Recipe(
-                    [new DateRule(new DateSource.Absolute(manual), targets, RuleGuards.None)],
+                    [new DateRule(
+                        row.ManualDate is { } manual ? new DateSource.Absolute(manual) : runSource,
+                        row.ManualTargets ?? targets,
+                        RuleGuards.None)],
                     ScanFilter.Default,
-                    this.Mode)
+                    ModeFor(row.ManualTargets ?? targets, this.Mode))
                 : recipe;
 
             row.Plan = this._evaluator.Evaluate(row.File, forRow, context);
