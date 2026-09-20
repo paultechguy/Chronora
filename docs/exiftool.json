@@ -1,0 +1,7 @@
+{
+  "version": "13.10",
+  "url": "https://exiftool.org/exiftool-13.10_64.zip",
+  "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "sizeBytes": 12000000,
+  "_comment": "PLACEHOLDER. The sha256 must be the real hash of the archive at url before 0.1.0 ships, or every download will be refused. Published at https://paultechguy.github.io/Chronora/exiftool.json so the pinned version can be corrected in a commit rather than a release."
+}
