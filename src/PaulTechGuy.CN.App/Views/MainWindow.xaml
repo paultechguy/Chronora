@@ -4,7 +4,13 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:PaulTechGuy.CN.App.ViewModels">
 
-    <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto">
+    <!--
+        The whole window accepts a drop, not just the file list. When the list is empty
+        there is no obvious target to aim at, and a drop that lands on the wrong pane and
+        does nothing teaches people the feature does not exist.
+    -->
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto"
+          AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" DragLeave="OnDragLeave">
 
         <!--
             The title bar carries no controls. It used to hold a File dates / Photo dates
@@ -19,7 +25,7 @@
 
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto,320">
 
-            <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*,Auto" Margin="16,0,8,0">
+            <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="16,0,8,0">
 
                 <!--
                     The summary band IS the preview. Six lines someone can actually verify
@@ -71,12 +77,49 @@
                     </StackPanel>
                 </Border>
 
+                <StackPanel Grid.Row="1" Spacing="6">
+                    <!--
+                        What the last drop did, offered back rather than assumed. A drop
+                        adds, because gathering is almost always the intent, and both
+                        alternatives sit right here while the bar is up. No dialog on an
+                        action people repeat.
+                    -->
+                    <InfoBar IsOpen="{x:Bind Workbench.HasDropNotice, Mode=OneWay}"
+                             Message="{x:Bind Workbench.DropNotice, Mode=OneWay}"
+                             Severity="Success" IsClosable="True" CloseButtonClick="OnDismissDropNotice">
+                        <!-- ActionButton takes a single button, so both alternatives live
+                             in the content area where they can sit side by side. -->
+                        <InfoBar.Content>
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
+                                <Button Content="Replace list instead"
+                                        Command="{x:Bind Workbench.ReplaceWithDropCommand}" />
+                                <Button Content="Undo" Command="{x:Bind Workbench.UndoDropCommand}" />
+                            </StackPanel>
+                        </InfoBar.Content>
+                    </InfoBar>
+
+                    <!--
+                        The content contradicts the chosen intent. Said once, acted on only
+                        if asked: the app knows a folder of documents has no Taken date, and
+                        staying quiet would withhold the answer, while changing the choice
+                        unasked would overrule a deliberate decision.
+                    -->
+                    <InfoBar IsOpen="{x:Bind Workbench.HasIntentNudge, Mode=OneWay}"
+                             Message="{x:Bind Workbench.IntentNudge, Mode=OneWay}"
+                             Severity="Informational" IsClosable="True" CloseButtonClick="OnDismissNudge">
+                        <InfoBar.ActionButton>
+                            <Button Content="{x:Bind Workbench.NudgeActionLabel, Mode=OneWay}"
+                                    Command="{x:Bind Workbench.AcceptNudgeCommand}" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                </StackPanel>
+
                 <!--
                     Clear is separated and right-aligned. It was sitting between the sort
                     and the filters, where a destructive action has no business being: the
                     controls beside it only change what you SEE, and it throws the list away.
                 -->
-                <Grid Grid.Row="1" Margin="0,0,0,8" ColumnDefinitions="Auto,*,Auto">
+                <Grid Grid.Row="2" Margin="0,0,0,8" ColumnDefinitions="Auto,*,Auto">
                     <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
                         <Button Content="Add folder..." Click="OnAddFolder"
                                 Height="{StaticResource CnChromeButtonHeight}" />
@@ -107,7 +150,7 @@
                     layout only estimates extent for non-uniform items, and the scrollbar
                     drifts under the cursor when it has to guess.
                 -->
-                <ListView Grid.Row="2"
+                <ListView Grid.Row="3"
                           ItemsSource="{x:Bind Workbench.Rows, Mode=OneWay}"
                           SelectedItem="{x:Bind Workbench.SelectedRow, Mode=TwoWay}"
                           SelectionMode="Single">
@@ -151,7 +194,7 @@
                     away rather than one navigation away, which is the thing the competing
                     tools get wrong.
                 -->
-                <Border Grid.Row="3" Padding="12,8" Margin="0,8,0,8" CornerRadius="4"
+                <Border Grid.Row="4" Padding="12,8" Margin="0,8,0,8" CornerRadius="4"
                         Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
                     <StackPanel Spacing="4">
                         <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"

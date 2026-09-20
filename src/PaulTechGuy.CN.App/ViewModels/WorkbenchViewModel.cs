@@ -470,12 +470,199 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
     }
 
+    // ---- Dropped items ----------------------------------------------------------------
+
+    /// <summary>What the last drop did, offered back for a few seconds rather than assumed.</summary>
+    [ObservableProperty]
+    public partial string? DropNotice { get; set; }
+
+    partial void OnDropNoticeChanged(string? value) => this.OnPropertyChanged(nameof(this.HasDropNotice));
+
+    public bool HasDropNotice => this.DropNotice is not null;
+
+    /// <summary>
+    /// A quiet suggestion when the dropped content contradicts the chosen intent. Never
+    /// acted on automatically: the options are what the user asked for, and rewriting them
+    /// because of what they dragged in would be the app overruling them.
+    /// </summary>
+    [ObservableProperty]
+    public partial string? IntentNudge { get; set; }
+
+    partial void OnIntentNudgeChanged(string? value) => this.OnPropertyChanged(nameof(this.HasIntentNudge));
+
+    public bool HasIntentNudge => this.IntentNudge is not null;
+
+    /// <summary>Names the switch rather than saying "OK", so the button states its own effect.</summary>
+    public string NudgeActionLabel => this._nudgeTarget switch
+    {
+        WorkIntent.FileDates => "Switch to file dates",
+        WorkIntent.PhotoDates => "Switch to photo dates",
+        _ => "Switch",
+    };
+
+    private WorkIntent _nudgeTarget = WorkIntent.None;
+    private List<PlanRowViewModel> _rowsBeforeDrop = [];
+    private List<PlanRowViewModel> _rowsFromDrop = [];
+
+    /// <summary>
+    /// Adds whatever was dropped: folders, individual files, or a mix of both.
+    ///
+    /// It ADDS rather than replaces, because someone dragging a second folder is almost
+    /// always gathering rather than starting over. Both alternatives stay one click away
+    /// on the notice bar, so the guess costs nothing if it is wrong.
+    /// </summary>
+    public async Task AddDroppedAsync(IReadOnlyList<string> paths, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        this._rowsBeforeDrop = [.. this._allRows];
+        this._rowsFromDrop = [];
+
+        this.IsScanning = true;
+        this.ScanStatus = "Reading dropped items…";
+
+        try
+        {
+            await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, ScanFilter.Default, cancellationToken))
+            {
+                var row = new PlanRowViewModel(file);
+                this._allRows.Add(row);
+                this._rowsFromDrop.Add(row);
+            }
+
+            foreach (string path in paths.Where(Directory.Exists))
+            {
+                if (!this._roots.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    this._roots.Add(path);
+                }
+            }
+
+            string what = paths.Count == 1 ? Path.GetFileName(paths[0].TrimEnd(Path.DirectorySeparatorChar)) : $"{paths.Count} items";
+
+            this.DropNotice = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Added {this._rowsFromDrop.Count:N0} file{(this._rowsFromDrop.Count == 1 ? string.Empty : "s")} from {what}.");
+
+            this.ScanStatus = this.DropNotice;
+            this.Recompute();
+            this.CheckIntentAgainstContent();
+        }
+        catch (OperationCanceledException)
+        {
+            this.ScanStatus = "Cancelled.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            this._logger.LogError(ex, "Could not read the dropped items.");
+            this.ScanStatus = $"Could not read what was dropped: {ex.Message}";
+        }
+        finally
+        {
+            this.IsScanning = false;
+        }
+    }
+
+    /// <summary>Puts the list back as it was before the last drop.</summary>
+    [RelayCommand]
+    public void UndoDrop()
+    {
+        this._allRows.Clear();
+        this._allRows.AddRange(this._rowsBeforeDrop);
+        this.DismissDropNotice();
+        this.Recompute();
+    }
+
+    /// <summary>Keeps only what the last drop brought in.</summary>
+    [RelayCommand]
+    public void ReplaceWithDrop()
+    {
+        this._allRows.Clear();
+        this._allRows.AddRange(this._rowsFromDrop);
+        this.DismissDropNotice();
+        this.Recompute();
+    }
+
+    [RelayCommand]
+    public void DismissDropNotice()
+    {
+        this.DropNotice = null;
+        this._rowsBeforeDrop = [];
+        this._rowsFromDrop = [];
+    }
+
+    /// <summary>Takes the suggestion the nudge offered.</summary>
+    [RelayCommand]
+    public void AcceptNudge()
+    {
+        if (this._nudgeTarget != WorkIntent.None)
+        {
+            this.ChooseIntent(this._nudgeTarget);
+        }
+
+        this.DismissNudge();
+    }
+
+    [RelayCommand]
+    public void DismissNudge()
+    {
+        this.IntentNudge = null;
+        this._nudgeTarget = WorkIntent.None;
+    }
+
+    /// <summary>
+    /// Offers a switch when the content plainly contradicts the intent, and only then.
+    ///
+    /// The app knows that a folder of documents cannot receive a Taken date; staying quiet
+    /// about it and letting every row come back blocked would be withholding the answer.
+    /// Acting on it unasked would be overruling a deliberate choice. A sentence and a
+    /// button is the honest middle.
+    /// </summary>
+    private void CheckIntentAgainstContent()
+    {
+        this.DismissNudge();
+
+        if (this._allRows.Count == 0)
+        {
+            return;
+        }
+
+        int media = this._allRows.Count(r => r.File.Kind != MediaKind.Other);
+        double share = (double)media / this._allRows.Count;
+
+        if (this.Intent == WorkIntent.PhotoDates && media == 0)
+        {
+            this._nudgeTarget = WorkIntent.FileDates;
+
+            this.OnPropertyChanged(nameof(this.NudgeActionLabel));
+            this.IntentNudge = "None of these are photos or videos, so there is no Taken date to set.";
+        }
+        else if (this.Intent == WorkIntent.FileDates && share >= 0.8)
+        {
+            this._nudgeTarget = WorkIntent.PhotoDates;
+
+            this.OnPropertyChanged(nameof(this.NudgeActionLabel));
+            this.IntentNudge = string.Create(
+                CultureInfo.CurrentCulture,
+                $"{media:N0} of these are photos or videos. Google Photos reads their Taken date, not the file dates.");
+        }
+    }
+
     [RelayCommand]
     public void Clear()
     {
         this._allRows.Clear();
 
         this._roots.Clear();
+
+        this.DismissDropNotice();
+
+        this.DismissNudge();
         this.SelectedRow = null;
         this.ScanStatus = string.Empty;
         this.Recompute();

@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PaulTechGuy.CN.App.ViewModels;
 using PaulTechGuy.CN.Domain;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 
@@ -77,6 +78,65 @@ public sealed partial class MainWindow : Window
 
         await this.Workbench.AddFolderAsync(folder.Path, ScanFilter.Default);
     }
+
+    /// <summary>
+    /// Accepts folders and files, including a mixed selection. Windows hands a drop over
+    /// as one list with no guarantee the items are all the same kind, so nothing here
+    /// assumes they are.
+    /// </summary>
+    private void OnDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            e.AcceptedOperation = DataPackageOperation.None;
+            return;
+        }
+
+        e.AcceptedOperation = DataPackageOperation.Copy;
+        e.DragUIOverride.Caption = "Add to the list";
+        e.DragUIOverride.IsGlyphVisible = true;
+        e.DragUIOverride.IsCaptionVisible = true;
+    }
+
+    private void OnDragLeave(object sender, DragEventArgs e)
+    {
+        // Nothing to undo visually yet; the handler exists so the state stays symmetrical
+        // when a drop overlay is added.
+    }
+
+    private async void OnDrop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+
+        // The deferral matters: without it the data view is disposed the moment this
+        // handler returns, and the await below would read from a closed package.
+        DragOperationDeferral deferral = e.GetDeferral();
+
+        try
+        {
+            IReadOnlyList<Windows.Storage.IStorageItem> items = await e.DataView.GetStorageItemsAsync();
+
+            List<string> paths = [.. items
+                .Select(i => i.Path)
+                .Where(p => !string.IsNullOrWhiteSpace(p))];
+
+            if (paths.Count > 0)
+            {
+                await this.Workbench.AddDroppedAsync(paths);
+            }
+        }
+        finally
+        {
+            deferral.Complete();
+        }
+    }
+
+    private void OnDismissDropNotice(InfoBar sender, object args) => this.Workbench.DismissDropNotice();
+
+    private void OnDismissNudge(InfoBar sender, object args) => this.Workbench.DismissNudge();
 
     private void OnIntentChecked(object sender, RoutedEventArgs e)
     {

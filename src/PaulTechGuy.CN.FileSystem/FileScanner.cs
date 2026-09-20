@@ -75,6 +75,49 @@ public sealed class FileScanner(
         }
     }
 
+    /// <summary>
+    /// Scans a mixed list of folders and individual files, as a drop from Explorer hands
+    /// them over. Windows gives no guarantee the items are all one kind, so neither does
+    /// this: each is classified and handled on its own.
+    /// </summary>
+    public async IAsyncEnumerable<ScannedFile> ScanPathsAsync(
+        IReadOnlyList<string> paths,
+        ScanFilter filter,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(filter);
+
+        foreach (string path in paths)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (Directory.Exists(path))
+            {
+                await foreach (ScannedFile file in this.ScanAsync(path, filter, cancellationToken))
+                {
+                    yield return file;
+                }
+
+                continue;
+            }
+
+            if (!File.Exists(path))
+            {
+                this._logger.LogWarning("Dropped item {Path} is neither a file nor a folder.", path);
+                continue;
+            }
+
+            // A file named explicitly is included whatever the pattern filter says: the
+            // user pointed at this one, which is a stronger signal than a wildcard.
+            ScannedFile? entry = this.Describe(path, isDirectory: false, this._volumes.For(path));
+            if (entry is not null)
+            {
+                yield return entry;
+            }
+        }
+    }
+
     private IEnumerable<string> Enumerate(string root, ScanFilter filter, CancellationToken cancellationToken)
     {
         var options = new EnumerationOptions
