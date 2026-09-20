@@ -44,6 +44,8 @@ public sealed partial class AboutWindow : Window
         this.VersionLine.Text = string.Create(CultureInfo.CurrentCulture, $"Version {CurrentVersion().ToString(3)}");
         this.DataFolderLine.Text = paths.DataDirectory;
 
+        this.RefreshSendTo();
+
         this.ExifToolLine.Text =
             "Photo and video dates are read and written by ExifTool, by Phil Harvey, which "
             + "Chronora does not include and does not redistribute. With your permission it "
@@ -111,6 +113,30 @@ public sealed partial class AboutWindow : Window
         {
             this.Checking.IsActive = false;
             this.CheckButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Names what the click will do, not what is true now. The button is read as an
+    /// action, so "Add to Send to" sitting on a machine that already has it reads as a
+    /// statement and gets pressed by mistake.
+    /// </summary>
+    private void RefreshSendTo() =>
+        this.SendToButton.Content = SendToShortcut.Exists
+            ? "Remove from Send to"
+            : "Add to Send to";
+
+    private void OnToggleSendTo(object sender, RoutedEventArgs e)
+    {
+        bool worked = SendToShortcut.Exists ? SendToShortcut.Remove() : SendToShortcut.Create();
+
+        this.RefreshSendTo();
+
+        if (!worked)
+        {
+            this.UpdateResult.Severity = InfoBarSeverity.Warning;
+            this.UpdateResult.Message = "Chronora could not change the Send to menu.";
+            this.UpdateResult.IsOpen = true;
         }
     }
 
