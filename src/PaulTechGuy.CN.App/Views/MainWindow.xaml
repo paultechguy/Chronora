@@ -165,8 +165,8 @@
                             does is how somebody ends up surprised.
                         -->
                         <TextBox Text="{x:Bind Workbench.TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="All types" MinWidth="130"
-                                 ToolTipService.ToolTip="Limit the run to certain file types, for example *.png or *.jpg;*.heic. Files that do not match are hidden AND left alone." />
+                                 PlaceholderText="All files" MinWidth="150"
+                                 ToolTipService.ToolTip="Limit the run with the same wildcards Explorer uses: *.png, mountain*.jpg, IMG_????.CR2, or several separated by semicolons. Files that do not match are hidden AND left alone." />
                         <CheckBox Content="Only changing"
                                   IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}"
                                   ToolTipService.ToolTip="Hide files that are already correct, so the list shows only what this run would actually alter." />
@@ -266,6 +266,27 @@
                                HorizontalAlignment="Center" TextWrapping="Wrap"
                                TextAlignment="Center" />
                     <TextBlock Text="or use Add folder…"
+                               Style="{StaticResource BodyTextBlockStyle}" Opacity="0.6"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!--
+                    Files ARE loaded, the filter is just hiding all of them. A different
+                    message from the one above and deliberately so: telling somebody to drop
+                    files here when they have already dropped them would be nonsense, and a
+                    blank list with no explanation looks like the app lost them.
+                -->
+                <StackPanel Grid.Row="3" Spacing="10"
+                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                            IsHitTestVisible="False"
+                            Visibility="{x:Bind Workbench.IsFilteredToNothing, Mode=OneWay}">
+                    <FontIcon Glyph="&#xE71C;" FontSize="32" HorizontalAlignment="Center"
+                              Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                    <TextBlock Text="{x:Bind Workbench.FilteredToNothingNote, Mode=OneWay}"
+                               Style="{StaticResource SubtitleTextBlockStyle}"
+                               HorizontalAlignment="Center" TextWrapping="Wrap"
+                               TextAlignment="Center" MaxWidth="420" />
+                    <TextBlock Text="Clear the filter box to see them again."
                                Style="{StaticResource BodyTextBlockStyle}" Opacity="0.6"
                                HorizontalAlignment="Center" />
                 </StackPanel>

@@ -166,3 +166,96 @@ public class UseNowTests
         fixture.ViewModel.AbsoluteDate.ShouldNotBeNull("picking 'now' counts as picking a date");
     }
 }
+
+/// <summary>
+/// The filter accepts what Explorer accepts.
+///
+/// The box is for narrowing a run, and people already know one wildcard language for
+/// filenames. Inventing a second one would be a gratuitous thing to have to learn.
+/// </summary>
+public class ExplorerPatternTests
+{
+    private static async Task<WorkbenchFixture> LibraryAsync()
+    {
+        var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        await fixture.LoadAsync(
+            "mountain-01.jpg",
+            "mountain-02.jpg",
+            "mountain.png",
+            "beach-01.jpg",
+            "IMG_1234.CR2",
+            "notes.txt");
+
+        fixture.ViewModel.AbsoluteDate = new DateTimeOffset(2019, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        fixture.ViewModel.Recompute();
+
+        return fixture;
+    }
+
+    [Theory]
+    [InlineData("*.jpg", 3)]
+    [InlineData("mountain*.jpg", 2)]
+    [InlineData("mountain*", 3)]
+    [InlineData("*mountain*", 3)]
+    [InlineData("*-01.*", 2)]
+    [InlineData("beach*", 1)]
+    [InlineData("*.jpg;*.png", 4)]
+    [InlineData("IMG_????.CR2", 1)]
+    [InlineData("*.txt", 1)]
+    public async Task Explorer_style_patterns_select_what_they_should(string pattern, int expected)
+    {
+        using WorkbenchFixture fixture = await LibraryAsync();
+
+        fixture.ViewModel.TypeFilter = pattern;
+
+        fixture.ViewModel.Rows.Count.ShouldBe(expected, $"'{pattern}' should select {expected}");
+    }
+
+    /// <summary>Extensions are matched whatever case they were written in.</summary>
+    [Theory]
+    [InlineData("*.cr2")]
+    [InlineData("*.CR2")]
+    [InlineData("img_*")]
+    public async Task Matching_ignores_case(string pattern)
+    {
+        using WorkbenchFixture fixture = await LibraryAsync();
+
+        fixture.ViewModel.TypeFilter = pattern;
+
+        fixture.ViewModel.Rows.Count.ShouldBe(1);
+    }
+
+    /// <summary>
+    /// A filter nothing matches empties the list, and the pane has to say that is why.
+    ///
+    /// Without a message this is a blank list with files still loaded behind it - which
+    /// looks exactly like the app having lost them.
+    /// </summary>
+    [Fact]
+    public async Task A_filter_matching_nothing_empties_the_list_and_says_so()
+    {
+        using WorkbenchFixture fixture = await LibraryAsync();
+
+        fixture.ViewModel.TypeFilter = "*.heic";
+
+        fixture.ViewModel.Rows.ShouldBeEmpty();
+        fixture.ViewModel.IsFilteredToNothing.ShouldBeTrue();
+
+        // Not the "drop files here" prompt: the files ARE there, the filter is hiding them.
+        fixture.ViewModel.IsListEmpty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task An_empty_list_is_not_reported_as_a_filter_problem()
+    {
+        using var fixture = new WorkbenchFixture();
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        fixture.ViewModel.IsListEmpty.ShouldBeTrue();
+        fixture.ViewModel.IsFilteredToNothing.ShouldBeFalse();
+
+        await Task.CompletedTask;
+    }
+}

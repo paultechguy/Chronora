@@ -880,11 +880,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     partial void OnSortChanged(SortChoice value) => this.Reproject();
 
     /// <summary>
-    /// Which file types the run covers, as semicolon-separated wildcards: "*.png" or
-    /// "*.jpg;*.heic". Empty means everything.
+    /// Which files the run covers, as semicolon-separated wildcards. Empty means all.
     ///
-    /// The same form FileTouch used and the same the scan filter already speaks, because
-    /// people arriving from Explorer-adjacent tools already know it.
+    /// The same language Explorer uses - "*.png", "mountain*.jpg", "IMG_????.CR2" - because
+    /// people already know one wildcard syntax for filenames and inventing a second would
+    /// be a gratuitous thing to make them learn. Matching is delegated to the framework's
+    /// own implementation of it rather than reimplemented here.
     /// </summary>
     [ObservableProperty]
     public partial string TypeFilter { get; set; } = string.Empty;
@@ -1328,6 +1329,21 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// styled like a status rather than an invitation.
     /// </summary>
     public bool IsListEmpty => this._allRows.Count == 0;
+
+    /// <summary>
+    /// Files are loaded but the filter is hiding all of them.
+    ///
+    /// A separate state from an empty list, and it has to be, because they need opposite
+    /// messages. An empty list wants "drop files here"; this one wants "your filter matches
+    /// nothing" - and showing the first would be telling somebody to add files they have
+    /// already added.
+    /// </summary>
+    public bool IsFilteredToNothing => this._allRows.Count > 0 && this.Rows.Count == 0;
+
+    /// <summary>The filter, for the message that says what is hiding everything.</summary>
+    public string FilteredToNothingNote => string.Create(
+        CultureInfo.CurrentCulture,
+        $"Nothing matches {this.TypeFilter}. {this._allRows.Count:N0} file{(this._allRows.Count == 1 ? string.Empty : "s")} are hidden by it.");
 
     /// <summary>
     /// Whether anything would actually change. Covers the view state as well as the list,
@@ -1984,6 +2000,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.Rows = [.. query];
         this.RefreshSummary();
+        this.OnPropertyChanged(nameof(this.IsFilteredToNothing));
+        this.OnPropertyChanged(nameof(this.FilteredToNothingNote));
         this.OnPropertyChanged(nameof(this.HasAnyFiles));
         this.OnPropertyChanged(nameof(this.IsListEmpty));
         this.OnPropertyChanged(nameof(this.CanStartOver));
