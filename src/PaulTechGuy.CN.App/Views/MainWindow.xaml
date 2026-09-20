@@ -278,7 +278,7 @@
                         job, and assembling it from a source dropdown and five checkboxes
                         is work nobody wanted to do.
                     -->
-                    <TextBlock Text="Start from a common job"
+                    <TextBlock Text="Start from a common job (optional)"
                                Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
 
                     <ComboBox x:Name="TemplatePicker"

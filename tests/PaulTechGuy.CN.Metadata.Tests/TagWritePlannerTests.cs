@@ -226,3 +226,68 @@ public class QuickTimeUtcInferenceTests
         TagWritePlanner.ShouldTreatQuickTimeAsUtc(quickTime, exif, TimeSpan.Zero).ShouldBeFalse();
     }
 }
+
+/// <summary>
+/// Writing a video date, which is a different problem from writing a photo date.
+///
+/// A QuickTime atom has no offset tag and no room for a zone, so the digits carry the
+/// whole meaning - and which meaning depends on the file. The read side inferred that
+/// from the start; the write side did not know about it at all and always wrote the local
+/// wall-clock reading. On a file whose atoms really are UTC, which is what the
+/// specification says and what a Pixel actually does, every video came out wrong by the
+/// machine's offset while the run reported success.
+/// </summary>
+public class QuickTimeWriteTests
+{
+    private static readonly DateTimeOffset Denver =
+        new(2026, 9, 19, 22, 20, 40, TimeSpan.FromHours(-6));
+
+    [Theory]
+    [InlineData(DateField.QuickTimeCreateDate)]
+    [InlineData(DateField.QuickTimeModifyDate)]
+    public void A_utc_atom_is_written_in_utc(DateField field)
+    {
+        IReadOnlyList<TagAssignment> plan =
+            TagWritePlanner.Plan(field, Denver, DatePrecision.Second, writeOffset: true, quickTimeAsUtc: true);
+
+        // 22:20:40 -06:00 is 04:20:40 the next day in UTC. Writing the local digits would
+        // put the video six hours early and look entirely reasonable doing it.
+        plan.Single().Value.ShouldBe("2026:09:20 04:20:40");
+    }
+
+    [Theory]
+    [InlineData(DateField.QuickTimeCreateDate)]
+    [InlineData(DateField.QuickTimeModifyDate)]
+    public void A_local_atom_is_written_in_local_time(DateField field)
+    {
+        IReadOnlyList<TagAssignment> plan =
+            TagWritePlanner.Plan(field, Denver, DatePrecision.Second, writeOffset: true, quickTimeAsUtc: false);
+
+        plan.Single().Value.ShouldBe("2026:09:19 22:20:40");
+    }
+
+    /// <summary>
+    /// One tag and no companions. A QuickTime date has no offset or sub-second tag to
+    /// write or clear, and emitting one would be writing a tag that does not exist.
+    /// </summary>
+    [Fact]
+    public void A_quicktime_write_emits_exactly_one_tag()
+    {
+        IReadOnlyList<TagAssignment> plan = TagWritePlanner.Plan(
+            DateField.QuickTimeCreateDate, Denver, DatePrecision.Second, quickTimeAsUtc: true);
+
+        plan.Count.ShouldBe(1);
+        plan[0].Tag.ShouldBe("QuickTime:CreateDate");
+    }
+
+    /// <summary>The flag is for QuickTime alone; an EXIF date stays local either way.</summary>
+    [Fact]
+    public void The_utc_flag_does_not_touch_a_photo_date()
+    {
+        IReadOnlyList<TagAssignment> plan = TagWritePlanner.Plan(
+            DateField.ExifDateTimeOriginal, Denver, DatePrecision.Second, writeOffset: true, quickTimeAsUtc: true);
+
+        plan[0].Value.ShouldBe("2026:09:19 22:20:40");
+        plan.ShouldContain(a => a.Tag == "ExifIFD:OffsetTimeOriginal" && a.Value == "-06:00");
+    }
+}

@@ -431,6 +431,10 @@ public sealed class ApplyService(
     {
         var assignments = new List<TagAssignment>(writes.Count * 3);
 
+        // Which frame this file's QuickTime atoms are in, as the scan inferred it.
+        // Written in the wrong one a video date looks entirely plausible and is hours out.
+        bool quickTimeAsUtc = plan.File.Traits.HasFlag(FileTraits.QuickTimeReadAsUtc);
+
         foreach (PlannedChange write in writes)
         {
             if (write.Target is not ChangeTarget.Field field)
@@ -441,7 +445,8 @@ public sealed class ApplyService(
             switch (write.After)
             {
                 case FieldWrite.SetDate set:
-                    assignments.AddRange(TagWritePlanner.Plan(field.Which, set.Value, set.Precision));
+                    assignments.AddRange(TagWritePlanner.Plan(
+                        field.Which, set.Value, set.Precision, writeOffset: true, quickTimeAsUtc));
                     break;
 
                 case FieldWrite.SetRaw raw when DateFieldCatalog.Get(field.Which).Tag is { } tag:

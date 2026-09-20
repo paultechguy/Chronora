@@ -54,11 +54,22 @@ public static class TagWritePlanner
     /// Whether to record the UTC offset. Off means the existing offset tag is cleared, so
     /// the file does not keep claiming a zone the new value was not expressed in.
     /// </param>
+    /// <param name="quickTimeAsUtc">
+    /// Whether this file's QuickTime atoms hold UTC, as
+    /// <see cref="ShouldTreatQuickTimeAsUtc" /> decided when the file was read.
+    ///
+    /// The read side has inferred this from the start; the write side did not know about
+    /// it at all and wrote the local wall-clock reading regardless. On a file whose atoms
+    /// really are UTC - which is what the specification says, and what a Pixel actually
+    /// does - that put every video out by the machine's offset, silently, while reporting
+    /// success.
+    /// </param>
     public static IReadOnlyList<TagAssignment> Plan(
         DateField field,
         DateTimeOffset value,
         DatePrecision precision,
-        bool writeOffset = true)
+        bool writeOffset = true,
+        bool quickTimeAsUtc = false)
     {
         DateFieldSpec spec = DateFieldCatalog.Get(field);
 
@@ -68,6 +79,17 @@ public static class TagWritePlanner
         }
 
         var assignments = new List<TagAssignment>(3);
+
+        // A QuickTime atom has no offset tag and no room for a zone, so the digits
+        // themselves carry the whole meaning - and which meaning depends on the file. Put
+        // in the wrong frame the date looks entirely plausible and is hours out.
+        if (IsQuickTime(field))
+        {
+            DateTimeOffset written = quickTimeAsUtc ? value.ToUniversalTime() : value;
+
+            assignments.Add(new TagAssignment(spec.Tag, written.ToString(DateFormat, CultureInfo.InvariantCulture)));
+            return assignments;
+        }
 
         // XMP carries the offset inside the value itself, so it is a single ISO-8601 write
         // and none of the companion-tag machinery applies.
@@ -127,6 +149,9 @@ public static class TagWritePlanner
             CultureInfo.InvariantCulture,
             $"{sign}{magnitude.Hours:00}:{magnitude.Minutes:00}");
     }
+
+    internal static bool IsQuickTime(DateField field) =>
+        field is DateField.QuickTimeCreateDate or DateField.QuickTimeModifyDate;
 
     /// <summary>
     /// Whether QuickTime dates in this file should be read as UTC.
