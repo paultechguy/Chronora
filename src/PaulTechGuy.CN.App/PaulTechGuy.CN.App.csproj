@@ -69,6 +69,23 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+
+    <!--
+      The ExifTool manifest that ships beside the executable, naming whatever version was
+      current when the release was built. It was missing from the publish output.
+
+      Not decoration: ExifToolManifestSource reads the published copy first and falls back
+      to this one, and that fallback is the only reason an outage, a corporate proxy or a
+      Pages site that is not up yet does not take the feature away entirely. Without the
+      file the fallback exists in code and never fires - a failure that shows up only on a
+      machine that cannot reach the internet, which is exactly where it matters.
+
+      Linked from docs/ rather than copied, so there is one manifest in the repository and
+      the shipped copy cannot drift from the published one.
+    -->
+    <Content Include="..\..\docs\exiftool.json" Link="exiftool.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!--

@@ -1,0 +1,86 @@
+# Build and test on every push.
+#
+# It runs on windows-latest and could not run anywhere else: the app head targets
+# net10.0-windows and the FileSystem tests write real NTFS timestamps through
+# SetFileInformationByHandle, which is the half of this project most worth having a
+# machine check.
+#
+# -warnaserror is the point of the whole file. The repo is kept at zero warnings, and a
+# warning that only appears on someone else's machine is exactly what a gate is for.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore PaulTechGuy.CN.slnx
+
+      - name: Build
+        run: dotnet build PaulTechGuy.CN.slnx --no-restore --configuration Release -warnaserror
+
+      # The ExifTool integration tests skip themselves when no binary is present, which is
+      # the case here and deliberately so: CI must not download a third-party tool, and
+      # the plan is explicit that Chronora never ships one. The logic tests around the
+      # metadata layer run against a fake and do cover this.
+      - name: Test
+        run: dotnet test PaulTechGuy.CN.slnx --no-build --configuration Release --verbosity quiet
+
+      # Catches the one packaging mistake that would be a licensing problem rather than a
+      # bug: a developer's local copy of ExifTool riding along in the publish output.
+      - name: Publish
+        run: dotnet publish src/PaulTechGuy.CN.App/PaulTechGuy.CN.App.csproj --configuration Release --output artifacts/publish
+
+      # exiftool.json is excluded by name because it is ours: the manifest naming the
+      # version to fetch, which is meant to be there. Anything else called exiftool* is
+      # somebody's working copy.
+      - name: No third-party binary in the output
+        shell: pwsh
+        run: |
+          $stowaways = Get-ChildItem artifacts/publish -Recurse -Filter 'exiftool*' |
+            Where-Object { $_.Name -ne 'exiftool.json' }
+          if ($stowaways) {
+            $stowaways | ForEach-Object { Write-Error "ExifTool must never ship with Chronora: $($_.FullName)" }
+            exit 1
+          }
+          Write-Host 'No ExifTool in the publish output.'
+
+      # The offline fallback for the manifest. Without the file the fallback path exists
+      # in code and never fires, and that only shows up on a machine which cannot reach
+      # the Pages site - which is precisely where it was supposed to help.
+      - name: The ExifTool manifest ships beside the app
+        shell: pwsh
+        run: |
+          if (-not (Test-Path artifacts/publish/exiftool.json)) {
+            Write-Error 'exiftool.json is missing; the offline fallback would never fire.'
+            exit 1
+          }
+          Write-Host 'exiftool.json is present.'
+
+      # e_sqlite3.dll going missing under a self-contained publish is the failure mode the
+      # plan calls out: nothing breaks until somebody opens History, days later.
+      - name: The native SQLite asset is present
+        shell: pwsh
+        run: |
+          if (-not (Test-Path artifacts/publish/e_sqlite3.dll)) {
+            Write-Error 'e_sqlite3.dll is missing; History and undo would fail at runtime.'
+            exit 1
+          }
+          Write-Host 'e_sqlite3.dll is present.'
