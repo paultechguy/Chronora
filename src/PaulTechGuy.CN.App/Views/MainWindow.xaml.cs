@@ -78,13 +78,13 @@ public sealed partial class MainWindow : Window
         await this.Workbench.AddFolderAsync(folder.Path, ScanFilter.Default);
     }
 
-    private void OnModeChecked(object sender, RoutedEventArgs e)
+    private void OnIntentChecked(object sender, RoutedEventArgs e)
     {
         if (this.Workbench is not null
             && sender is RadioButton { Tag: string tag }
-            && Enum.TryParse(tag, out AppMode mode))
+            && Enum.TryParse(tag, out WorkIntent intent))
         {
-            this.Workbench.Mode = mode;
+            this.Workbench.ChooseIntent(intent);
         }
     }
 
@@ -95,16 +95,6 @@ public sealed partial class MainWindow : Window
             && Enum.TryParse(tag, out SourceChoice choice))
         {
             this.Workbench.Source = choice;
-        }
-    }
-
-    private void OnDestinationChecked(object sender, RoutedEventArgs e)
-    {
-        if (this.Workbench is not null
-            && sender is RadioButton { Tag: string tag }
-            && Enum.TryParse(tag, out DestinationChoice choice))
-        {
-            this.Workbench.ApplyDestination(choice);
         }
     }
 

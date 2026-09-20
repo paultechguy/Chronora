@@ -14,6 +14,38 @@ using PaulTechGuy.CN.Rules;
 
 namespace PaulTechGuy.CN.App.ViewModels;
 
+/// <summary>
+/// What the user came here to do. The first and only question until it is answered.
+///
+/// This replaced a pair of controls that could contradict each other: a File dates / Photo
+/// dates switch in the title bar, and a separate "where does this need to look right"
+/// preset. Picking Google Photos set the switch, but moving the switch did not clear the
+/// preset, so the app could sit there in File dates mode insisting that Google Photos reads
+/// the Taken date. One control cannot disagree with itself.
+/// </summary>
+public enum WorkIntent
+{
+    /// <summary>Not yet answered. The rest of the options stay hidden.</summary>
+    None,
+
+    /// <summary>Created and Modified. No photo machinery anywhere on screen.</summary>
+    FileDates,
+
+    /// <summary>The date the photo records. What Google Photos actually reads.</summary>
+    PhotoDates,
+
+    /// <summary>
+    /// Pick the fields by hand. Also where you land by editing the checkboxes, so the
+    /// label never claims an intent the ticked fields no longer match.
+    ///
+    /// It starts with the photo date AND the file dates already ticked, because wanting
+    /// both is the usual reason to come here - if you wanted only one, one of the first
+    /// two answers said so. That keeps "both" a single click without giving it a top-level
+    /// option that explains nothing.
+    /// </summary>
+    Custom,
+}
+
 /// <summary>Where the date comes from, as the options pane offers it.</summary>
 public enum SourceChoice
 {
@@ -63,6 +95,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     private readonly List<PlanRowViewModel> _allRows = [];
     private readonly List<string> _roots = [];
+
+    /// <summary>
+    /// Guards the reconcile loop: choosing an intent ticks boxes, and a ticked box would
+    /// otherwise reconcile the intent straight back to Custom.
+    /// </summary>
+    private bool _applyingIntent;
+
     private CancellationTokenSource? _debounce;
     private CancellationTokenSource? _run;
 
@@ -83,8 +122,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.AbsoluteTime = new TimeSpan(12, 0, 0);
         this.Summary = ChangeSummary.Empty;
         this.Rows = [];
-
-        this.ApplyDestination(DestinationChoice.Explorer);
         this.RefreshHistory();
     }
 
@@ -104,30 +141,150 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string ScanStatus { get; set; } = string.Empty;
 
-    // ---- Mode -------------------------------------------------------------------------
+    // ---- Intent -----------------------------------------------------------------------
 
     /// <summary>
-    /// Which fields may be WRITTEN. It deliberately does not constrain what may be read:
-    /// "copy the photo's Taken date onto the file dates" writes only file dates, so it
-    /// belongs in the simple mode, which is where people look for it.
+    /// What the user said they came to do. Nothing else is shown until this is answered.
+    ///
+    /// Note what it does NOT constrain: where a date is read FROM. "Copy the photo's taken
+    /// date onto the file dates" writes only file dates, so it belongs under File dates,
+    /// which is where people look for it.
     /// </summary>
     [ObservableProperty]
-    public partial AppMode Mode { get; set; } = AppMode.FileDates;
+    public partial WorkIntent Intent { get; set; } = WorkIntent.None;
 
-    partial void OnModeChanged(AppMode value)
+    /// <summary>
+    /// The gate. Until an intent is chosen the pane shows one question and nothing else,
+    /// so the first thing anyone meets is the decision that shapes everything after it.
+    /// </summary>
+    public bool HasChosenIntent => this.Intent != WorkIntent.None;
+
+    /// <summary>
+    /// Whether photo targets may be written, and therefore whether they are shown.
+    ///
+    /// Derived from the intent rather than set independently, which is what stops the two
+    /// from ever disagreeing.
+    /// </summary>
+    public bool IsPhotoMode =>
+        this.Intent == WorkIntent.PhotoDates
+        || (this.Intent == WorkIntent.Custom && this.WriteTaken);
+
+    /// <summary>
+    /// Whether the file-date fields are offered. Hidden in the photo-only path, because
+    /// that path is meant to contain no file machinery at all.
+    /// </summary>
+    public bool ShowsFileDates => this.Intent is WorkIntent.FileDates or WorkIntent.Custom;
+
+    /// <summary>
+    /// Custom is the only place the fourth NTFS timestamp and the access time are offered.
+    /// They belong to someone who has said they want to pick fields by hand.
+    /// </summary>
+    public bool ShowsAdvancedFields => this.Intent == WorkIntent.Custom;
+
+    /// <summary>
+    /// The write scope the evaluator enforces. Purely a function of what is ticked, so a
+    /// recipe can never target a field the UI is not offering.
+    /// </summary>
+    public AppMode Mode => this.WriteTaken ? AppMode.PhotoDates : AppMode.FileDates;
+
+    /// <summary>What the chosen intent means, in the words that matter to the outcome.</summary>
+    public string IntentNote => this.Intent switch
     {
-        this.OnPropertyChanged(nameof(this.IsPhotoMode));
+        WorkIntent.FileDates =>
+            "Windows Explorer sorts by these. Its “Date taken” column reads the photo instead, so this "
+            + "will not change what that column shows.",
+        WorkIntent.PhotoDates =>
+            "Google Photos reads this when you upload, and ignores the Windows file dates entirely.",
+        WorkIntent.Custom =>
+            "Pick exactly the fields you want. It starts with the photo date and the file dates together, "
+            + "which is what you need for it to look right both in Explorer and after an upload.",
+        _ => string.Empty,
+    };
+
+    /// <summary>
+    /// Applies an intent by ticking the fields it means. The boxes stay editable
+    /// afterwards; editing them is what turns the label into Custom.
+    /// </summary>
+    [RelayCommand]
+    public void ChooseIntent(WorkIntent intent)
+    {
+        this._applyingIntent = true;
+
+        try
+        {
+            switch (intent)
+            {
+                case WorkIntent.FileDates:
+                    this.WriteCreated = true;
+                    this.WriteModified = true;
+                    this.WriteTaken = false;
+                    break;
+
+                case WorkIntent.PhotoDates:
+                    this.WriteCreated = false;
+                    this.WriteModified = false;
+                    this.WriteTaken = true;
+                    this.WriteAccessed = false;
+                    this.WriteChanged = false;
+                    break;
+
+                case WorkIntent.Custom:
+                    // Seeded with both, because wanting both is the usual reason to come
+                    // here. Everything stays editable from there.
+                    this.WriteCreated = true;
+                    this.WriteModified = true;
+                    this.WriteTaken = true;
+                    break;
+
+                default:
+                    break;
+            }
+
+            this.Intent = intent;
+        }
+        finally
+        {
+            this._applyingIntent = false;
+        }
+
+        this.NotifyIntentDerived();
         this.QueueRecompute();
     }
 
     /// <summary>
-    /// Whether photo targets may be written, and therefore whether they are shown at all.
-    ///
-    /// File dates mode shows no EXIF controls, full stop. Rendering a Taken checkbox that
-    /// the recipe then silently drops is worse than not offering it: the user ticks it, the
-    /// preview reports nothing to do, and nothing explains why.
+    /// Called after any target checkbox changes. If the ticked set no longer matches the
+    /// chosen intent, the label becomes Custom rather than continuing to claim something
+    /// that is no longer true.
     /// </summary>
-    public bool IsPhotoMode => this.Mode == AppMode.PhotoDates;
+    private void ReconcileIntent()
+    {
+        if (this._applyingIntent || this.Intent == WorkIntent.None)
+        {
+            return;
+        }
+
+        WorkIntent matched = (this.WriteCreated, this.WriteModified, this.WriteTaken, this.WriteAccessed, this.WriteChanged) switch
+        {
+            (true, true, false, false, false) => WorkIntent.FileDates,
+            (false, false, true, false, false) => WorkIntent.PhotoDates,
+            _ => WorkIntent.Custom,
+        };
+
+        if (matched != this.Intent)
+        {
+            this.Intent = matched;
+        }
+
+        this.NotifyIntentDerived();
+    }
+
+    private void NotifyIntentDerived()
+    {
+        this.OnPropertyChanged(nameof(this.HasChosenIntent));
+        this.OnPropertyChanged(nameof(this.IsPhotoMode));
+        this.OnPropertyChanged(nameof(this.Mode));
+        this.OnPropertyChanged(nameof(this.IntentNote));
+    }
 
     // ---- Source -----------------------------------------------------------------------
 
@@ -180,27 +337,47 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial bool WriteCreated { get; set; } = true;
 
-    partial void OnWriteCreatedChanged(bool value) => this.QueueRecompute();
+    partial void OnWriteCreatedChanged(bool value)
+    {
+        this.ReconcileIntent();
+        this.QueueRecompute();
+    }
 
     [ObservableProperty]
     public partial bool WriteModified { get; set; } = true;
 
-    partial void OnWriteModifiedChanged(bool value) => this.QueueRecompute();
+    partial void OnWriteModifiedChanged(bool value)
+    {
+        this.ReconcileIntent();
+        this.QueueRecompute();
+    }
 
     [ObservableProperty]
     public partial bool WriteAccessed { get; set; }
 
-    partial void OnWriteAccessedChanged(bool value) => this.QueueRecompute();
+    partial void OnWriteAccessedChanged(bool value)
+    {
+        this.ReconcileIntent();
+        this.QueueRecompute();
+    }
 
     [ObservableProperty]
     public partial bool WriteChanged { get; set; }
 
-    partial void OnWriteChangedChanged(bool value) => this.QueueRecompute();
+    partial void OnWriteChangedChanged(bool value)
+    {
+        this.ReconcileIntent();
+        this.QueueRecompute();
+    }
 
     [ObservableProperty]
     public partial bool WriteTaken { get; set; }
 
-    partial void OnWriteTakenChanged(bool value) => this.QueueRecompute();
+    partial void OnWriteTakenChanged(bool value)
+    {
+        this.ReconcileIntent();
+        this.QueueRecompute();
+    }
 
     // ---- Sorting ----------------------------------------------------------------------
 
@@ -219,55 +396,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     partial void OnShowOnlyProblemsChanged(bool value) => this.Reproject();
 
-    // ---- Destination presets ----------------------------------------------------------
-
-    /// <summary>
-    /// Pre-ticks the fields a given destination actually reads, and says why.
-    ///
-    /// Without this the app walks into its own worst failure: someone ticks Created and
-    /// Modified because those are the familiar words, runs 4,000 files, achieves nothing for
-    /// their actual goal, and the preview reports a perfect success. Google Photos reads the
-    /// photo's Taken date on upload and ignores file dates entirely.
-    /// </summary>
-    [RelayCommand]
-    public void ApplyDestination(DestinationChoice destination)
-    {
-        switch (destination)
-        {
-            case DestinationChoice.GooglePhotos:
-                this.Mode = AppMode.PhotoDates;
-                this.WriteTaken = true;
-                this.WriteCreated = false;
-                this.WriteModified = false;
-                this.DestinationNote = "Google Photos reads the photo's Taken date when you upload. File dates are ignored.";
-                break;
-
-            case DestinationChoice.Everywhere:
-                this.Mode = AppMode.PhotoDates;
-                this.WriteTaken = true;
-                this.WriteCreated = true;
-                this.WriteModified = true;
-                this.DestinationNote = "Sets both the photo's Taken date and the Windows file dates.";
-                break;
-
-            default:
-                this.Mode = AppMode.FileDates;
-                this.WriteTaken = false;
-                this.WriteCreated = true;
-                this.WriteModified = true;
-                this.DestinationNote = "Windows Explorer sorts by the file dates. Its “Date taken” column reads the photo instead.";
-                break;
-        }
-
-        this.Destination = destination;
-        this.QueueRecompute();
-    }
-
-    [ObservableProperty]
-    public partial DestinationChoice Destination { get; set; } = DestinationChoice.Explorer;
-
-    [ObservableProperty]
-    public partial string DestinationNote { get; set; } = string.Empty;
 
     // ---- Scanning ---------------------------------------------------------------------
 
@@ -537,7 +665,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     private string DescribeRecipe() => string.Create(
         CultureInfo.InvariantCulture,
-        $"{{\"source\":\"{this.Source}\",\"mode\":\"{this.Mode}\",\"destination\":\"{this.Destination}\"}}");
+        $"{{\"intent\":\"{this.Intent}\",\"source\":\"{this.Source}\",\"mode\":\"{this.Mode}\"}}");
 
     /// <summary>
     /// Cancels anything in flight. The debounce and the run each own a token source, and a
@@ -673,10 +801,3 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     }
 }
 
-/// <summary>Where the corrected dates need to look right.</summary>
-public enum DestinationChoice
-{
-    Explorer,
-    GooglePhotos,
-    Everywhere,
-}
