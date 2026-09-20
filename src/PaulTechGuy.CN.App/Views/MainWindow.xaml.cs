@@ -755,7 +755,16 @@ public sealed partial class MainWindow : Window
         // people genuinely want and typing today's date into two pickers to get it is
         // silly. Local, and there is deliberately no UTC twin - which frame the value is
         // stored in is per-format and the app already decides it.
-        var now = new Button { Content = "Now", HorizontalAlignment = HorizontalAlignment.Left };
+        var now = new Button
+        {
+            Content = "Use the time now",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        ToolTipService.SetToolTip(
+            now,
+            "Fills in the current local date and time. Chronora works out for itself whether "
+            + "each format stores that as local time or UTC.");
 
         now.Click += (_, _) =>
         {
