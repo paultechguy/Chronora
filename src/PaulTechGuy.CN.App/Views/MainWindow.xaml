@@ -150,6 +150,16 @@
                             <ComboBoxItem Content="Sort: resulting date" Tag="ResultingDate" />
                             <ComboBoxItem Content="Sort: status" Tag="Status" />
                         </ComboBox>
+                        <!--
+                            Narrows the RUN, not just the view - a folder off a camera holds
+                            JPEG, PNG and raw together and wanting to touch one of those is
+                            ordinary. The Apply button and the confirmation both say so,
+                            because a filter that quietly changes what a destructive button
+                            does is how somebody ends up surprised.
+                        -->
+                        <TextBox Text="{x:Bind Workbench.TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="All types" MinWidth="130"
+                                 ToolTipService.ToolTip="Limit the run to certain file types, for example *.png or *.jpg;*.heic. Files that do not match are hidden AND left alone." />
                         <CheckBox Content="Only changing"
                                   IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}"
                                   ToolTipService.ToolTip="Hide files that are already correct, so the list shows only what this run would actually alter." />
@@ -343,6 +353,16 @@
                                             HorizontalAlignment="Stretch" />
                         <TimePicker Time="{x:Bind Workbench.AbsoluteTime, Mode=TwoWay}"
                                     Header="Time" HorizontalAlignment="Stretch" ClockIdentifier="24HourClock" />
+
+                        <!--
+                            Local, and deliberately with no UTC option beside it. Dates are
+                            always entered as the wall-clock reading a person recognises;
+                            which frame each format is STORED in is the app's problem and it
+                            already decides it per field.
+                        -->
+                        <Button Content="Use the time now" HorizontalAlignment="Stretch"
+                                Command="{x:Bind Workbench.UseNowCommand}"
+                                ToolTipService.ToolTip="Fills in the current local date and time. Chronora works out for itself whether each format stores that as local time or UTC." />
                     </StackPanel>
 
                     <NumberBox Value="{x:Bind Workbench.ShiftHours, Mode=TwoWay}"

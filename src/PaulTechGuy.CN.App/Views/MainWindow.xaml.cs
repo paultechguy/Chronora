@@ -309,6 +309,24 @@ public sealed partial class MainWindow : Window
         // Anything asked for that will NOT happen, stated here rather than left out. A
         // confirmation that lists only the good news is how someone applies 4,000 files and
         // discovers afterwards that the one field they actually wanted was never written.
+        // The type filter narrows the RUN, so the confirmation has to name it. A filter
+        // that quietly shrinks what a destructive button does is the surprise this whole
+        // dialog exists to prevent.
+        if (summary.HasTypeFilter)
+        {
+            _ = body.AppendLine();
+            _ = body.AppendLine(
+                CultureInfo.CurrentCulture,
+                $"Only files matching {summary.TypeFilter} are included.");
+
+            if (summary.FilesHiddenByTypeFilter > 0)
+            {
+                _ = body.AppendLine(
+                    CultureInfo.CurrentCulture,
+                    $"{summary.FilesHiddenByTypeFilter:N0} other file(s) in the list are NOT being changed.");
+            }
+        }
+
         if (summary.HasBlocked || summary.HasUntouched)
         {
             _ = body.AppendLine();

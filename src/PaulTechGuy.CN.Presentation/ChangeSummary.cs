@@ -119,6 +119,14 @@ public sealed record ChangeSummary(
 
     public bool HasUntouched => this.UntouchedFileDates.Count > 0;
 
+    /// <summary>The type filter in force, or null. Stated because it narrows the RUN.</summary>
+    public string? TypeFilter { get; init; }
+
+    /// <summary>How many added files the type filter is keeping out of the run.</summary>
+    public int FilesHiddenByTypeFilter { get; init; }
+
+    public bool HasTypeFilter => !string.IsNullOrWhiteSpace(this.TypeFilter);
+
     public bool HasAnything => this.FilesTotal > 0;
 
     public string StatusLine
@@ -155,14 +163,27 @@ public sealed record ChangeSummary(
     /// </summary>
     public string ApplyLabel => this.FilesToWrite == 0
         ? "Nothing to apply"
-        : string.Create(CultureInfo.CurrentCulture, $"Apply to {this.FilesToWrite:N0} of {this.FilesTotal:N0} files");
+        : this.HasTypeFilter
+            ? string.Create(
+                CultureInfo.CurrentCulture,
+                $"Apply to {this.FilesToWrite:N0} of {this.FilesTotal:N0} matching files")
+            : string.Create(CultureInfo.CurrentCulture, $"Apply to {this.FilesToWrite:N0} of {this.FilesTotal:N0} files");
 
     /// <param name="targets">
     /// What the run is actually writing, so the summary can name the file dates it is NOT.
     /// Passed in rather than inferred from the rows, because a field nothing changes and a
     /// field nobody asked for look identical once the plans are built.
     /// </param>
-    public static ChangeSummary Build(IReadOnlyList<PlanRowViewModel> rows, IReadOnlySet<DateField>? targets = null)
+    /// <param name="typeFilter">
+    /// The type filter in force, when there is one. Recorded so the Apply button and the
+    /// confirmation can say that the run is narrower than the list somebody added.
+    /// </param>
+    /// <param name="totalBeforeFilter">Files added, before the type filter narrowed them.</param>
+    public static ChangeSummary Build(
+        IReadOnlyList<PlanRowViewModel> rows,
+        IReadOnlySet<DateField>? targets = null,
+        string? typeFilter = null,
+        int totalBeforeFilter = 0)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -269,6 +290,8 @@ public sealed record ChangeSummary(
             FilesToWrite = toWrite,
             BlockedLines = blockedLines,
             UntouchedFileDates = untouched,
+            TypeFilter = typeFilter,
+            FilesHiddenByTypeFilter = Math.Max(0, totalBeforeFilter - rows.Count),
         };
     }
 

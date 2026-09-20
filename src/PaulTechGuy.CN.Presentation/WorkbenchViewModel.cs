@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.ObjectModel;
+using System.IO.Enumeration;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -698,6 +699,25 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial TimeSpan AbsoluteTime { get; set; }
 
+    /// <summary>
+    /// Fills in the current local date and time.
+    ///
+    /// Local, always, and there is deliberately no UTC option beside it. Every date in this
+    /// app is entered as the wall-clock reading a person would recognise; which frame it
+    /// gets STORED in is per-format and the app already decides it - an EXIF date is local
+    /// with its offset in a companion tag, a QuickTime atom is UTC or local depending on
+    /// what that camera does, and a filesystem time is an absolute instant. Offering a
+    /// Local/UTC switch here would let somebody assert a frame that contradicts all three.
+    /// </summary>
+    [RelayCommand]
+    public void UseNow()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+
+        this.AbsoluteDate = now.Date;
+        this.AbsoluteTime = new TimeSpan(now.Hour, now.Minute, now.Second);
+    }
+
     partial void OnAbsoluteTimeChanged(TimeSpan value)
     {
         this.LeaveTemplateOnEdit();
@@ -839,6 +859,36 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public partial SortChoice Sort { get; set; } = SortChoice.Name;
 
     partial void OnSortChanged(SortChoice value) => this.Reproject();
+
+    /// <summary>
+    /// Which file types the run covers, as semicolon-separated wildcards: "*.png" or
+    /// "*.jpg;*.heic". Empty means everything.
+    ///
+    /// The same form FileTouch used and the same the scan filter already speaks, because
+    /// people arriving from Explorer-adjacent tools already know it.
+    /// </summary>
+    [ObservableProperty]
+    public partial string TypeFilter { get; set; } = string.Empty;
+
+    private List<string> _typePatterns = [];
+
+    partial void OnTypeFilterChanged(string value)
+    {
+        this._typePatterns = [.. (value ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+
+            // A bare extension is what people type. Accepting "png" and ".png" as well as
+            // "*.png" costs nothing and removes a way to get no results and no explanation.
+            .Select(p => p.Contains('*', StringComparison.Ordinal) || p.Contains('?', StringComparison.Ordinal)
+                ? p
+                : "*" + (p.StartsWith('.') ? p : "." + p))];
+
+        this.OnPropertyChanged(nameof(this.HasTypeFilter));
+        this.OnPropertyChanged(nameof(this.CanStartOver));
+        this.Reproject();
+    }
+
+    public bool HasTypeFilter => this._typePatterns.Count > 0;
 
     [ObservableProperty]
     public partial bool ShowOnlyChanging { get; set; }
@@ -1465,7 +1515,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     /// <summary>Called by the view when a checkbox changes, so the Apply count keeps up.</summary>
     public void RefreshSummary() =>
-        this.Summary = ChangeSummary.Build(this._allRows, this.BuildRecipe().AllTargets);
+        this.Summary = ChangeSummary.Build(
+            [.. this._allRows.Where(this.MatchesTypeFilter)],
+            this.BuildRecipe().AllTargets,
+            this.HasTypeFilter ? this.TypeFilter : null,
+            this._allRows.Count);
 
     // ---- Applying ---------------------------------------------------------------------
 
@@ -1492,7 +1546,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public async Task ApplyAsync()
     {
+        // Scoped by the type filter as well as the checkboxes, because that filter narrows
+        // what the RUN covers rather than only what the list shows. The Apply button and
+        // the confirmation both say so.
         List<FilePlan> plans = [.. this._allRows
+            .Where(this.MatchesTypeFilter)
             .Where(r => r.IsIncluded && r.Plan is { } p && p.WillWrite)
             .Select(r => r.Plan!)];
 
@@ -1653,7 +1711,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         int removed = this._journal.ClearAll();
         this.RefreshHistory();
 
-        this.ActionNotice = removed == 0
+        this.ScanStatus = removed == 0
             ? "History was already empty."
             : string.Create(
                 CultureInfo.CurrentCulture,
@@ -1842,10 +1900,41 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.Reproject();
     }
 
+    /// <summary>
+    /// Whether a row survives the type filter.
+    ///
+    /// This filter differs from the other two in a way that matters. "Only changing" and
+    /// "only problems" narrow what you LOOK at; this narrows what the run COVERS. A folder
+    /// off a camera holds JPEG, PNG and raw together, and wanting to touch only one of
+    /// those is an ordinary request that unticking several hundred rows by hand is a silly
+    /// way to answer.
+    ///
+    /// Because it scopes the run it is stated on the Apply button and in the confirmation.
+    /// A filter that quietly changes what a destructive button does is how you get a bug
+    /// report titled "it changed files I did not select".
+    /// </summary>
+    private bool MatchesTypeFilter(PlanRowViewModel row)
+    {
+        if (this._typePatterns.Count == 0)
+        {
+            return true;
+        }
+
+        foreach (string pattern in this._typePatterns)
+        {
+            if (FileSystemName.MatchesSimpleExpression(pattern, row.Name, ignoreCase: true))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Applies the current filter and sort. Cheap: no evaluation happens here.</summary>
     private void Reproject()
     {
-        IEnumerable<PlanRowViewModel> query = this._allRows;
+        IEnumerable<PlanRowViewModel> query = this._allRows.Where(this.MatchesTypeFilter);
 
         if (this.ShowOnlyChanging)
         {

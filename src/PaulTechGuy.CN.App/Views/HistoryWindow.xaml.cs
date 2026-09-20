@@ -3,6 +3,7 @@
 
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using PaulTechGuy.CN.Presentation;
 using Windows.Graphics;
 
@@ -27,6 +28,12 @@ public sealed partial class HistoryWindow : Window
         this.InitializeComponent();
 
         this.Title = "Chronora — History";
+
+        // The same backdrop the main window sets. Without it this window falls back to a
+        // flat black rather than the translucent dark grey next door, so the two read as
+        // different applications sitting side by side.
+        this.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
+
         this.AppWindow.Resize(new SizeInt32(760, 620));
 
         // Re-read on open rather than trusting whatever the main window last loaded. A run
