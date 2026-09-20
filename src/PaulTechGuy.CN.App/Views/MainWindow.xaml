@@ -256,6 +256,17 @@
                         <Button Content="History" Click="OnOpenHistory"
                                 Height="{StaticResource CnChromeButtonHeight}"
                                 ToolTipService.ToolTip="Every run Chronora has applied, and the way back. Undo works days later, not just straight after." />
+
+                        <!--
+                            Version, where the data and logs live, and a manual update
+                            check. Small, but the folder buttons inside it are the only
+                            thing standing between somebody and pasting %LOCALAPPDATA%
+                            into Explorer when a log is what would explain their problem.
+                        -->
+                        <Button Content="&#xE946;" FontFamily="{StaticResource SymbolThemeFontFamily}"
+                                Click="OnOpenAbout"
+                                Height="{StaticResource CnChromeButtonHeight}"
+                                ToolTipService.ToolTip="About Chronora: version, where it keeps your data and logs, and a check for updates." />
                     </StackPanel>
                 </Grid>
 

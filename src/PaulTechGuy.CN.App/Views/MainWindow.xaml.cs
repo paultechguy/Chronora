@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -96,6 +97,9 @@ public sealed partial class MainWindow : Window
 
             this._history?.Close();
             this._history = null;
+
+            this._about?.Close();
+            this._about = null;
         };
     }
 
@@ -312,6 +316,22 @@ public sealed partial class MainWindow : Window
     }
 
     private HistoryWindow? _history;
+
+    /// <summary>Opens About, or brings the open one forward. Same rule as History.</summary>
+    private void OnOpenAbout(object sender, RoutedEventArgs e)
+    {
+        if (this._about is not null)
+        {
+            this._about.Activate();
+            return;
+        }
+
+        this._about = App.Services.GetRequiredService<AboutWindow>();
+        this._about.Closed += (_, _) => this._about = null;
+        this._about.Activate();
+    }
+
+    private AboutWindow? _about;
 
 
     /// <summary>

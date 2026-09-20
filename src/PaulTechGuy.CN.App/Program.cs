@@ -159,10 +159,15 @@ public static class Program
 
         builder.Services.AddSingleton<TemplateStore>();
         builder.Services.AddSingleton<SettingsStore>();
+        builder.Services.AddSingleton<UpdateChecker>();
 
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<WorkbenchViewModel>();
         builder.Services.AddSingleton<MainWindow>();
+
+        // Transient: a closed WinUI Window cannot be reactivated, so a singleton would
+        // open once and then silently do nothing on every later click.
+        builder.Services.AddTransient<AboutWindow>();
 
         return builder.Build();
     }

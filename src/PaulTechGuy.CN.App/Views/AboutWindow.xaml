@@ -1,0 +1,90 @@
+<Window
+    x:Class="PaulTechGuy.CN.App.Views.AboutWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- The extended title bar the other two windows use. A standard one composites
+             Mica differently and the window comes out flat black beside them. -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0">
+            <TextBlock Text="About Chronora" VerticalAlignment="Center"
+                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Padding="16,0,16,16">
+            <StackPanel Spacing="12">
+
+                <TextBlock Text="Chronora" Style="{StaticResource TitleTextBlockStyle}" />
+
+                <TextBlock x:Name="VersionLine" Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8" />
+
+                <TextBlock TextWrapping="Wrap" Style="{StaticResource BodyTextBlockStyle}"
+                           Text="Bulk-changes file dates and the capture dates inside photos and videos, behind a preview you can check and an undo that still works a week later." />
+
+                <!--
+                    User-initiated, and the sentence says so. Chronora makes exactly two
+                    kinds of network call - this one and fetching ExifTool - and both
+                    happen only because somebody clicked something. An app that edits
+                    irreplaceable files should be able to state its network behaviour in
+                    one line, and this is where it does.
+                -->
+                <StackPanel Spacing="8" Margin="0,8,0,0">
+                    <TextBlock Text="Updates" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Text="Chronora never checks on its own and never downloads an update by itself. This asks the release page what the newest version is; getting it is up to you." />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="CheckButton" Content="Check for updates" Click="OnCheckForUpdates" />
+                        <ProgressRing x:Name="Checking" IsActive="False" Width="20" Height="20"
+                                      VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <InfoBar x:Name="UpdateResult" IsOpen="False" IsClosable="False" />
+
+                    <HyperlinkButton x:Name="DownloadLink" Content="Open the release page"
+                                     Visibility="Collapsed" />
+                </StackPanel>
+
+                <!--
+                    Both folders are reachable from here on purpose. Asking somebody to
+                    paste a path beginning %LOCALAPPDATA% into Explorer is a support answer,
+                    not a feature - and when a log is what would explain a problem, the
+                    hardest part should not be finding it.
+                -->
+                <StackPanel Spacing="8" Margin="0,8,0,0">
+                    <TextBlock Text="Where Chronora keeps things" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock x:Name="DataFolderLine" TextWrapping="Wrap" Opacity="0.75"
+                               Style="{StaticResource CaptionTextBlockStyle}" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button Content="Open data folder" Click="OnOpenDataFolder" />
+                        <Button Content="Open logs" Click="OnOpenLogFolder" />
+                    </StackPanel>
+
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Text="Your templates, settings and undo history live here, outside the install folder, so an update or a reinstall leaves them alone." />
+                </StackPanel>
+
+                <StackPanel Spacing="4" Margin="0,8,0,0">
+                    <TextBlock Text="Licence and credits" Style="{StaticResource BodyStrongTextBlockStyle}" />
+                    <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Text="Chronora is Apache-2.0. Copyright © 2026 Paul Carver." />
+
+                    <!--
+                        Named, because Chronora is useless for photo dates without it and
+                        ships none of it. ExifTool is not bundled and not redistributed -
+                        it is fetched, with permission, into Chronora's own folder.
+                    -->
+                    <TextBlock x:Name="ExifToolLine" TextWrapping="Wrap" Opacity="0.75"
+                               Style="{StaticResource CaptionTextBlockStyle}" />
+                </StackPanel>
+
+                <Button Content="Close" Click="OnClose" HorizontalAlignment="Right" Margin="0,8,0,0" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
