@@ -38,80 +38,117 @@ internal static class ExifToolConsent
         IReadOnlyList<ExifToolCandidate> existing = workbench.FindExistingExifTool();
         ExifToolManifest? offer = await workbench.GetExifToolOfferAsync().ConfigureAwait(true);
 
-        var body = new StackPanel { Spacing = 12, MinWidth = 460 };
+        var body = new StackPanel { Spacing = 8, MinWidth = 460 };
 
         body.Children.Add(new TextBlock
         {
             Text = "ExifTool, by Phil Harvey, is the standard tool for reading and writing photo dates. "
                  + "Chronora does not include it, and will not fetch it without you saying so.",
             TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 4),
         });
 
-        var choices = new RadioButtons { Header = "How would you like to do this?" };
+        // One button per option, each naming its own action, rather than a radio group and
+        // a Continue. A radio list with a single entry reads as "pick one of one", and the
+        // tick-then-confirm step invents a question - do I have to select something? - that
+        // clicking the thing you want does not raise at all.
+        string? chosen = null;
+        ContentDialog dialog = null!;
 
-        // The existing install comes first when there is one, because adopting it costs
-        // nothing and respects a deliberate setup.
+        Button Option(string title, string description, string tag)
+        {
+            var content = new StackPanel { Spacing = 2 };
+            content.Children.Add(new TextBlock { Text = title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            content.Children.Add(new TextBlock
+            {
+                Text = description,
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.75,
+                FontSize = 12,
+            });
+
+            var button = new Button
+            {
+                Content = content,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(12, 10, 12, 10),
+            };
+
+            button.Click += (_, _) =>
+            {
+                chosen = tag;
+                dialog.Hide();
+            };
+
+            return button;
+        }
+
+        // The existing install comes first when there is one: adopting it costs nothing
+        // and respects a deliberate setup.
         if (existing.Count > 0)
         {
-            choices.Items.Add(new RadioButton
-            {
-                Content = $"Use the copy already on this PC  ({existing[0].Origin})",
-                Tag = "existing",
-                IsChecked = true,
-            });
+            body.Children.Add(Option(
+                "Use the copy already on this PC",
+                $"{existing[0].ExecutablePath}\n{existing[0].Origin}. Upgrading or uninstalling it will affect Chronora too.",
+                "existing"));
         }
 
         if (offer is not null)
         {
-            choices.Items.Add(new RadioButton
+            body.Children.Add(Option(
+                "Download a private copy for Chronora",
+                // Future tense: nothing has happened yet at the point this is read, and
+                // "is installed" states as fact something the user has not yet agreed to.
+                $"ExifTool {offer.Version}, {offer.SizeText}. A private copy will be installed in Chronora's "
+                + "own folder, where nothing else can change it.",
+                "download"));
+        }
+
+        body.Children.Add(Option(
+            "Choose the file myself…",
+            "If you have ExifTool somewhere Chronora did not look.",
+            "browse"));
+
+        // Why an option is absent, said where the options are rather than hidden in the
+        // details. Without this the pane silently offers less than it should and looks
+        // broken rather than blocked.
+        if (offer is null)
+        {
+            body.Children.Add(new InfoBar
             {
-                Content = $"Download a private copy for Chronora  ({offer.SizeText})",
-                Tag = "download",
-                IsChecked = existing.Count == 0,
+                IsOpen = true,
+                IsClosable = false,
+                Severity = InfoBarSeverity.Informational,
+                Title = "Downloading is not available right now",
+                Message = "Chronora could not reach the list of available versions, so it cannot offer to "
+                        + "fetch ExifTool. You can install it yourself with:\n\n"
+                        + "    winget install OliverBetz.ExifTool\n\n"
+                        + "then use “Choose the file myself” above.",
+                Margin = new Thickness(0, 4, 0, 0),
             });
         }
 
-        choices.Items.Add(new RadioButton { Content = "Choose the file myself…", Tag = "browse" });
-
-        body.Children.Add(choices);
-
-        // The trade-off is stated rather than hidden. Someone who manages ExifTool through
-        // winget should know Chronora will follow their upgrades; someone who does not
-        // should know the private copy is the one nothing else can disturb.
-        body.Children.Add(new TextBlock
-        {
-            Text = existing.Count > 0
-                ? "A copy you manage stays yours: upgrading or uninstalling it affects Chronora too. "
-                + "A private copy lives in Chronora's own folder and nothing else can change it."
-                : "A private copy lives in Chronora's own folder and nothing else can change it.",
-            TextWrapping = TextWrapping.Wrap,
-            Opacity = 0.75,
-            FontSize = 12,
-        });
-
         body.Children.Add(BuildDetails(existing, offer));
 
-        var dialog = new ContentDialog
+        dialog = new ContentDialog
         {
             XamlRoot = root,
             Title = "Chronora needs a free helper to read photo dates",
             Content = body,
-            PrimaryButtonText = "Continue",
+
+            // No primary button: every action is one of the buttons above, so a confirm
+            // step here would only ask which of two ways of saying yes was meant.
             CloseButtonText = "Not now",
-            DefaultButton = ContentDialogButton.Primary,
         };
 
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-        {
-            // Declining is a real answer. Every file-date feature keeps working, so
-            // nothing needs to be said beyond letting them get on with it.
-            return workbench.EngineStatus;
-        }
+        _ = await dialog.ShowAsync();
 
-        string choice = (choices.SelectedItem as RadioButton)?.Tag as string ?? "download";
-
-        return choice switch
+        return chosen switch
         {
+            // Declining is a real answer. Every file-date feature keeps working, so there
+            // is nothing to say beyond letting them get on with it.
+            null => workbench.EngineStatus,
             "existing" => await workbench.UseExistingExifToolAsync(existing[0].ExecutablePath).ConfigureAwait(true),
             "browse" => await BrowseAsync(root, workbench).ConfigureAwait(true),
             _ => await InstallAsync(root, workbench).ConfigureAwait(true),
@@ -156,18 +193,6 @@ internal static class ExifToolConsent
                 Margin = new Thickness(0, 4, 0, 0),
             });
         }
-        else
-        {
-            details.Children.Add(new TextBlock
-            {
-                Text = "Chronora could not reach the list of available versions, so downloading is not "
-                     + "offered. You can still point it at a copy you install yourself.",
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.75,
-                FontSize = 12,
-            });
-        }
-
         foreach (ExifToolCandidate candidate in existing)
         {
             Line("Found", $"{candidate.ExecutablePath}  ({candidate.Origin})");
