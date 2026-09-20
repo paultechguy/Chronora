@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Domain;
 using Windows.ApplicationModel.DataTransfer;
@@ -38,11 +39,6 @@ public sealed partial class MainWindow : Window
 
         this.AppWindow.Resize(new SizeInt32(1360, 880));
         this.AppWindow.Changed += OnAppWindowChanged;
-
-        // Thumbnails follow the selection. Done here rather than through a binding because
-        // loading one is asynchronous and cancellable, and a property getter cannot be
-        // either.
-        this.Workbench.PropertyChanged += this.OnWorkbenchPropertyChanged;
 
         // WinUI does not close a second window when the main one goes, and the process
         // stays alive while ANY window is open. Left alone, closing Chronora with History
@@ -184,112 +180,121 @@ public sealed partial class MainWindow : Window
 
     private HistoryWindow? _history;
 
-    private CancellationTokenSource? _thumbnail;
 
     /// <summary>
-    /// A border and a small glyph on hover, so the thumbnail says it is more than a
-    /// picture. The cursor changes too, which ClickableSurface handles.
+    /// Fills a row's thumbnail as its container is realised, in two phases.
     ///
-    /// These carry the whole affordance now that there is no tooltip, so all three stay:
-    /// the cursor, the border and the glyph each catch somebody the others would miss.
+    /// ContainerContentChanging rather than a binding, because the two tiers cannot be
+    /// expressed as one value: the icon is available synchronously and belongs in the row
+    /// during layout, and the real thumbnail arrives from a background queue afterwards.
+    ///
+    /// The measured reason for splitting them: a frame is 16 ms, a cached thumbnail costs
+    /// 4-15 ms and an uncached one 13-203 ms. A screenful of twenty uncached rows measured
+    /// 1.26 seconds, so fetching during layout would visibly freeze scrolling on exactly
+    /// the folder this app is for - photos straight off a camera, which Explorer has never
+    /// thumbnailed.
     /// </summary>
-    private void OnThumbnailPointerEntered(object sender, PointerRoutedEventArgs e)
+    private void OnRowRealised(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
-        this.ThumbnailFrame.BorderThickness = new Thickness(2);
-        this.ThumbnailHint.Visibility = Visibility.Visible;
-    }
-
-    private void OnThumbnailPointerExited(object sender, PointerRoutedEventArgs e)
-    {
-        this.ThumbnailFrame.BorderThickness = new Thickness(0);
-        this.ThumbnailHint.Visibility = Visibility.Collapsed;
-    }
-
-    /// <summary>
-    /// Opens the file with whatever normally opens it.
-    ///
-    /// Chronora is looking at dates, not at pictures, so the useful thing here is to hand
-    /// the file to something that IS an image or video viewer rather than to grow one.
-    ///
-    /// A single click, and safe as one: the thumbnail only exists once a row is selected,
-    /// so clicking it is always a second, deliberate act on the picture itself rather than
-    /// something anybody does on the way to choosing a row.
-    ///
-    /// UseShellExecute is the whole point of the call: it resolves the user's own file
-    /// association instead of trying to run the file, which is what the default would do.
-    /// </summary>
-    private void OnThumbnailTapped(object sender, TappedRoutedEventArgs e)
-    {
-        // Stops here rather than bubbling on to the pane behind it.
-        e.Handled = true;
-
-        if (this.Workbench.SelectedRow is not { } row)
+        if (args.ItemContainer.ContentTemplateRoot is not FrameworkElement root
+            || root.FindName("RowThumbnail") is not Image image)
         {
             return;
         }
 
-        string path = row.File.FullPath;
-
-        try
+        // On its way to the recycle pool. Clearing matters: a container reused for another
+        // file would otherwise show the previous one's picture until its own arrives.
+        if (args.InRecycleQueue)
         {
-            using var opening = System.Diagnostics.Process.Start(
-                new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+            image.Source = null;
+            image.Tag = null;
+            return;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
-                                      or System.IO.FileNotFoundException)
-        {
-            // No association, the file has gone, or the shell refused it. Said in the
-            // status bar rather than swallowed: a double-click that does nothing at all
-            // reads as the app being broken.
-            this.Workbench.ScanStatus = $"Could not open {row.Name}: {ex.Message}";
-        }
-    }
 
-    private void OnWorkbenchPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(WorkbenchViewModel.SelectedRow))
-        {
-            this.LoadThumbnail();
-        }
-    }
-
-    /// <summary>
-    /// Loads the selected file's thumbnail, abandoning any still in flight.
-    ///
-    /// Superseding matters more than it looks: holding an arrow key down walks the list
-    /// faster than a video frame can be extracted, and without cancellation the pane would
-    /// flicker through every picture on the way as each late result arrived.
-    /// </summary>
-    private async void LoadThumbnail()
-    {
-        this._thumbnail?.Cancel();
-        this._thumbnail?.Dispose();
-        this._thumbnail = null;
-
-        this.ThumbnailImage.Source = null;
-
-        if (this.Workbench.SelectedRow is not { } row)
+        if (args.Item is not PlanRowViewModel row)
         {
             return;
         }
 
-        var cts = new CancellationTokenSource();
-        this._thumbnail = cts;
-
-        try
+        if (args.Phase == 0)
         {
-            Microsoft.UI.Xaml.Media.ImageSource? image =
-                await ThumbnailProvider.LoadAsync(row.File, cts.Token);
+            // Which file this container is currently showing. Every later assignment checks
+            // it, because a container is recycled while its thumbnail may still be in
+            // flight - and a late result painted onto a reused row would be the control
+            // lying about which file it is describing.
+            image.Tag = row;
 
-            // The selection may have moved on while the Shell was working.
-            if (!cts.IsCancellationRequested && ReferenceEquals(this.Workbench.SelectedRow, row))
+            image.Source = ThumbnailProvider.TryGetCached(row.File.FullPath, out ImageSource? ready)
+                ? ready
+                : ThumbnailProvider.IconFor(row.File);
+
+            // Only worth a second phase when there is something better to fetch.
+            if (ready is null)
             {
-                this.ThumbnailImage.Source = image;
+                args.RegisterUpdateCallback(OnRowRealised);
+            }
+
+            args.Handled = true;
+            return;
+        }
+
+        args.Handled = true;
+        UpgradeThumbnail(image, row);
+    }
+
+    /// <summary>
+    /// Replaces the icon with the real thumbnail, if one turns up and the row still wants it.
+    /// </summary>
+    private static async void UpgradeThumbnail(Image image, PlanRowViewModel row)
+    {
+        try
+        {
+            ImageSource? thumbnail = await ThumbnailProvider.LoadAsync(row.File, CancellationToken.None);
+
+            // The container may have been recycled onto a different file while the Shell
+            // was working. Assigning now would put this picture on that file's row.
+            if (thumbnail is not null && ReferenceEquals(image.Tag, row))
+            {
+                image.Source = thumbnail;
             }
         }
         catch (OperationCanceledException)
         {
-            // Superseded by a newer selection, which is the normal case rather than a fault.
+            // Scrolled away from. Normal, not a fault.
+        }
+    }
+
+    /// <summary>
+    /// Opens the double-clicked file with whatever normally opens it.
+    ///
+    /// Chronora is looking at dates, not at pictures, so the useful move is handing the
+    /// file to something that IS a viewer rather than growing one. A double-click because a
+    /// single one already means "select this row", and a stray click must not launch
+    /// another program.
+    ///
+    /// UseShellExecute is the whole point of the call: it resolves the user's own file
+    /// association instead of trying to run the file, which is what the default would do.
+    /// </summary>
+    private void OnRowDoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if ((e.OriginalSource as FrameworkElement)?.DataContext is not PlanRowViewModel row)
+        {
+            // The double-click landed on the list rather than on a row.
+            return;
+        }
+
+        try
+        {
+            using var opening = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(row.File.FullPath) { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
+                                      or System.IO.FileNotFoundException)
+        {
+            // No association, the file has gone, or the shell refused it. Said in the status
+            // bar rather than swallowed: a double-click that does nothing at all reads as
+            // the app being broken.
+            this.Workbench.ScanStatus = $"Could not open {row.Name}: {ex.Message}";
         }
     }
 

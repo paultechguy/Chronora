@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -12,63 +13,164 @@ using Windows.Storage.Streams;
 namespace PaulTechGuy.CN.App;
 
 /// <summary>
-/// The picture Explorer would show for a file.
+/// The picture Explorer would show, in two tiers.
 ///
-/// Deliberately the Shell's own thumbnail rather than anything this app decodes itself.
-/// One call covers photos, HEIC, raw where a codec is installed, and video - and for video
-/// it is Windows that picks the frame, which is the part worth having: its media handler
-/// already avoids the blank opening frame that makes a home-made "grab frame zero" useless.
-/// It also reads the system thumbnail cache, so the second look at a file is instant and
-/// nothing is decoded twice.
+/// The tiers exist because of what a spike measured on real files rather than because they
+/// looked tidy:
 ///
-/// The one rule that is not cosmetic: a cloud-only file is never hydrated to draw a
-/// picture. The app refuses to pull gigabytes out of OneDrive to read a date; doing it for
-/// a 64-pixel image would be worse.
+///   icon, cached per extension    ~2.5 ms once, then nothing
+///   thumbnail already cached      4 - 15 ms
+///   thumbnail to be generated     13 - 203 ms  (the 203 was a phone video)
+///
+/// A frame is 16 ms, so even a CACHED thumbnail is too slow to fetch on the UI thread, and
+/// a screenful of twenty uncached rows measured 1.26 seconds. That is the whole argument
+/// for doing it this way: an icon lands immediately from a dictionary, and the real
+/// thumbnail replaces it when it arrives from a background queue.
+///
+/// Windows picks the video frame, which is the part worth having - its media handler
+/// already skips the blank opening that makes a home-made "grab frame zero" useless.
+///
+/// A cloud-only file is never hydrated to draw a picture. The app refuses to pull
+/// gigabytes out of OneDrive to read a date; doing it for a thumbnail would be worse.
 /// </summary>
 internal static class ThumbnailProvider
 {
     /// <summary>
-    /// Asked of the Shell. Larger than the 64 it is displayed at so it stays crisp when
-    /// Windows is scaled to 125% or 150%, and 96 is one of the sizes the thumbnail cache
-    /// already keeps - asking for an off-size forces a resize that gains nothing.
+    /// 96 is one of the sizes the Shell thumbnail cache already keeps, so asking for it
+    /// avoids a resize that gains nothing. Displayed smaller, which keeps it crisp when
+    /// Windows is scaled.
     /// </summary>
     private const int RequestedSize = 96;
 
     /// <summary>
-    /// Loads a thumbnail, or the file-type icon when there is no thumbnail to be had.
+    /// How many Shell calls may be in flight. Scrolling fast through thousands of rows
+    /// would otherwise queue a request per row, and the ones still running would all be for
+    /// rows that left the screen long ago.
+    /// </summary>
+    private static readonly SemaphoreSlim Gate = new(3, 3);
+
+    /// <summary>One icon per extension, which is what makes the immediate tier free.</summary>
+    private static readonly ConcurrentDictionary<string, ImageSource?> IconsByExtension =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Thumbnails already produced, so scrolling back up does not pay for them twice.
     ///
-    /// Runs the Shell call on a background thread because extracting a video frame can
-    /// take a moment, and returns the pixels rather than an image: a WriteableBitmap has
-    /// to be created on the UI thread.
+    /// Bounded, because a 50,000 file run would otherwise hold 50,000 bitmaps. When it
+    /// fills it is cleared rather than evicted one at a time: this is a convenience cache
+    /// in front of the Shell's own, and the cost of being wrong is one re-fetch.
+    /// </summary>
+    private const int MaxCachedThumbnails = 512;
+
+    private static readonly ConcurrentDictionary<string, ImageSource> ThumbnailsByPath =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The icon for this kind of file, immediately.
+    ///
+    /// Synchronous on purpose: after the first file of a given extension this is a
+    /// dictionary lookup, so a row can be filled during layout without waiting for
+    /// anything. Returns null only for the very first call for an extension whose icon the
+    /// Shell will not produce.
+    /// </summary>
+    public static ImageSource? IconFor(ScannedFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        string extension = file.IsDirectory ? "<folder>" : Path.GetExtension(file.FullPath);
+
+        if (IconsByExtension.TryGetValue(extension, out ImageSource? cached))
+        {
+            return cached;
+        }
+
+        // Built from THIS file, then kept under its extension. The Shell needs a real path
+        // to resolve an association, and every other file of the same type will match it.
+        ImageSource? icon = FromHandle(Extract(file.FullPath, SIIGBF.IconOnly));
+
+        IconsByExtension[extension] = icon;
+        return icon;
+    }
+
+    /// <summary>Whether a real thumbnail is already in hand, so no work needs scheduling.</summary>
+    public static bool TryGetCached(string path, out ImageSource? image) =>
+        ThumbnailsByPath.TryGetValue(path, out image);
+
+    /// <summary>
+    /// The real thumbnail, off the UI thread.
+    ///
+    /// Returns null when there is nothing better than the icon already showing, which is
+    /// the normal outcome for a text file and for a cloud-only file with nothing cached.
     /// </summary>
     public static async Task<ImageSource?> LoadAsync(ScannedFile file, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(file);
 
-        // A folder has no thumbnail worth the round trip, and asking for one on a drive
-        // root can be slow enough to notice.
         if (file.IsDirectory)
         {
             return null;
         }
 
-        bool cloudOnly = file.Traits.HasFlag(FileTraits.CloudDehydrated);
         string path = file.FullPath;
 
-        Pixels? pixels = await Task.Run(() => Extract(path, cloudOnly), cancellationToken).ConfigureAwait(true);
+        if (ThumbnailsByPath.TryGetValue(path, out ImageSource? done))
+        {
+            return done;
+        }
+
+        // A cloud-only file may only offer what Windows has already cached. Without this
+        // the Shell would download it to generate one.
+        SIIGBF flags = file.Traits.HasFlag(FileTraits.CloudDehydrated)
+            ? SIIGBF.InCacheOnly
+            : SIIGBF.ThumbnailOnly;
+
+        await Gate.WaitAsync(cancellationToken).ConfigureAwait(true);
+
+        Pixels? pixels;
+
+        try
+        {
+            pixels = await Task.Run(() => ReadBitmapFrom(Extract(path, flags)), cancellationToken).ConfigureAwait(true);
+        }
+        finally
+        {
+            _ = Gate.Release();
+        }
 
         if (pixels is not { } bits || cancellationToken.IsCancellationRequested)
         {
             return null;
         }
 
+        ImageSource image = await ToImageAsync(bits).ConfigureAwait(true);
+
+        if (ThumbnailsByPath.Count >= MaxCachedThumbnails)
+        {
+            ThumbnailsByPath.Clear();
+        }
+
+        ThumbnailsByPath[path] = image;
+        return image;
+    }
+
+    /// <summary>Dropped when the list is replaced, so a stale path cannot show a stale picture.</summary>
+    public static void Forget() => ThumbnailsByPath.Clear();
+
+    private static ImageSource? FromHandle(nint bitmap)
+    {
+        Pixels? pixels = ReadBitmapFrom(bitmap);
+
+        return pixels is { } bits ? ToImageAsync(bits).GetAwaiter().GetResult() : null;
+    }
+
+    private static async Task<ImageSource> ToImageAsync(Pixels bits)
+    {
         // CryptographicBuffer rather than IBuffer.AsStream(): that extension lived in
-        // System.Runtime.WindowsRuntime, which .NET 5 removed. This is the route that
-        // still exists, and it keeps the pixels in one copy rather than streaming them.
+        // System.Runtime.WindowsRuntime, which .NET 5 removed.
         IBuffer buffer = CryptographicBuffer.CreateFromByteArray(bits.Data);
 
-        // The Shell hands back premultiplied BGRA, which is exactly what the XAML
-        // compositor wants - so there is no conversion here and none is needed.
+        // The Shell hands back premultiplied BGRA, which is what the compositor wants, so
+        // nothing is converted here.
         using SoftwareBitmap bitmap = SoftwareBitmap.CreateCopyFromBuffer(
             buffer, BitmapPixelFormat.Bgra8, bits.Width, bits.Height, BitmapAlphaMode.Premultiplied);
 
@@ -80,38 +182,7 @@ internal static class ThumbnailProvider
 
     private readonly record struct Pixels(int Width, int Height, byte[] Data);
 
-    private static Pixels? Extract(string path, bool cloudOnly)
-    {
-        // For a cloud-only file, only a thumbnail Windows has already cached is acceptable.
-        // Without this flag the Shell would happily download the file to generate one.
-        SIIGBF flags = cloudOnly ? SIIGBF.InCacheOnly : SIIGBF.ResizeToFit;
-
-        nint bitmap = TryGetImage(path, flags);
-
-        // A cloud file with nothing cached, or anything the Shell could not render, still
-        // gets its file-type icon. Filling the slot means the pane does not reflow as you
-        // move between a photo and a text file.
-        if (bitmap == 0)
-        {
-            bitmap = TryGetImage(path, SIIGBF.IconOnly);
-        }
-
-        if (bitmap == 0)
-        {
-            return null;
-        }
-
-        try
-        {
-            return ReadBitmap(bitmap);
-        }
-        finally
-        {
-            _ = DeleteObject(bitmap);
-        }
-    }
-
-    private static nint TryGetImage(string path, SIIGBF flags)
+    private static nint Extract(string path, SIIGBF flags)
     {
         try
         {
@@ -135,64 +206,71 @@ internal static class ThumbnailProvider
         }
         catch (COMException)
         {
-            // No thumbnail handler, nothing cached, or a file the Shell will not touch.
-            // All of them mean the same thing here: try the next fallback.
+            // No handler, nothing cached, or a file the Shell will not touch. All of them
+            // mean the same thing here: there is no picture, keep the icon.
             return 0;
         }
         catch (ArgumentException)
         {
-            // A path the Shell cannot parse, such as one already deleted.
             return 0;
         }
     }
 
-    /// <summary>
-    /// Copies an HBITMAP into plain BGRA bytes.
-    ///
-    /// Top-down (a negative height) so the rows arrive in the order a WriteableBitmap
-    /// expects; a DIB is bottom-up by default and the picture would come out upside down.
-    /// </summary>
-    private static Pixels? ReadBitmap(nint bitmap)
+    private static Pixels? ReadBitmapFrom(nint bitmap)
     {
-        if (GetObject(bitmap, Marshal.SizeOf<BITMAP>(), out BITMAP info) == 0 || info.bmWidth <= 0 || info.bmHeight <= 0)
+        if (bitmap == 0)
         {
             return null;
         }
 
-        int width = info.bmWidth;
-        int height = info.bmHeight;
-
-        var header = new BITMAPINFOHEADER
-        {
-            biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
-            biWidth = width,
-            biHeight = -height,
-            biPlanes = 1,
-            biBitCount = 32,
-            biCompression = 0,
-        };
-
-        byte[] data = new byte[width * height * 4];
-
-        nint screen = GetDC(0);
-
         try
         {
-            GCHandle pinned = GCHandle.Alloc(data, GCHandleType.Pinned);
+            if (GetObject(bitmap, Marshal.SizeOf<BITMAP>(), out BITMAP info) == 0
+                || info.bmWidth <= 0 || info.bmHeight <= 0)
+            {
+                return null;
+            }
+
+            int width = info.bmWidth;
+            int height = info.bmHeight;
+
+            // Top-down via a negative height: a DIB is bottom-up by default and the picture
+            // would arrive upside down.
+            var header = new BITMAPINFOHEADER
+            {
+                biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+                biWidth = width,
+                biHeight = -height,
+                biPlanes = 1,
+                biBitCount = 32,
+                biCompression = 0,
+            };
+
+            byte[] data = new byte[width * height * 4];
+            nint screen = GetDC(0);
 
             try
             {
-                int copied = GetDIBits(screen, bitmap, 0, (uint)height, pinned.AddrOfPinnedObject(), ref header, 0);
-                return copied == 0 ? null : new Pixels(width, height, data);
+                GCHandle pinned = GCHandle.Alloc(data, GCHandleType.Pinned);
+
+                try
+                {
+                    int copied = GetDIBits(screen, bitmap, 0, (uint)height, pinned.AddrOfPinnedObject(), ref header, 0);
+                    return copied == 0 ? null : new Pixels(width, height, data);
+                }
+                finally
+                {
+                    pinned.Free();
+                }
             }
             finally
             {
-                pinned.Free();
+                _ = ReleaseDC(0, screen);
             }
         }
         finally
         {
-            _ = ReleaseDC(0, screen);
+            _ = DeleteObject(bitmap);
         }
     }
 
@@ -201,11 +279,14 @@ internal static class ThumbnailProvider
     {
         ResizeToFit = 0x00,
 
-        /// <summary>Never generate one: only return what the cache already holds.</summary>
-        InCacheOnly = 0x10,
-
         /// <summary>The file-type icon rather than a preview of the contents.</summary>
         IconOnly = 0x04,
+
+        /// <summary>A real thumbnail or nothing - never the icon dressed up as one.</summary>
+        ThumbnailOnly = 0x08,
+
+        /// <summary>Only what the cache already holds. Never generates, never downloads.</summary>
+        InCacheOnly = 0x10,
     }
 
     [StructLayout(LayoutKind.Sequential)]

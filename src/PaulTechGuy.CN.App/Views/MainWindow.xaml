@@ -232,7 +232,9 @@
                 <ListView Grid.Row="3"
                           ItemsSource="{x:Bind Workbench.Rows, Mode=OneWay}"
                           SelectedItem="{x:Bind Workbench.SelectedRow, Mode=TwoWay}"
-                          SelectionMode="Single">
+                          SelectionMode="Single"
+                          ContainerContentChanging="OnRowRealised"
+                          DoubleTapped="OnRowDoubleTapped">
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
                             <Setter Property="Height" Value="54" />
@@ -248,17 +250,31 @@
                     </ListView.ItemsPanel>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:PlanRowViewModel">
-                            <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" VerticalAlignment="Center">
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" RowDefinitions="Auto,Auto" VerticalAlignment="Center">
                                 <CheckBox Grid.RowSpan="2" Grid.Column="0" MinWidth="32"
                                           IsChecked="{x:Bind IsIncluded, Mode=TwoWay}" />
-                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind Name}"
+
+                                <!--
+                                    Filled by ContainerContentChanging rather than by a
+                                    binding: the icon is set during layout and the real
+                                    thumbnail arrives later, which no getter can express.
+                                    The row height stays fixed either way, which is what
+                                    keeps the scrollbar honest.
+                                -->
+                                <Border Grid.RowSpan="2" Grid.Column="1" Width="36" Height="36"
+                                        Margin="0,0,10,0" CornerRadius="3"
+                                        Background="{ThemeResource ControlAltFillColorSecondaryBrush}">
+                                    <Image x:Name="RowThumbnail" Stretch="Uniform" />
+                                </Border>
+
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="{x:Bind Name}"
                                            TextTrimming="CharacterEllipsis"
                                            Style="{StaticResource BodyTextBlockStyle}" />
-                                <TextBlock Grid.Row="1" Grid.Column="1"
+                                <TextBlock Grid.Row="1" Grid.Column="2"
                                            Text="{x:Bind vm:PlanRowViewModel.FormatSummary(Plan), Mode=OneWay}"
                                            TextTrimming="CharacterEllipsis"
                                            Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75" />
-                                <TextBlock Grid.RowSpan="2" Grid.Column="2" Margin="12,0,0,0"
+                                <TextBlock Grid.RowSpan="2" Grid.Column="3" Margin="12,0,0,0"
                                            VerticalAlignment="Center"
                                            Text="{x:Bind vm:PlanRowViewModel.FormatStatus(Plan), Mode=OneWay}"
                                            Style="{StaticResource CaptionTextBlockStyle}"
@@ -319,56 +335,20 @@
                 -->
                 <!--
                     MinHeight so the pane stops growing and shrinking as you move between a
-                    row changing two dates and one changing three. The thumbnail is 64 and
-                    three lines of detail are about the same, so one fixed floor holds both
-                    and the list above stops shifting under the cursor.
+                    row changing two dates and one changing three, which would otherwise
+                    shift the list above under the cursor.
                 -->
                 <Border Grid.Row="4" Padding="12,8" Margin="0,8,0,8" CornerRadius="4"
                         MinHeight="88"
                         Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-
-                        <!--
-                            The picture Explorer would show. Top-aligned rather than centred
-                            so it lines up with the file name however many lines of detail
-                            follow it.
-                        -->
-                        <local:ClickableSurface Grid.Column="0" VerticalAlignment="Top"
-                                Visibility="{x:Bind Workbench.HasSelection, Mode=OneWay}"
-                                Tapped="OnThumbnailTapped"
-                                PointerEntered="OnThumbnailPointerEntered"
-                                PointerExited="OnThumbnailPointerExited">
-                          <Border x:Name="ThumbnailFrame" Width="64" Height="64" CornerRadius="4"
-                                  Background="{ThemeResource ControlAltFillColorSecondaryBrush}"
-                                  BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                  BorderThickness="0">
-                            <Grid>
-                                <Image x:Name="ThumbnailImage" Stretch="Uniform" />
-
-                                <!--
-                                    Only on hover. A permanent badge would sit on top of the
-                                    picture the thumbnail exists to show; appearing on hover
-                                    says "this does something" at the moment somebody is
-                                    asking that question.
-                                -->
-                                <Border x:Name="ThumbnailHint" Visibility="Collapsed"
-                                        VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
-                                        Padding="0,2" Background="#A0000000">
-                                    <FontIcon Glyph="&#xE8A7;" FontSize="12" Foreground="White" />
-                                </Border>
-                            </Grid>
-                          </Border>
-                        </local:ClickableSurface>
-
-                        <StackPanel Grid.Column="1" Spacing="4">
-                            <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"
-                                       Style="{StaticResource BodyStrongTextBlockStyle}"
-                                       TextTrimming="CharacterEllipsis" />
-                            <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
-                                       Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
-                                       Style="{StaticResource CaptionTextBlockStyle}" />
-                        </StackPanel>
-                    </Grid>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
+                                   Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
+                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                    </StackPanel>
                 </Border>
             </Grid>
 
