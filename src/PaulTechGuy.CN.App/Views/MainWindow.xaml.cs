@@ -345,6 +345,44 @@ public sealed partial class MainWindow : Window
         FindContainer(source)?.Content as PlanRowViewModel;
 
     /// <summary>
+    /// Every type between the clicked element and the visual root, for the log.
+    ///
+    /// Here because the walk below quietly fails and the reason is not guessable: the same
+    /// gesture reports source=TextBlock whether the walk succeeds or not, so the type of
+    /// the thing clicked tells you nothing. The chain does.
+    /// </summary>
+    private static string AncestorChain(object? source)
+    {
+        if (source is not DependencyObject node)
+        {
+            return source is null ? "null" : $"not-a-DependencyObject:{source.GetType().Name}";
+        }
+
+        var chain = new List<string>();
+
+        // Bounded, because a runaway walk in a logging helper is not worth the risk.
+        while (node is not null && chain.Count < 16)
+        {
+            chain.Add(node.GetType().Name);
+            node = VisualTreeHelper.GetParent(node);
+        }
+
+        return string.Join(" < ", chain);
+    }
+
+    /// <summary>
+    /// The container under a point, asked of the framework instead of walked to.
+    ///
+    /// The walk below is the obvious way and it does not work here - it reports no
+    /// ListViewItem above a TextBlock that is plainly inside a row. This asks XAML's own
+    /// hit-testing the same question and does not care what shape the tree is.
+    /// </summary>
+    private ListViewItem? HitTestContainer(Point hostPoint) =>
+        VisualTreeHelper.FindElementsInHostCoordinates(hostPoint, this.FileList)
+            .OfType<ListViewItem>()
+            .FirstOrDefault();
+
+    /// <summary>
     /// The container a click landed in, which is also the element a context menu should be
     /// positioned against.
     /// </summary>
@@ -380,7 +418,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnRowRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
-        if (this.ShowRowMenu("right-click", e.OriginalSource, container => e.GetPosition(container)))
+        // GetPosition(null) is relative to the window, which is what hit-testing wants.
+        ListViewItem? container = FindContainer(e.OriginalSource)
+            ?? this.HitTestContainer(e.GetPosition(null));
+
+        if (this.ShowRowMenu("right-click", e.OriginalSource, container, c => e.GetPosition(c)))
         {
             e.Handled = true;
         }
@@ -392,10 +434,16 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnRowContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
+        // No pointer to hit-test with, so the selected row is the right answer here - a
+        // keyboard request IS a request about whatever is focused.
+        ListViewItem? container = FindContainer(e.OriginalSource)
+            ?? this.FileList.ContainerFromItem(this.FileList.SelectedItem) as ListViewItem;
+
         bool shown = this.ShowRowMenu(
             "keyboard",
             e.OriginalSource,
-            container => e.TryGetPosition(container, out Point point) ? point : null);
+            container,
+            c => e.TryGetPosition(c, out Point point) ? point : null);
 
         if (shown)
         {
@@ -416,17 +464,16 @@ public sealed partial class MainWindow : Window
     /// file somewhere off screen is worse than no menu.
     /// </summary>
     /// <returns>False when there was no row under the request.</returns>
-    private bool ShowRowMenu(string via, object? source, Func<ListViewItem, Point?> position)
+    private bool ShowRowMenu(string via, object? source, ListViewItem? container, Func<ListViewItem, Point?> position)
     {
-        ListViewItem? container = FindContainer(source);
-
-        // Logged for the same reason the double-click is: this handler has already failed
-        // silently once, and an interaction that does nothing leaves nothing to diagnose.
+        // The chain is logged, not just the type. Both a working and a broken walk report
+        // source=TextBlock, so the type on its own says nothing about which one happened -
+        // which is exactly why the first two attempts at this menu were guesswork.
         Serilog.Log.Information(
-            "Row menu requested. via={Via} source={Source} resolved={Row}",
+            "Row menu requested. via={Via} resolved={Row} chain={Chain}",
             via,
-            (source as object)?.GetType().Name ?? "null",
-            (container?.Content as PlanRowViewModel)?.Name ?? "none");
+            (container?.Content as PlanRowViewModel)?.Name ?? "none",
+            AncestorChain(source));
 
         if (container is not { Content: PlanRowViewModel row })
         {
