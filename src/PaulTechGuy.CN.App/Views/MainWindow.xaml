@@ -263,10 +263,15 @@
                             thing standing between somebody and pasting %LOCALAPPDATA%
                             into Explorer when a log is what would explain their problem.
                         -->
-                        <Button Content="&#xE946;" FontFamily="{StaticResource SymbolThemeFontFamily}"
-                                Click="OnOpenAbout"
+                        <!--
+                            Spelled out. This was an info glyph and the first person to
+                            look for About could not find it - which is the whole job of
+                            the control, and a tooltip only helps somebody already
+                            hovering over the thing they could not see.
+                        -->
+                        <Button Content="About" Click="OnOpenAbout"
                                 Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="About Chronora: version, where it keeps your data and logs, and a check for updates." />
+                                ToolTipService.ToolTip="Version, where Chronora keeps your data and logs, the Send to menu, and a check for updates." />
                     </StackPanel>
                 </Grid>
 
