@@ -119,6 +119,18 @@ public sealed record ChangeSummary(
 
     public bool HasUntouched => this.UntouchedFileDates.Count > 0;
 
+    /// <summary>
+    /// Files getting a Taken date that Windows Explorer will not display.
+    ///
+    /// Deliberately separate from both BlockedLines and UntouchedFileDates, because it is
+    /// neither: the write happens and succeeds. It is the user's expectation that breaks,
+    /// when they check the result in Explorer and see nothing. Reported twice as a bug in
+    /// the app before the cause was found, which is what earns it a line of its own.
+    /// </summary>
+    public int FilesWithInvisibleTakenDate { get; init; }
+
+    public bool HasInvisibleTakenDate => this.FilesWithInvisibleTakenDate > 0;
+
     /// <summary>The type filter in force, or null. Stated because it narrows the RUN.</summary>
     public string? TypeFilter { get; init; }
 
@@ -195,6 +207,7 @@ public sealed record ChangeSummary(
         int suspicious = 0;
         int included = 0;
         int toWrite = 0;
+        int takenInvisible = 0;
 
         foreach (PlanRowViewModel row in rows)
         {
@@ -207,6 +220,17 @@ public sealed record ChangeSummary(
             if (plan is null)
             {
                 continue;
+            }
+
+            // Written, and then invisible in the one place the user will go to check.
+            // This cannot ride on BlockedLines: nothing is blocked, the tag really does go
+            // into the file, and calling it blocked would be a lie that costs people a
+            // working Taken date.
+            if (!DateFieldCatalog.ExplorerShowsTakenDate(row.File.Kind)
+                && plan.Changes.Any(c => c.WillWrite
+                    && c.Target is ChangeTarget.Field { Which: DateField.ExifDateTimeOriginal }))
+            {
+                takenInvisible++;
             }
 
             bool rowWrites = plan.WillWrite;
@@ -273,16 +297,19 @@ public sealed record ChangeSummary(
             .OrderBy(kv => (int)kv.Key)
             .Select(kv => new BlockedLine(kv.Key, kv.Value.Count, PlanRowViewModel.Describe(kv.Value.Reason)))];
 
-        // Only the three Explorer puts side by side. Listing the fourth, or every unticked
-        // field in the catalogue, would bury the real warnings under things nobody wanted.
+        // Created and Modified only. Accessed used to be listed here too, back when it was
+        // a field the run could target; now that nothing sets it, saying "Accessed: not
+        // selected" under every single run would be noise on a line reserved for real
+        // warnings.
         DateField[] untouched = targets is null
             ? []
-            : [.. new[] { DateField.FileCreated, DateField.FileModified, DateField.FileAccessed }
+            : [.. new[] { DateField.FileCreated, DateField.FileModified }
                 .Where(f => !targets.Contains(f))];
 
         return new ChangeSummary(lines, rows.Count, changing, blocked, suspicious, included)
         {
             FilesToWrite = toWrite,
+            FilesWithInvisibleTakenDate = takenInvisible,
             BlockedLines = blockedLines,
             UntouchedFileDates = untouched,
             TypeFilter = typeFilter,

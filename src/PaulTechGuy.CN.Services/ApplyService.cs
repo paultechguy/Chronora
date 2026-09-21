@@ -662,12 +662,29 @@ public sealed class ApplyService(
             {
                 case DateField.FileCreated: created = value; break;
                 case DateField.FileModified: modified = value; break;
-                case DateField.FileAccessed: accessed = value; break;
                 case DateField.FileChanged: changed = value; break;
+
+                // Accessed is deliberately absent, and this is what makes "Chronora never
+                // sets Accessed" true rather than merely intended. Nothing offers it any
+                // more, but a template or a settings file written by an older build still
+                // can, and this is where that stops.
+                //
+                // It was dropped because it cannot be made to hold. On a volume with
+                // last-access updates enabled - the Windows default is "System Managed",
+                // which means enabled - merely reading a file moves it, so Explorer's
+                // thumbnailer, the search indexer, the antivirus scanner and Chronora's own
+                // refresh all undo it seconds later. Measured: written correctly, then
+                // moved 1.6s after the run finished.
+                //
+                // ToRestoreSet below still handles it, on purpose. Runs already in the
+                // journal recorded Accessed changes and undo has to put those back.
                 default: break;
             }
         }
 
+        // accessed is still carried: when restoreFrom is supplied it holds what the file
+        // had before an ExifTool rewrite disturbed it. Putting a value back is not setting
+        // it.
         return new TimestampSet(created, modified, accessed, changed);
     }
 

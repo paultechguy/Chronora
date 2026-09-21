@@ -38,7 +38,7 @@ public class NoticeRoutingTests
         fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
         fixture.ViewModel.UseTemplate(fixture.ViewModel.Templates[0]);
 
-        fixture.ViewModel.WriteAccessed = true;
+        fixture.ViewModel.WriteChanged = true;
 
         fixture.ViewModel.ActionNotice.ShouldBeNull();
 
@@ -87,7 +87,7 @@ public class NoticeRoutingTests
         await fixture.ViewModel.AddDroppedAsync([dropped], TestContext.Current.CancellationToken);
         fixture.ViewModel.ActionNotice.ShouldNotBeNull();
 
-        fixture.ViewModel.WriteAccessed = true;
+        fixture.ViewModel.WriteChanged = true;
 
         fixture.ViewModel.ActionNotice.ShouldBeNull("carrying on is accepting the list");
     }

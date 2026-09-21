@@ -124,10 +124,10 @@ public class RuleEvaluatorTests
             file,
             Fake.Recipe(
                 new DateSource.CopyFrom(Aggregate.FirstPresent, [DateField.FileCreated, DateField.FileModified]),
-                DateField.FileAccessed),
+                DateField.FileChanged),
             Fake.Context());
 
-        plan.For(DateField.FileAccessed).AfterDate.ShouldBe(Stamp);
+        plan.For(DateField.FileChanged).AfterDate.ShouldBe(Stamp);
     }
 
     /// <summary>
@@ -163,10 +163,10 @@ public class RuleEvaluatorTests
             file,
             Fake.Recipe(
                 new DateSource.CopyFrom(Aggregate.Latest, [DateField.FileCreated, DateField.FileModified]),
-                DateField.FileAccessed),
+                DateField.FileChanged),
             Fake.Context());
 
-        plan.For(DateField.FileAccessed).AfterDate.ShouldBe(newest);
+        plan.For(DateField.FileChanged).AfterDate.ShouldBe(newest);
     }
 
     [Fact]

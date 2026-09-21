@@ -24,7 +24,7 @@ public class SettingsRoundTripTests
         await fixture.LoadAsync("a.jpg");
 
         fixture.ViewModel.ChooseIntent(WorkIntent.PhotoDates);
-        fixture.ViewModel.WriteAccessed = true;
+        fixture.ViewModel.WriteChanged = true;
         fixture.ViewModel.Source = SourceChoice.ShiftBy;
         fixture.ViewModel.ShiftHours = -5;
         fixture.ViewModel.Sort = SortChoice.BiggestChange;
@@ -43,7 +43,7 @@ public class SettingsRoundTripTests
         next.ViewModel.ApplySettings(saved);
 
         next.ViewModel.Intent.ShouldBe(ended);
-        next.ViewModel.WriteAccessed.ShouldBeTrue();
+        next.ViewModel.WriteChanged.ShouldBeTrue();
         next.ViewModel.WriteTaken.ShouldBeTrue();
         next.ViewModel.Source.ShouldBe(SourceChoice.ShiftBy);
         next.ViewModel.ShiftHours.ShouldBe(-5);

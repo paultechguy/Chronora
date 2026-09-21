@@ -7,11 +7,14 @@ using Shouldly;
 namespace PaulTechGuy.CN.Presentation.Tests;
 
 /// <summary>
-/// Ticking all four file dates in the pane and getting one moment in all four.
+/// Ticking every file date the pane offers and getting one moment in all of them.
 ///
 /// The apply path is already pinned. This is the half above it - the date picker, the time
 /// picker and the checkboxes - because a reported run came out with the dates matching and
 /// the times not, and the two halves fail for completely different reasons.
+///
+/// It says three rather than four now. Accessed was the fourth, and it was removed once it
+/// was measured being moved by an ordinary read 1.6 seconds after a run finished.
 /// </summary>
 public class AllFourFromThePaneTests
 {
@@ -26,13 +29,12 @@ public class AllFourFromThePaneTests
     }
 
     [Fact]
-    public async Task All_four_ticked_gives_all_four_the_same_time()
+    public async Task Every_ticked_field_gets_the_same_time()
     {
         using WorkbenchFixture fixture = await ReadyAsync();
 
         fixture.ViewModel.WriteCreated = true;
         fixture.ViewModel.WriteModified = true;
-        fixture.ViewModel.WriteAccessed = true;
         fixture.ViewModel.WriteChanged = true;
 
         // Exactly what the two pickers produce: a date at midnight, and a time of day.
@@ -45,8 +47,8 @@ public class AllFourFromThePaneTests
         {
             List<DateTimeOffset?> after = [.. row.Plan!.Changes.Where(c => c.WillWrite).Select(c => c.AfterDate)];
 
-            after.Count.ShouldBe(4, $"{row.Name} should write all four fields");
-            after.Distinct().Count().ShouldBe(1, $"{row.Name}: one chosen moment, four identical values");
+            after.Count.ShouldBe(3, $"{row.Name} should write every ticked field");
+            after.Distinct().Count().ShouldBe(1, $"{row.Name}: one chosen moment, three identical values");
 
             after[0]!.Value.TimeOfDay.ShouldBe(new TimeSpan(14, 25, 0), "the time picker's value must survive");
             after[0]!.Value.Date.ShouldBe(new DateTime(2024, 3, 15), "and so must the date picker's");
@@ -71,13 +73,12 @@ public class AllFourFromThePaneTests
             {
                 DateField.FileCreated,
                 DateField.FileModified,
-                DateField.FileAccessed,
                 DateField.FileChanged,
             });
 
         List<DateTimeOffset?> after = [.. row.Plan!.Changes.Where(c => c.WillWrite).Select(c => c.AfterDate)];
 
-        after.Count.ShouldBe(4);
+        after.Count.ShouldBe(3);
         after.Distinct().Count().ShouldBe(1);
         after[0]!.Value.TimeOfDay.ShouldBe(new TimeSpan(14, 25, 0));
     }

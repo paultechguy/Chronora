@@ -680,6 +680,24 @@ public sealed partial class MainWindow : Window
             clear.Visibility = row.HasManualDate ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        // The same escape hatch for the whole list, and the only place the count appears at
+        // all. An override shows as a marker on its own row and nowhere else, so several of
+        // them in a long list can only be found by scrolling.
+        if (this.RowMenuItem("clearall") is { } clearAll)
+        {
+            int byHand = this.Workbench.RowsSetByHand;
+
+            clearAll.Text = string.Create(
+                CultureInfo.CurrentCulture,
+                $"Remove every by-hand date ({byHand:N0})");
+
+            // Hidden when there are none, and when the only one is this row - the item
+            // above already offers exactly that, and two ways to do one thing is noise.
+            clearAll.Visibility = byHand > 0 && !(byHand == 1 && row.HasManualDate)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
         // Positioned against the row rather than the list, so a keyboard request - which
         // carries no pointer position - still opens the menu on the row it belongs to
         // instead of at the top-left corner of a list scrolled a long way down.
@@ -877,6 +895,16 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// The one item in this menu that is not about the right-clicked row.
+    ///
+    /// It breaks the rule the rest of the menu keeps, so it earns the count in its label:
+    /// "Remove every by-hand date (8)" cannot be mistaken for an action on one file, which
+    /// is the whole reason the rule exists. It is reversible from the notice it raises.
+    /// </summary>
+    private void OnRowMenuClearAllDates(object sender, RoutedEventArgs e) =>
+        this.Workbench.ClearAllManualDates();
+
+    /// <summary>
     /// A date for this one file, overriding the run.
     ///
     /// In four thousand photos there are always three that need a date typed in, and
@@ -1032,14 +1060,14 @@ public sealed partial class MainWindow : Window
     ///
     /// Changed (NTFS) is deliberately absent, exactly as it is from the pane's main list:
     /// Explorer never shows it, so leaving it alone surprises nobody.
+    ///
+    /// Accessed is absent for a different reason - it cannot be made to hold. Anything that
+    /// reads a file moves it when last-access updates are on, which is the Windows default.
     /// </summary>
     private static readonly (DateField Field, string Label, string? Tip)[] RowMenuTargets =
     [
         (DateField.FileCreated, "Created", null),
         (DateField.FileModified, "Modified", null),
-        (DateField.FileAccessed, "Accessed",
-            "Explorer shows this next to Created and Modified. Windows usually stops updating "
-            + "it, so a date set here tends to stay put."),
         (DateField.ExifDateTimeOriginal, "Taken (photo)",
             "The date the photo or video records as when it was taken. Photo libraries read "
             + "this and ignore the file dates, so on its own it is often exactly right."),
@@ -1383,6 +1411,22 @@ public sealed partial class MainWindow : Window
                     CultureInfo.CurrentCulture,
                     $"  {DateFieldCatalog.Get(field).DisplayName}: not selected");
             }
+        }
+
+        // Neither a success line nor a "will NOT be changed" line, because it is neither.
+        // The tag is written and it works; Explorer is simply blind to it for this format,
+        // and Explorer is where people go to check. Said here, at the moment of deciding,
+        // rather than left to be discovered as a bug in the app - which it was, twice.
+        if (summary.HasInvisibleTakenDate)
+        {
+            _ = body.AppendLine();
+            _ = body.AppendLine(
+                CultureInfo.CurrentCulture,
+                $"Taken will be written to {summary.FilesWithInvisibleTakenDate:N0} PNG file(s).");
+            _ = body.AppendLine(
+                "  Windows Explorer does not show Date taken for PNG, so those files will");
+            _ = body.AppendLine(
+                "  look unchanged in Properties. Photo apps and metadata tools will read it.");
         }
 
         if (summary.FilesSuspicious > 0)

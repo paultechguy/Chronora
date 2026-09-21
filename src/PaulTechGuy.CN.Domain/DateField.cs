@@ -129,6 +129,25 @@ public static class DateFieldCatalog
     /// </summary>
     public static bool AppliesTo(DateField field, MediaKind kind)
     {
+        // Accessed applies to nothing, deliberately, and this is the chokepoint that makes
+        // that stick. RuleEvaluator filters every target through here, so a recipe that
+        // still names Accessed - an old template, a settings file from a previous build -
+        // produces no planned change, no preview line and no write. Filtering only at the
+        // write end would have been worse than leaving it alone: the preview would have
+        // promised an Accessed change that silently never happened.
+        //
+        // It is not that Accessed is meaningless, it is that it cannot be made to hold.
+        // With last-access updates on - the Windows default is "System Managed", which
+        // means on - merely reading a file moves it, so the thumbnailer, the indexer and
+        // the antivirus scanner undo a run seconds after it finishes. Measured at 1.6s.
+        //
+        // Undo is unaffected: it restores from the journal's recorded values and never
+        // consults this method.
+        if (field == DateField.FileAccessed)
+        {
+            return false;
+        }
+
         if (GenreOf(field) == FieldGenre.FileSystem)
         {
             return true;
@@ -156,13 +175,40 @@ public static class DateFieldCatalog
     }
 
     /// <summary>
+    /// Whether Windows Explorer will DISPLAY a Taken date for this kind of file.
+    ///
+    /// Not whether Chronora can write one. It can, and does: the EXIF tag goes in, and
+    /// ExifTool, photo libraries and third-party metadata viewers all read it back. This is
+    /// only about Explorer's Details tab, which has its own idea of which formats carry a
+    /// photo date - and a user checking their work in Explorer is checking the one reader
+    /// that will not show it.
+    ///
+    /// Measured, not assumed. The identical DateTimeOriginal was written to one file of
+    /// each format with plain ExifTool, and Explorer's own "Date taken" column read back:
+    ///
+    ///     JPEG   tag present, Explorer shows it
+    ///     TIFF   tag present, Explorer shows it
+    ///     PNG    tag present, Explorer BLANK
+    ///     GIF    tag present, Explorer BLANK   (never reaches here - MediaKind.Other)
+    ///     BMP    not EXIF-writable at all      (blocked earlier, by -listwf)
+    ///
+    /// HEIC and DNG are deliberately NOT listed: there was no genuine file of either to
+    /// test, and warning wrongly is worse than not warning. Measure one before adding it.
+    /// If a kind IS added here, update the confirmation dialog's wording, which names PNG.
+    /// </summary>
+    public static bool ExplorerShowsTakenDate(MediaKind kind) => kind != MediaKind.Png;
+
+    /// <summary>
     /// The fields a given mode may WRITE. Note this constrains targets only: a File dates
     /// rule may still READ a metadata field, which is what makes "copy the photo's Taken
     /// date onto the file dates" reachable from the simple mode.
     /// </summary>
     public static IEnumerable<DateFieldSpec> WritableIn(AppMode mode) => mode switch
     {
-        AppMode.FileDates => All.Where(s => s.Genre == FieldGenre.FileSystem),
+        // FileAccessed is excluded everywhere, not just here: it cannot be made to hold on
+        // a volume with last-access updates on, which is the Windows default.
+        AppMode.FileDates => All.Where(s =>
+            s.Genre == FieldGenre.FileSystem && s.Field != DateField.FileAccessed),
         _ => All,
     };
 

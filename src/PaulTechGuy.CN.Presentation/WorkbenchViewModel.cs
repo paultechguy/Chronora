@@ -308,10 +308,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                     this.WriteModified = true;
                     this.WriteTaken = false;
 
-                    // Offered on this path but not chosen for them, and Changed belongs to
-                    // Advanced - so picking this answer always lands on the same two boxes
-                    // rather than inheriting whatever the previous answer left behind.
-                    this.WriteAccessed = false;
+                    // Changed belongs to Advanced, so picking this answer always lands on
+                    // the same two boxes rather than inheriting whatever the previous
+                    // answer left behind.
                     this.WriteChanged = false;
                     break;
 
@@ -319,7 +318,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                     this.WriteCreated = false;
                     this.WriteModified = false;
                     this.WriteTaken = true;
-                    this.WriteAccessed = false;
                     this.WriteChanged = false;
                     break;
 
@@ -359,13 +357,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
 
         // Accessed counts as an ordinary file date here, because Explorer shows it beside
-        // Created and Modified and the pane now offers it there too. Ticking it should not
-        // relabel the answer as "let me pick the fields" - the user has not left the
-        // simple path, they have used the third control on it.
-        //
         // Changed still forces Custom: it is an Advanced field nobody reaches by accident,
         // and reaching it IS picking fields by hand.
-        bool anyFileDate = this.WriteCreated || this.WriteModified || this.WriteAccessed;
+        bool anyFileDate = this.WriteCreated || this.WriteModified;
 
         WorkIntent matched = (anyFileDate, this.WriteTaken, this.WriteChanged) switch
         {
@@ -467,7 +461,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             this.WriteCreated = template.Targets.Contains(DateField.FileCreated);
             this.WriteModified = template.Targets.Contains(DateField.FileModified);
-            this.WriteAccessed = template.Targets.Contains(DateField.FileAccessed);
             this.WriteChanged = template.Targets.Contains(DateField.FileChanged);
             this.WriteTaken = template.Targets.Contains(DateField.ExifDateTimeOriginal);
 
@@ -859,16 +852,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public partial bool WriteModified { get; set; } = true;
 
     partial void OnWriteModifiedChanged(bool value)
-    {
-        this.LeaveTemplateOnEdit();
-        this.ReconcileIntent();
-        this.QueueRecompute();
-    }
-
-    [ObservableProperty]
-    public partial bool WriteAccessed { get; set; }
-
-    partial void OnWriteAccessedChanged(bool value)
     {
         this.LeaveTemplateOnEdit();
         this.ReconcileIntent();
@@ -1401,8 +1384,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         SortChoice sort = this.Sort;
         bool onlyChanging = this.ShowOnlyChanging;
         bool onlyProblems = this.ShowOnlyProblems;
-        (bool created, bool modified, bool accessed, bool changed, bool taken) =
-            (this.WriteCreated, this.WriteModified, this.WriteAccessed, this.WriteChanged, this.WriteTaken);
+        (bool created, bool modified, bool changed, bool taken) =
+            (this.WriteCreated, this.WriteModified, this.WriteChanged, this.WriteTaken);
         DateTemplate? template = this.ActiveTemplate;
 
         this._allRows.Clear();
@@ -1425,7 +1408,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.ShowOnlyProblems = false;
             this.WriteCreated = true;
             this.WriteModified = true;
-            this.WriteAccessed = false;
             this.WriteChanged = false;
             this.WriteTaken = false;
         }
@@ -1458,7 +1440,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 this.ShowOnlyProblems = onlyProblems;
                 this.WriteCreated = created;
                 this.WriteModified = modified;
-                this.WriteAccessed = accessed;
                 this.WriteChanged = changed;
                 this.WriteTaken = taken;
             }
@@ -1789,7 +1770,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.WriteCreated = settings.WriteCreated;
         this.WriteModified = settings.WriteModified;
-        this.WriteAccessed = settings.WriteAccessed;
         this.WriteChanged = settings.WriteChanged;
         this.WriteTaken = settings.WriteTaken;
 
@@ -1822,7 +1802,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         settings.Source = this.Source.ToString();
         settings.WriteCreated = this.WriteCreated;
         settings.WriteModified = this.WriteModified;
-        settings.WriteAccessed = this.WriteAccessed;
         settings.WriteChanged = this.WriteChanged;
         settings.WriteTaken = this.WriteTaken;
         settings.CopyFromField = this.CopyFromField.ToString();
@@ -1891,6 +1870,63 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             : string.Create(CultureInfo.CurrentCulture, $"{row.Name} follows the run again.");
 
         this.Recompute();
+    }
+
+    /// <summary>
+    /// How many rows are carrying a date of their own.
+    ///
+    /// Counted across the whole list rather than the filtered view: an override on a row a
+    /// type filter is hiding is still an override, and "remove every one" that quietly left
+    /// some behind would be the worst kind of half-done.
+    /// </summary>
+    public int RowsSetByHand => this._allRows.Count(r => r.HasManualDate);
+
+    /// <summary>
+    /// Hands every by-hand row back to the run at once.
+    ///
+    /// One at a time is fine for the three files that usually need it and hopeless past
+    /// that. An override is visible only as a marker on its own row, so eight of them in
+    /// five hundred files can only be found by scrolling - and nothing anywhere said how
+    /// many there were. Reported from use: having set one, there was no obvious way back.
+    ///
+    /// Reversible through the same notice as the other bulk actions, and it sets the fields
+    /// directly rather than calling SetManualDate in a loop, which would recompute once per
+    /// row and leave the status line describing whichever row happened to be last.
+    /// </summary>
+    public void ClearAllManualDates()
+    {
+        List<(PlanRowViewModel Row, DateTimeOffset? Date, IReadOnlySet<DateField>? Targets)> had =
+        [
+            .. this._allRows
+                .Where(r => r.HasManualDate)
+                .Select(r => (Row: r, Date: r.ManualDate, Targets: r.ManualTargets)),
+        ];
+
+        if (had.Count == 0)
+        {
+            return;
+        }
+
+        foreach ((PlanRowViewModel row, _, _) in had)
+        {
+            row.ManualDate = null;
+            row.ManualTargets = null;
+        }
+
+        this.Recompute();
+
+        this.ActionNotice = string.Create(
+            CultureInfo.CurrentCulture,
+            $"Removed {had.Count:N0} by-hand date{(had.Count == 1 ? string.Empty : "s")}.");
+
+        this._undoLastAction = () =>
+        {
+            foreach ((PlanRowViewModel row, DateTimeOffset? date, IReadOnlySet<DateField>? targets) in had)
+            {
+                row.ManualDate = date;
+                row.ManualTargets = targets;
+            }
+        };
     }
 
     /// <summary>Ticks or unticks one row, and keeps the Apply count with it.</summary>
@@ -2242,11 +2278,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             targets.Add("Modified");
         }
 
-        if (this.WriteAccessed)
-        {
-            targets.Add("Accessed");
-        }
-
         if (this.WriteChanged)
         {
             targets.Add("Changed");
@@ -2482,11 +2513,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         if (this.WriteModified)
         {
             _ = targets.Add(DateField.FileModified);
-        }
-
-        if (this.WriteAccessed)
-        {
-            _ = targets.Add(DateField.FileAccessed);
         }
 
         if (this.WriteChanged)

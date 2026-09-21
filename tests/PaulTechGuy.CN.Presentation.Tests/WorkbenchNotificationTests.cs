@@ -226,7 +226,7 @@ public class WorkbenchNotificationTests
         fixture.ViewModel.UseTemplate(fixture.ViewModel.Templates[0]);
 
         using var watcher = new NotificationWatcher(fixture.ViewModel);
-        fixture.ViewModel.WriteAccessed = true;
+        fixture.ViewModel.WriteChanged = true;
 
         watcher.SilentChanges().ShouldBeEmpty();
         fixture.ViewModel.ActiveTemplate.ShouldBeNull("an edit takes the template out of charge");

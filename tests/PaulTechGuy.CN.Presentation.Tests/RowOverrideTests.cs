@@ -55,11 +55,11 @@ public class RowOverrideTests
 
         PlanRowViewModel row = fixture.ViewModel.Rows[0];
 
-        // The run writes Created and Modified; this file alone also gets Accessed.
+        // The run writes Created and Modified; this file alone also gets Changed.
         fixture.ViewModel.SetManualDate(
             row,
             new DateTimeOffset(2001, 5, 6, 7, 8, 0, TimeSpan.Zero),
-            new HashSet<DateField> { DateField.FileAccessed });
+            new HashSet<DateField> { DateField.FileChanged });
 
         List<DateField?> written =
         [
@@ -68,7 +68,56 @@ public class RowOverrideTests
                 .Select(c => (c.Target as ChangeTarget.Field)?.Which),
         ];
 
-        written.ShouldBe([DateField.FileAccessed], "only the field the override named should be written");
+        written.ShouldBe([DateField.FileChanged], "only the field the override named should be written");
+    }
+
+    /// <summary>
+    /// Clearing every override at once, and being able to take that back.
+    ///
+    /// An override is visible only as a marker on its own row, so several of them in a long
+    /// list can only be found by scrolling - reported from use as "I set one and there is no
+    /// way back". The count is part of the contract: it is the only place the number of
+    /// by-hand rows appears anywhere in the app.
+    /// </summary>
+    [Fact]
+    public async Task Every_override_can_be_removed_at_once_and_put_back()
+    {
+        using WorkbenchFixture fixture = await LoadedAsync();
+
+        var mine = new DateTimeOffset(2001, 5, 6, 7, 8, 0, TimeSpan.Zero);
+
+        foreach (PlanRowViewModel row in fixture.ViewModel.Rows)
+        {
+            fixture.ViewModel.SetManualDate(row, mine, new HashSet<DateField> { DateField.FileCreated });
+        }
+
+        int count = fixture.ViewModel.Rows.Count;
+        count.ShouldBeGreaterThan(1, "the point of this is more than one");
+        fixture.ViewModel.RowsSetByHand.ShouldBe(count);
+
+        fixture.ViewModel.ClearAllManualDates();
+
+        fixture.ViewModel.RowsSetByHand.ShouldBe(0);
+        fixture.ViewModel.Rows.ShouldAllBe(r => !r.HasManualDate);
+        fixture.ViewModel.ActionNotice.ShouldNotBeNull("a bulk change has to be takeable back");
+
+        fixture.ViewModel.UndoLastAction();
+
+        fixture.ViewModel.RowsSetByHand.ShouldBe(count);
+        fixture.ViewModel.Rows.ShouldAllBe(r => r.ManualDate == mine);
+    }
+
+    /// <summary>With nothing set by hand it does nothing at all, and says nothing.</summary>
+    [Fact]
+    public async Task Removing_every_override_when_there_are_none_is_silent()
+    {
+        using WorkbenchFixture fixture = await LoadedAsync();
+
+        fixture.ViewModel.RowsSetByHand.ShouldBe(0);
+
+        fixture.ViewModel.ClearAllManualDates();
+
+        fixture.ViewModel.ActionNotice.ShouldBeNull("nothing happened, so nothing is announced");
     }
 
     [Fact]
@@ -81,7 +130,7 @@ public class RowOverrideTests
         fixture.ViewModel.SetManualDate(
             row,
             new DateTimeOffset(2001, 5, 6, 7, 8, 0, TimeSpan.Zero),
-            new HashSet<DateField> { DateField.FileAccessed });
+            new HashSet<DateField> { DateField.FileChanged });
 
         row.HasManualDate.ShouldBeTrue();
 

@@ -45,7 +45,17 @@
                 <MenuFlyoutSeparator />
 
                 <MenuFlyoutItem Text="Set this file's date…" Click="OnRowMenuSetDate" />
-                <MenuFlyoutItem Tag="clear" Text="Use the run's date again" Click="OnRowMenuClearDate" />
+                <!--
+                    Named for what it removes, not for where it lands. It read "Use the
+                    run's date again", which is accurate and is not what anybody scans for:
+                    reported as "I don't see anything to remove the custom date". The verb
+                    people look for is Remove.
+                -->
+                <MenuFlyoutItem Tag="clear" Text="Remove this file's own date" Click="OnRowMenuClearDate"
+                                ToolTipService.ToolTip="This file goes back to the run's date and fields, like every other row." />
+
+                <!-- Text is set when the menu opens, because it carries the count. -->
+                <MenuFlyoutItem Tag="clearall" Click="OnRowMenuClearAllDates" />
                 <MenuFlyoutItem Text="Use this file's date for the run" Click="OnRowMenuUseDate" />
             </MenuFlyout>
         </Grid.Resources>
@@ -400,6 +410,18 @@
                         <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
                                    Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
+
+                        <!--
+                            Shown only for a row that is getting a Taken date Windows will
+                            not display. The detail pane is the other place somebody checks
+                            one file, so the caveat belongs here as well as in the
+                            confirmation - the alternative is they read "Taken → 14:30"
+                            here, look in Explorer, see nothing, and file a bug.
+                        -->
+                        <TextBlock TextWrapping="Wrap" Opacity="0.75"
+                                   Visibility="{x:Bind Workbench.SelectedRow.ShowsTakenNote, Mode=OneWay}"
+                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                   Text="Windows does not show Date taken for PNG. Chronora still writes it, and photo apps will read it." />
                     </StackPanel>
                 </Border>
             </Grid>
@@ -605,24 +627,21 @@
                                   ToolTipService.ToolTip="The date the photo or video records as when it was taken. Photo libraries read this and ignore the file dates, so on its own it is often exactly right." />
 
                         <!--
-                            Accessed is offered here, not under Advanced. Explorer's
-                            Properties dialog shows Created, Modified AND Accessed, so
-                            those three are one set in the user's head - and hiding one of
-                            them means applying a run leaves a date visibly untouched with
-                            nothing on screen explaining why.
+                            Accessed used to be offered here, on the reasoning that
+                            Explorer's Properties dialog shows Created, Modified AND
+                            Accessed, so the three are one set in the user's head.
 
-                            Off by default, because most people do not want it and the
-                            date it holds is rarely meaningful. Offered, not chosen.
-                        -->
-                        <CheckBox Content="Accessed" Margin="0,6,0,0"
-                                  Visibility="{x:Bind Workbench.ShowsFileDates, Mode=OneWay}"
-                                  IsChecked="{x:Bind Workbench.WriteAccessed, Mode=TwoWay}"
-                                  ToolTipService.ToolTip="Explorer shows this next to Created and Modified. Windows usually stops updating it, so a date set here tends to stay put." />
+                            It is gone, because the tooltip that sat here was wrong. It
+                            claimed "Windows usually stops updating it, so a date set here
+                            tends to stay put". The Windows default is "System Managed",
+                            which means last-access updates are ON, and then merely reading
+                            a file moves it - Explorer's own thumbnailer, the indexer, the
+                            antivirus scanner. A run set it correctly and it was measured
+                            moving 1.6 seconds later. Offering a field the app cannot make
+                            hold is worse than not offering it.
 
-                        <!--
                             Changed stays under Advanced. Explorer never shows it, so
-                            leaving it alone surprises nobody - which is exactly the test
-                            Accessed failed.
+                            leaving it alone surprises nobody.
                         -->
                         <CheckBox Content="Changed (NTFS)"
                                   Visibility="{x:Bind Workbench.ShowsAdvancedFields, Mode=OneWay}"

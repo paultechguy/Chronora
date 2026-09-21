@@ -59,7 +59,21 @@ public sealed partial class PlanRowViewModel : ObservableObject
 
     /// <summary>The only thing a recompute writes.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowsTakenNote))]
     public partial FilePlan? Plan { get; set; }
+
+    /// <summary>
+    /// Whether this row is about to get a Taken date that Windows will not show.
+    ///
+    /// The write is fine - the tag goes in and photo tools read it. Explorer's Details tab
+    /// is the reader that does not, and it is where people go to check. Saying so on the
+    /// row is the difference between "the app did nothing" and "look somewhere else".
+    /// </summary>
+    public bool ShowsTakenNote =>
+        this.Plan is { } plan
+        && !DateFieldCatalog.ExplorerShowsTakenDate(this.File.Kind)
+        && plan.Changes.Any(c => c.WillWrite
+            && c.Target is ChangeTarget.Field { Which: DateField.ExifDateTimeOriginal });
 
     /// <summary>
     /// A date typed in for this file alone, overriding whatever the run would give it.

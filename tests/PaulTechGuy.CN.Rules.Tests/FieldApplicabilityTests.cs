@@ -31,8 +31,48 @@ public class FieldApplicabilityTests
     {
         DateFieldCatalog.AppliesTo(DateField.FileCreated, kind).ShouldBeTrue();
         DateFieldCatalog.AppliesTo(DateField.FileModified, kind).ShouldBeTrue();
-        DateFieldCatalog.AppliesTo(DateField.FileAccessed, kind).ShouldBeTrue();
         DateFieldCatalog.AppliesTo(DateField.FileChanged, kind).ShouldBeTrue();
+
+        // Accessed is the exception, on every kind of file. It is a filesystem date like
+        // the others and it is deliberately excluded, because anything that reads a file
+        // moves it when last-access updates are on - which is the Windows default. This is
+        // the chokepoint: no target, so no planned change, so no preview line and no write.
+        DateFieldCatalog.AppliesTo(DateField.FileAccessed, kind)
+            .ShouldBeFalse("Accessed cannot be made to hold, so nothing may target it");
+    }
+
+    /// <summary>
+    /// Which formats Explorer will SHOW a Taken date for. Measured, not assumed: the same
+    /// DateTimeOriginal was written to one file of each format with plain ExifTool and
+    /// Explorer's own "Date taken" column read back.
+    ///
+    /// This table is a record of an experiment. If it is ever changed, re-run the
+    /// experiment rather than reasoning about it - guessing here is how the app ends up
+    /// warning about a format that works, or staying silent about one that does not.
+    /// </summary>
+    [Theory]
+    [InlineData(MediaKind.Jpeg, true)]
+    [InlineData(MediaKind.Tiff, true)]
+    [InlineData(MediaKind.Png, false)]
+    public void Explorer_shows_a_taken_date_for_some_formats_and_not_others(MediaKind kind, bool shown) =>
+        DateFieldCatalog.ExplorerShowsTakenDate(kind).ShouldBe(shown);
+
+    /// <summary>
+    /// And PNG stays writable, which is the whole point of warning instead of blocking.
+    ///
+    /// Reported twice as "setting Taken on a PNG does not work". It does work - the tag
+    /// goes in and photo libraries read it; Explorer is simply blind to it. Refusing the
+    /// write would throw away a date that functions everywhere except one viewer, so if
+    /// somebody later "fixes" this by blocking PNG, this test is the objection.
+    /// </summary>
+    [Fact]
+    public void A_png_is_still_a_legitimate_target_for_a_taken_date()
+    {
+        DateFieldCatalog.AppliesTo(DateField.ExifDateTimeOriginal, MediaKind.Png)
+            .ShouldBeTrue("the write works and must not be blocked");
+
+        DateFieldCatalog.ExplorerShowsTakenDate(MediaKind.Png)
+            .ShouldBeFalse("Explorer will not display it, which is what the user is told");
     }
 
     [Theory]

@@ -83,42 +83,20 @@ public class WorkbenchBehaviourTests
         using var fixture = new WorkbenchFixture();
         fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
 
-        // Changed is an Advanced field. Reaching it IS picking fields by hand, which is
-        // what separates it from Accessed below.
+        // Changed is an Advanced field. Reaching it IS picking fields by hand.
         fixture.ViewModel.WriteChanged = true;
 
         fixture.ViewModel.Intent.ShouldBe(WorkIntent.Custom);
     }
 
-    /// <summary>
-    /// Accessed does NOT. Explorer shows it beside Created and Modified, so the pane offers
-    /// it there too - and ticking the third control on the simple path is not the same as
-    /// leaving the simple path.
-    ///
-    /// Reported from the app: a run moved Created and Modified, Explorer went on showing an
-    /// untouched Accessed date, and nothing said why.
-    /// </summary>
+    /// <summary>Advanced fields are offered, not chosen: they start off.</summary>
     [Fact]
-    public void Ticking_accessed_stays_on_the_file_dates_answer()
-    {
-        using var fixture = new WorkbenchFixture();
-        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
-
-        fixture.ViewModel.WriteAccessed = true;
-
-        fixture.ViewModel.Intent.ShouldBe(WorkIntent.FileDates);
-        fixture.ViewModel.ShowsFileDates.ShouldBeTrue();
-    }
-
-    /// <summary>Offered, not chosen: it starts off.</summary>
-    [Fact]
-    public void The_file_dates_answer_does_not_tick_accessed_for_you()
+    public void The_file_dates_answer_does_not_tick_advanced_fields_for_you()
     {
         using var fixture = new WorkbenchFixture();
 
         fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
 
-        fixture.ViewModel.WriteAccessed.ShouldBeFalse();
         fixture.ViewModel.WriteChanged.ShouldBeFalse();
     }
 

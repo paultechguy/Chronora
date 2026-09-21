@@ -57,8 +57,6 @@ public sealed record AppSettings
 
     public bool WriteModified { get; set; } = true;
 
-    public bool WriteAccessed { get; set; }
-
     public bool WriteChanged { get; set; }
 
     public bool WriteTaken { get; set; }
