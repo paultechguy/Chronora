@@ -104,7 +104,34 @@ $temp = Join-Path ([System.IO.Path]::GetTempPath()) "chronora-manifest-$([guid]:
 
 try {
     Write-Host "  ...   downloading to verify"
-    Invoke-WebRequest -Uri $manifest.url -OutFile $temp -UseBasicParsing
+
+    # curl.exe, not Invoke-WebRequest, and for the reason already written down in
+    # Get-ExifTool.ps1: SourceForge answers some client shapes with an HTML interstitial
+    # instead of the file. This script used Invoke-WebRequest and so hashed the
+    # interstitial - measured at 139,123 bytes beginning "<!doctype html" - and reported a
+    # checksum mismatch against a manifest that was perfectly correct.
+    #
+    # That is the exact failure the header of this file warns about: it reads like
+    # tampering rather than a wrong URL, and it would have blocked the first release.
+    curl.exe --silent --show-error --location --max-time 300 --output $temp $manifest.url
+
+    if ($LASTEXITCODE -ne 0) {
+        Fail "The download failed (curl exit $LASTEXITCODE)."
+    }
+
+    # Checked before the hash, so a moved URL is reported as a moved URL. A hash mismatch
+    # is a much more alarming sentence and should be reserved for a real one.
+    $magic = [System.IO.File]::ReadAllBytes($temp)[0..1]
+
+    if ($magic[0] -ne 0x50 -or $magic[1] -ne 0x4B) {
+        Fail @"
+What came back from the manifest URL is not a zip.
+
+  url  $($manifest.url)
+
+The URL has probably moved. This is not a hash problem - nothing was tampered with.
+"@
+    }
 
     $actual = (Get-FileHash -LiteralPath $temp -Algorithm SHA256).Hash
 
