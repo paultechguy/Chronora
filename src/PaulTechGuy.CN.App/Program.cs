@@ -157,6 +157,21 @@ public static class Program
         // started per run.
         builder.Services.AddSingleton<MetadataGateway>();
 
+        // The interface as well, forwarded to the SAME instance - and this line is load
+        // bearing. ApplyService takes IMetadataWriteGateway as an OPTIONAL parameter so
+        // that filesystem-only tests can leave it out, which means an unregistered
+        // interface does not throw here: the container quietly hands it the default, null.
+        // Without this registration every photo-date write failed with "ExifTool is not
+        // available" while ExifTool was running and had already reported 109 writable
+        // formats in the same session - and because a failed metadata write deliberately
+        // abandons the file's timestamps too, Created and Modified silently went with it.
+        //
+        // Resolved through the concrete registration on purpose.
+        // AddSingleton<IMetadataWriteGateway, MetadataGateway>() would compile, read the
+        // same, and build a SECOND gateway with a second ExifTool process behind it.
+        builder.Services.AddSingleton<IMetadataWriteGateway>(
+            sp => sp.GetRequiredService<MetadataGateway>());
+
         builder.Services.AddSingleton<TemplateStore>();
         builder.Services.AddSingleton<SettingsStore>();
         builder.Services.AddSingleton<UpdateChecker>();
