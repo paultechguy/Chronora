@@ -35,6 +35,16 @@ public sealed record ExifToolResult(string StandardOutput, string StandardError,
 public sealed class ExifToolSession : IExifToolSession, IAsyncDisposable
 {
     /// <summary>
+    /// The child's process id.
+    ///
+    /// Public because it is a real property of a running session rather than a test hook,
+    /// and because it earns its place in the log: ten orphaned ExifTool processes were once
+    /// found on one machine with no way to tell which session had started which, since
+    /// nothing had ever recorded a pid. Logging it turns that diagnosis into reading a line.
+    /// </summary>
+    public int ProcessId => this._process.Id;
+
+    /// <summary>
     /// Arguments that go on every command, and each one is load-bearing.
     /// </summary>
     private static readonly string[] CommonArguments =
@@ -112,7 +122,16 @@ public sealed class ExifToolSession : IExifToolSession, IAsyncDisposable
         var process = new Process { StartInfo = info };
         _ = process.Start();
 
-        return new ExifToolSession(process, logger ?? NullLogger.Instance);
+        ILogger log = logger ?? NullLogger.Instance;
+
+        // Immediately, before anything can go wrong. DisposeAsync below is the orderly way
+        // this child ends and it works; the job object is what covers every other way -
+        // a crash, a kill, stopping the debugger - none of which run a finally block. A
+        // -stay_open child blocks on stdin for ever and has no parent to notice, so without
+        // this one leaks per session and holds the ExifTool folder locked.
+        ChildProcessJob.Adopt(process, log);
+
+        return new ExifToolSession(process, log);
     }
 
     /// <summary>

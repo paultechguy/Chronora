@@ -256,7 +256,8 @@ public sealed class MetadataGateway(
                 this._session = ExifToolSession.Start(path, this._logger);
                 this._sessionPath = path;
 
-                this._logger.LogInformation("Started ExifTool from {Path}.", path);
+                this._logger.LogInformation(
+                    "Started ExifTool from {Path} as pid {Pid}.", path, this._session.ProcessId);
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
             {

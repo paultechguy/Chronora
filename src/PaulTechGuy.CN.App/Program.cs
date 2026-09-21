@@ -31,6 +31,8 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        IHost? host = null;
+
         var paths = new AppPaths();
         paths.EnsureCreated();
 
@@ -49,7 +51,7 @@ public static class Program
             // WinRT projections must be live before any Windows App SDK type is touched.
             WinRT.ComWrappersSupport.InitializeComWrappers();
 
-            IHost host = BuildHost(paths, args);
+            host = BuildHost(paths, args);
 
             Microsoft.UI.Xaml.Application.Start(_unusedInitParams =>
             {
@@ -69,8 +71,61 @@ public static class Program
         }
         finally
         {
+            ShutDown(host);
+
             Log.Information("Chronora exiting.");
             Log.CloseAndFlush();
+        }
+    }
+
+    /// <summary>
+    /// Disposes the host, which is the only thing that shuts ExifTool down.
+    ///
+    /// Nothing did this. The host was built, handed to App, and then the process simply
+    /// ended - so the MetadataGateway singleton, which is IAsyncDisposable precisely so it
+    /// can stop its ExifTool, was never disposed. One -stay_open child was left running per
+    /// session: ten were found alive on one machine over two days, each holding the ExifTool
+    /// folder locked, which breaks Repair and would make an uninstall unrecoverable.
+    ///
+    /// It also closes the journal, and that matters more than it looks: SQLite in WAL mode
+    /// only checkpoints into the .db on a clean close. Without this, journal.db stays a 4 KB
+    /// stub beside a 1 MB -wal, and anybody told to "back up journal.db" loses their history.
+    ///
+    /// On the thread pool deliberately. Application.Start leaves a
+    /// DispatcherQueueSynchronizationContext installed on this thread, and its queue is gone
+    /// by the time we get here, so blocking on a continuation that wants to post back to it
+    /// would deadlock on the way out - a hang at exit, which looks exactly like the leak
+    /// this is here to fix.
+    /// </summary>
+    private static void ShutDown(IHost? host)
+    {
+        if (host is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // IHost is only IDisposable; the concrete host is also IAsyncDisposable, and the
+            // async path is the one that matters. A SYNCHRONOUS provider dispose throws when
+            // a singleton implements only IAsyncDisposable - which MetadataGateway does,
+            // precisely so that it can stop ExifTool - so taking the sync route here would
+            // fail to do the one thing this method exists for.
+            bool finished = host is IAsyncDisposable disposable
+                ? Task.Run(async () => await disposable.DisposeAsync().ConfigureAwait(false))
+                    .Wait(TimeSpan.FromSeconds(15))
+                : Task.Run(host.Dispose).Wait(TimeSpan.FromSeconds(15));
+
+            if (!finished)
+            {
+                Log.Warning("Shutdown did not finish in time; ExifTool may not have been stopped.");
+            }
+        }
+        catch (Exception ex) when (ex is AggregateException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Never rethrow from here. The app is already leaving, and a failure to tidy up
+            // must not turn a normal exit into a crash dialog.
+            Log.Error(ex, "Something failed while shutting down.");
         }
     }
 
