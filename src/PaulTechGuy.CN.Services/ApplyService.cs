@@ -186,6 +186,7 @@ public sealed class ApplyService(
 
         List<PlannedChange> metadataWrites = [.. writes.Where(IsMetadata)];
         bool rewroteBytes = false;
+        string? backup = null;
 
         if (metadataWrites.Count > 0)
         {
@@ -206,6 +207,11 @@ public sealed class ApplyService(
                 return new FileResult(rowId, FileOutcome.Failed, written.Detail);
             }
 
+            // Held until the file is known good, then removed. Kept on every failure path
+            // above and below, because that is when it is the only copy that still has the
+            // file as it was.
+            backup = written.BackupPath;
+
             rewroteBytes = written.Destination == WriteDestination.Embedded;
         }
 
@@ -214,6 +220,8 @@ public sealed class ApplyService(
         if (fileWrites.Count == 0 && !rewroteBytes)
         {
             // A sidecar write touched nothing else, so there is nothing to put back.
+            this.DiscardBackup(backup);
+
             return new FileResult(rowId, FileOutcome.Applied, null);
         }
 
@@ -235,6 +243,8 @@ public sealed class ApplyService(
 
         if (result.Succeeded)
         {
+            this.DiscardBackup(backup);
+
             return new FileResult(rowId, FileOutcome.Applied, null);
         }
 
@@ -247,6 +257,41 @@ public sealed class ApplyService(
         }
 
         return new FileResult(rowId, FileOutcome.Failed, result.Detail ?? result.Problem.ToString());
+    }
+
+    /// <summary>
+    /// Removes the pre-write copy, once the file is known good.
+    ///
+    /// The copy exists to survive the write itself: ExifTool rewrites the container, and
+    /// the journal records field values, so it can put a date back but cannot repair a
+    /// container a write damaged. Once the bytes and the timestamps have both landed there
+    /// is nothing left for it to protect, and it was never Chronora's to leave behind in
+    /// somebody's folder.
+    ///
+    /// Leaving it there was worse than clutter. The copy is taken with overwrite, so a
+    /// SECOND run over the same file replaced the pristine backup with the already-modified
+    /// one - five files in a Downloads folder, each byte-identical to the live file it was
+    /// supposedly protecting. Deleting on success removes the stale copy and the trap with
+    /// it.
+    ///
+    /// A failed delete is logged and swallowed. A leftover copy is untidy; throwing here
+    /// would fail a file that has already been written correctly.
+    /// </summary>
+    private void DiscardBackup(string? path)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            this._logger.LogWarning(ex, "Could not remove the backup copy {Path}.", path);
+        }
     }
 
     /// <summary>
@@ -402,6 +447,8 @@ public sealed class ApplyService(
             return RevertOutcome.Drifted;
         }
 
+        string? backup = null;
+
         // Metadata first, then the timestamps - the same order as an apply and for the same
         // reason: ExifTool rewrites the file and moves the times being restored.
         if (metadataChanges.Count > 0)
@@ -423,6 +470,8 @@ public sealed class ApplyService(
                 {
                     return RevertOutcome.Failed;
                 }
+
+                backup = written.BackupPath;
             }
         }
 
@@ -432,9 +481,14 @@ public sealed class ApplyService(
 
         WriteResult result = this._writer.Write(file.Path, restore, file.IsDirectory);
 
-        return result.Succeeded
-            ? RevertOutcome.Reverted
-            : result.Problem == ProblemCode.FileLocked ? RevertOutcome.Locked : RevertOutcome.Failed;
+        if (result.Succeeded)
+        {
+            this.DiscardBackup(backup);
+
+            return RevertOutcome.Reverted;
+        }
+
+        return result.Problem == ProblemCode.FileLocked ? RevertOutcome.Locked : RevertOutcome.Failed;
     }
 
     /// <summary>

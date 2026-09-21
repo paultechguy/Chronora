@@ -339,6 +339,65 @@ public class ApplyServiceTests
     /// Afterwards would mean the rewrite silently moved the dates the user just chose, and
     /// the preview they approved would have been a lie.
     /// </summary>
+    /// <summary>
+    /// The copy taken before a metadata write is removed once the file is good.
+    ///
+    /// It used to be left in the user's own folder for ever, beside their photos and named
+    /// exactly the way ExifTool names its own backups. Worse, it is taken with overwrite,
+    /// so a second run replaced the pristine copy with the already-modified file and the
+    /// backup ended up byte-identical to the thing it was supposed to protect.
+    /// </summary>
+    [Fact]
+    public async Task The_backup_copy_is_removed_once_the_file_is_written()
+    {
+        using var ws = new Workspace();
+        string path = ws.CreateFile("photo.jpg", Original);
+        string backup = path + "_original";
+
+        await File.WriteAllTextAsync(backup, "the file as it was", Ct);
+
+        var engine = new RecordingGateway { BackupPath = backup };
+        ApplyService apply = ws.ApplyWith(engine);
+
+        // Named, because the backup sitting beside it is a file too and an unnamed plan
+        // takes whichever the scan reaches last.
+        FilePlan plan = await ws.PlanAsync(
+            Target,
+            [DateField.ExifDateTimeOriginal, DateField.FileCreated, DateField.FileModified],
+            "photo.jpg");
+
+        ApplyOutcome outcome = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Written.ShouldBe(1);
+        File.Exists(backup).ShouldBeFalse("a file that wrote cleanly has nothing left to protect");
+    }
+
+    /// <summary>
+    /// A failed write keeps it, because then it is the only copy of the file as it was.
+    /// </summary>
+    [Fact]
+    public async Task The_backup_copy_survives_a_failed_write()
+    {
+        using var ws = new Workspace();
+        string path = ws.CreateFile("photo.jpg", Original);
+        string backup = path + "_original";
+
+        await File.WriteAllTextAsync(backup, "the file as it was", Ct);
+
+        var engine = new RecordingGateway { BackupPath = backup, Succeeds = false };
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanAsync(
+            Target,
+            [DateField.ExifDateTimeOriginal, DateField.FileCreated, DateField.FileModified],
+            "photo.jpg");
+
+        ApplyOutcome outcome = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Failed.ShouldBe(1);
+        File.Exists(backup).ShouldBeTrue("a failed write leaves the only good copy where it is");
+    }
+
     [Fact]
     public async Task The_photo_date_is_written_before_the_file_dates()
     {
@@ -492,6 +551,9 @@ internal sealed class RecordingGateway : IMetadataWriteGateway
 
     public List<bool> BackupsRequested { get; } = [];
 
+    /// <summary>The copy the real writer would have taken, so its cleanup can be asserted.</summary>
+    public string? BackupPath { get; set; }
+
     /// <summary>
     /// What the file supposedly holds now, for the drift check. Empty by default, which
     /// means "unchanged since the run" is never asserted by accident - a test that wants
@@ -522,7 +584,7 @@ internal sealed class RecordingGateway : IMetadataWriteGateway
             request.Path,
             this.Succeeds,
             WriteDestination.Embedded,
-            null,
+            this.BackupPath,
             this.Succeeds ? null : "Pretend failure."));
     }
 }
