@@ -78,10 +78,12 @@ public sealed partial class MainWindow : Window
             handledEventsToo: true);
 
         // Registered as well, not instead, and only for Shift+F10 and the menu key.
-        // ContextRequested is the event the docs point you at for a context menu and it
-        // did not fire once on a right-click here - the log from a whole session of them
-        // has no handler entry and no exception. RightTapped above is what carries the
-        // mouse; this stays for the keyboard, and the log says which one actually fires.
+        // ContextRequested DOES fire on a right-click - an earlier reading of the log
+        // said it never did, and that was wrong. It arrives about a millisecond after
+        // RightTapped with the identical source chain, twice for every gesture.
+        // RightTapped still carries the mouse; the handler filters this one back down to
+        // the keyboard, because two handlers answering one right-click is exactly how the
+        // menu ended up opening over empty space.
         this.FileList.AddHandler(
             UIElement.ContextRequestedEvent,
             new TypedEventHandler<UIElement, ContextRequestedEventArgs>(this.OnRowContextRequested),
@@ -564,12 +566,13 @@ public sealed partial class MainWindow : Window
     private PlanRowViewModel? _menuRow;
 
     /// <summary>
-    /// The mouse path, and the one that actually works.
+    /// The mouse path, and the one that rules on every mouse gesture - including the ones
+    /// it turns down.
     ///
-    /// ContextRequested was the obvious event for this and it never fired once - the log
-    /// from a session full of right-clicks shows no handler entry and no exception. So the
-    /// menu hangs off RightTapped instead, which is the mechanism already proven on this
-    /// same list by the double-click fix.
+    /// The menu hangs off RightTapped because that is the mechanism already proven on this
+    /// same list by the double-click fix. ContextRequested fires as well, a moment later;
+    /// the handler below filters it back to the keyboard so one right-click gets exactly
+    /// one answer.
     /// </summary>
     private void OnRowRightTapped(object sender, RightTappedRoutedEventArgs e)
     {
@@ -584,18 +587,34 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The keyboard path - Shift+F10 and the menu key - kept separate because RightTapped
-    /// cannot see them. Whether it ever fires is an open question; the log says which.
+    /// The keyboard path - Shift+F10 and the menu key - and nothing else.
+    ///
+    /// That it fires on a right-click too is the whole difficulty. Right-clicking the
+    /// empty space under the last row used to open the menu on whatever happened to be
+    /// selected: RightTapped resolved no row and correctly declined, then this handler ran
+    /// for the same gesture, fell back to the selection, and put a menu over empty space
+    /// that acted on a file somewhere else entirely.
+    ///
+    /// TryGetPosition is the discriminator. A keyboard request carries no pointer position
+    /// and it fails. Anything that does carry one has already been ruled on by
+    /// RightTapped - whichever way it ruled - so there is no fallback for it here.
     /// </summary>
     private void OnRowContextRequested(UIElement sender, ContextRequestedEventArgs e)
     {
-        // No pointer to hit-test with, so the selected row is the right answer here - a
-        // keyboard request IS a request about whatever is focused.
-        ListViewItem? container = FindContainer(e.OriginalSource)
-            ?? this.FileList.ContainerFromItem(this.FileList.SelectedItem) as ListViewItem;
+        bool fromPointer = e.TryGetPosition(this.FileList, out _);
+
+        ListViewItem? container = FindContainer(e.OriginalSource);
+
+        // No pointer to hit-test with, so for the keyboard the selected row is the right
+        // answer - a keyboard request IS a request about whatever is focused. A pointer
+        // request gets no fallback at all; RightTapped has already had its say.
+        if (container is null && !fromPointer)
+        {
+            container = this.FileList.ContainerFromItem(this.FileList.SelectedItem) as ListViewItem;
+        }
 
         bool shown = this.ShowRowMenu(
-            "keyboard",
+            fromPointer ? "context/pointer" : "context/keyboard",
             e.OriginalSource,
             container,
             c => e.TryGetPosition(c, out Point point) ? point : null);
