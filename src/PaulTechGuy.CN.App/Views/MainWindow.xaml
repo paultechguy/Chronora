@@ -720,7 +720,8 @@
                                 -->
                                 <Border Grid.RowSpan="2" Grid.Column="1" Width="36" Height="36"
                                         Margin="0,0,10,0" CornerRadius="3"
-                                        Background="{ThemeResource ControlAltFillColorSecondaryBrush}">
+                                        Background="{ThemeResource ControlAltFillColorSecondaryBrush}"
+                                        ToolTipService.ToolTip="Double-click to view">
                                     <Image x:Name="RowThumbnail" Stretch="Uniform" />
                                 </Border>
 
