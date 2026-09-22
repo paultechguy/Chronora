@@ -234,10 +234,19 @@
                 </StackPanel>
             </Border>
 
-            <!-- RULE -->
+            <!--
+                RULE
+
+                A statement of the run, and only that. It carried an "Edit" link for a
+                while, on the reasoning that a card stating something should offer a way to
+                change it - but the only thing that link could honestly do was move focus,
+                because the pane it points at is a ScrollViewer with no anchors. A control
+                whose whole effect is a focus rectangle, eight inches from a pane already
+                asking the same question at full size, is decoration that looks like a
+                command. The pane is the editor; this says what the editor has produced.
+            -->
             <Border Grid.Column="1" Style="{StaticResource CnDeckCardStyle}">
-                <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Grid.Column="0" Spacing="2">
+                    <StackPanel Spacing="2">
                         <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
                             <FontIcon Glyph="&#xE9D5;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
                             <TextBlock Text="RULE" Style="{StaticResource CnDeckCaptionStyle}" />
@@ -280,31 +289,6 @@
                                        TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </StackPanel>
-
-                    <!--
-                        A link with a verb and a destination, rather than making the whole
-                        card clickable. A card that silently moved focus into a pane that
-                        cannot scroll to the thing you wanted would be a dead click dressed
-                        as a control - and the card beside it really does toggle a filter,
-                        so three segments that look alike must not behave three ways.
-                    -->
-                    <!--
-                        Gone until there is a rule to edit. With nothing chosen the card
-                        says so and holds two blank lines, and a lone link floating in an
-                        otherwise empty card looks like the card failed to load. The pane it
-                        would jump to is already showing its question at full size a few
-                        inches away, so nothing is lost by not offering a shortcut to it.
-
-                        Hidden rather than greyed, which is the opposite of the rule this
-                        app usually follows - but that rule is about controls people go
-                        looking for, and nobody hunts for "Edit" on a card that has just
-                        told them there is nothing to edit.
-                    -->
-                    <HyperlinkButton Grid.Column="1" Content="Edit →" VerticalAlignment="Top"
-                                     Padding="6,0" Click="OnEditRule"
-                                     Visibility="{x:Bind Workbench.HasRuleToEdit, Mode=OneWay}"
-                                     ToolTipService.ToolTip="The options pane on the right is where the run is built." />
-                </Grid>
             </Border>
 
             <!-- RESULT -->
@@ -926,7 +910,7 @@
                         and left the previous answer still selected - the control
                         contradicting the app.
                     -->
-                    <RadioButtons x:Name="IntentChoice" SelectedIndex="{x:Bind Workbench.IntentIndex, Mode=TwoWay}">
+                    <RadioButtons SelectedIndex="{x:Bind Workbench.IntentIndex, Mode=TwoWay}">
                         <x:String>File dates</x:String>
                         <x:String>Photo and video dates</x:String>
                         <x:String>Let me pick the fields</x:String>

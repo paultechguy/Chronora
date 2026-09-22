@@ -2463,18 +2463,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     public string RuleTemplateName => this.ActiveTemplate?.Name ?? string.Empty;
 
-    /// <summary>
-    /// Whether the rule segment has a rule to offer an edit link for.
-    ///
-    /// Deliberately a deck property rather than a reuse of HasChosenIntent, even though the
-    /// two say the same thing today. The link sits beside RuleIntentLine and has to appear
-    /// and disappear WITH it; sharing a value is not enough, they have to share a
-    /// notification. HasChosenIntent is raised by NotifyIntentDerived and the rule lines by
-    /// NotifyDeck, and although the first calls the second, several paths call NotifyDeck
-    /// on its own - so the text could move while the link stood still.
-    /// </summary>
-    public bool HasRuleToEdit => this.HasChosenIntent;
-
     /// <summary>The intent, in the pane's own words so the two can never read differently.</summary>
     public string RuleIntentLine => this.Intent switch
     {
@@ -2636,7 +2624,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.IsRuleFromTemplate));
         this.OnPropertyChanged(nameof(this.IsRuleFromPane));
         this.OnPropertyChanged(nameof(this.RuleTemplateName));
-        this.OnPropertyChanged(nameof(this.HasRuleToEdit));
         this.OnPropertyChanged(nameof(this.RuleIntentLine));
         this.OnPropertyChanged(nameof(this.RuleSourceLine));
         this.OnPropertyChanged(nameof(this.RuleTargetLine));

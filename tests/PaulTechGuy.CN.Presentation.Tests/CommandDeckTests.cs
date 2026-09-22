@@ -182,14 +182,15 @@ public class CommandDeckTests
     }
 
     /// <summary>
-    /// The edit link appears and disappears with the rule it offers to edit.
+    /// The rule segment states the run and offers no controls of its own.
     ///
-    /// A lone link floating in a card that has just said "Nothing chosen yet" looks like
-    /// the card failed to load - and the pane it would jump to is showing that same
-    /// question at full size a few inches away, so there is nothing to shortcut to.
+    /// It carried an "Edit" link for a while. The only thing that link could honestly do
+    /// was move focus - the pane it pointed at is a ScrollViewer with no anchors - and a
+    /// control whose entire effect is a focus rectangle, next to a pane already asking the
+    /// same question at full size, is decoration shaped like a command.
     /// </summary>
     [Fact]
-    public async Task The_edit_link_is_gone_until_there_is_a_rule()
+    public async Task The_rule_segment_tracks_the_intent_both_ways()
     {
         var fixture = new WorkbenchFixture();
 
@@ -198,18 +199,18 @@ public class CommandDeckTests
             await fixture.LoadAsync("a.txt");
 
             fixture.ViewModel.RuleIntentLine.ShouldBe("Nothing chosen yet");
-            fixture.ViewModel.HasRuleToEdit.ShouldBeFalse();
+            fixture.ViewModel.RuleSourceLine.ShouldBeEmpty("no rule, so nothing to say about its source");
+            fixture.ViewModel.RuleTargetLine.ShouldBeEmpty();
 
             fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
 
             fixture.ViewModel.RuleIntentLine.ShouldBe("File dates");
-            fixture.ViewModel.HasRuleToEdit.ShouldBeTrue();
+            fixture.ViewModel.RuleSourceLine.ShouldNotBeEmpty();
 
             fixture.ViewModel.StartOver();
 
             fixture.ViewModel.RuleIntentLine.ShouldBe("Nothing chosen yet");
-            fixture.ViewModel.HasRuleToEdit.ShouldBeFalse(
-                "the link has to move with the line it sits beside, not merely agree with it");
+            fixture.ViewModel.RuleSourceLine.ShouldBeEmpty();
         }
     }
 
