@@ -310,7 +310,12 @@ function Remove-Shortcuts {
     foreach ($path in $Paths) {
         if ($path -and (Test-Path -LiteralPath $path)) {
             Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
-            Write-Detail (Split-Path -Leaf $path)
+
+            # The folder, not the file name. Every one of these is called Chronora.lnk, so
+            # the leaf alone reports "Chronora.lnk" twice over and says nothing about what
+            # was actually removed - and this is the line where Send To needs to be visible,
+            # because it is the one entry the installer never created.
+            Write-Detail (Split-Path -Parent $path)
         }
     }
 }

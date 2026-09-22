@@ -537,7 +537,45 @@ function Set-ReleaseManifest {
     [System.IO.File]::WriteAllText($ManifestPath, $json, [System.Text.UTF8Encoding]::new($false))
 }
 
-# Refuses a release whose published manifest does not name the version being released.
+# The PRE-publish check, and it asserts the opposite of what you might expect.
+#
+# docs\version.json is written AFTER the GitHub release exists, deliberately: Pages serves
+# from the promoted branch, so a manifest committed first tells every running copy that a new
+# version is out and hands them a releases/latest URL that 404s until the draft is published
+# by hand. So during the release run the manifest still naming the PREVIOUS version is
+# correct, and a manifest that already names this one means somebody jumped the gun - which
+# is the failure this gate exists to catch, not to cause.
+function Test-GateManifestBehind {
+    param(
+        [Parameter(Mandatory)][string] $ManifestPath,
+        [Parameter(Mandatory)][string] $Version
+    )
+
+    Write-Check 'release manifest'
+
+    if (-not (Test-Path -LiteralPath $ManifestPath)) {
+        Write-Failed
+        throw 'docs\version.json is missing. The update check has nothing to read.'
+    }
+
+    $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+
+    if ("$($manifest.version)" -eq $Version) {
+        Write-Failed
+        throw @"
+docs\version.json already says '$Version', before the release exists.
+
+Anyone running Chronora is being told this version is out and sent to a download that is not
+there yet. Put the manifest back to the previous version, release, and let this script write
+it afterwards.
+"@
+    }
+
+    Write-Done "still $($manifest.version), as it should be"
+}
+
+# The POST-publish check: run straight after Set-ReleaseManifest, so the file that is about to
+# be committed is the file the update check will serve.
 function Test-GateReleaseManifest {
     param(
         [Parameter(Mandatory)][string] $ManifestPath,
