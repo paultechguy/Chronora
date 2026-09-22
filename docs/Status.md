@@ -1,7 +1,7 @@
 # Where Chronora is
 
-Last updated 2026-09-22. Branch `feature/UI-Refactor`, no remote. Build clean at
-`-warnaserror`, 496 tests passing.
+Last updated 2026-09-22. Branch `dev`, no remote. Build clean at `-warnaserror`,
+496 tests passing.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -15,7 +15,7 @@ dotnet test PaulTechGuy.CN.slnx
 Everything below landed without anyone looking at it, and is unseen unless it says
 otherwise. Rough order of importance.
 
-### 0. The main window chrome refactor — `feature/UI-Refactor`
+### 0. The main window chrome refactor — merged to `dev` 2026-09-22
 
 The toolbar above the file list is gone. It held eleven controls across six unrelated kinds
 of action and was the widest thing in the window, which is what kept the minimum size where
@@ -156,7 +156,7 @@ its existing time of day.
 
 ## Open, unresolved
 
-- **Folder processing and recursion — mostly settled 2026-09-22 on `feature/UI-Refactor`.**
+- **Folder processing and recursion — mostly settled 2026-09-22.**
   Recursion, hidden/system files and folders-as-items are now three checkboxes on the source
   card, sticky, stated on the card in words, and built by one `BuildScanFilter()` that every
   entry point uses — drop, Add folder, Send To, the command line and the rescan after a run.
