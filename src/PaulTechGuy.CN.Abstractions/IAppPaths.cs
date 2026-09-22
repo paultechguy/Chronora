@@ -23,9 +23,6 @@ public interface IAppPaths
 
     string LogDirectory { get; }
 
-    /// <summary>Backups taken before a schema migration, kept per app version.</summary>
-    string BackupDirectory { get; }
-
     /// <summary>
     /// Where a user-approved ExifTool is installed. Under LOCALAPPDATA rather than the app
     /// folder so the consent and the binary both survive an upgrade.

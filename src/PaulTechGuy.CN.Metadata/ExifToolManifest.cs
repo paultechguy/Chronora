@@ -100,8 +100,19 @@ public sealed class ExifToolManifestSource(HttpClient http, ILogger<ExifToolMani
 
         try
         {
+            // A short timeout of its own, exactly as UpdateChecker has. The shared HttpClient
+            // allows five minutes because it also pulls an 11 MB ExifTool download - but this
+            // is a small JSON file, and inheriting that ceiling means the consent pane freezes
+            // for up to five minutes on a proxy that blackholes rather than refuses.
+            //
+            // That is precisely the network the local fallback below exists for, so hanging
+            // on the way to it defeats the fallback: the user sits and waits, and then it
+            // quietly works from the shipped copy it could have used immediately.
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
             ExifToolManifest? manifest = await this._http
-                .GetFromJsonAsync(source, ManifestJsonContext.Default.ExifToolManifest, cancellationToken)
+                .GetFromJsonAsync(source, ManifestJsonContext.Default.ExifToolManifest, timeout.Token)
                 .ConfigureAwait(false);
 
             if (manifest is null || !IsUsable(manifest))

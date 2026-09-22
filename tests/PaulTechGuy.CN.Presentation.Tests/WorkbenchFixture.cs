@@ -28,8 +28,6 @@ internal sealed class TempPaths(string root) : IAppPaths
 
     public string LogDirectory => Path.Combine(this.DataDirectory, "logs");
 
-    public string BackupDirectory => Path.Combine(this.DataDirectory, "backups");
-
     public string ExifToolDirectory => Path.Combine(this.DataDirectory, "exiftool");
 
     public void EnsureCreated() => Directory.CreateDirectory(this.DataDirectory);

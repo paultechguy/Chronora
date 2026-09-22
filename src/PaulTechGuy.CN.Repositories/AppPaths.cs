@@ -34,14 +34,11 @@ public sealed class AppPaths : IAppPaths
 
     public string LogDirectory => Path.Combine(this.DataDirectory, "logs");
 
-    public string BackupDirectory => Path.Combine(this.DataDirectory, "backups");
-
     public string ExifToolDirectory => Path.Combine(this.DataDirectory, "exiftool");
 
     public void EnsureCreated()
     {
         _ = Directory.CreateDirectory(this.DataDirectory);
         _ = Directory.CreateDirectory(this.LogDirectory);
-        _ = Directory.CreateDirectory(this.BackupDirectory);
     }
 }
