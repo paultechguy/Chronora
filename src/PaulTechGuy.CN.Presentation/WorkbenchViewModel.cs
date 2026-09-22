@@ -126,6 +126,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private CancellationTokenSource? _debounce;
     private CancellationTokenSource? _run;
 
+    /// <summary>
+    /// The cancellation source for whatever scan is reading the disk right now.
+    ///
+    /// One for the WHOLE scan, not one per folder. RescanAsync loops over every root, so a
+    /// source per call would let Cancel stop the folder being read and then watch the loop
+    /// calmly start the next one. Whoever opens it closes it; nested calls join in.
+    /// </summary>
+    private CancellationTokenSource? _scan;
+
     public WorkbenchViewModel(
         FileScanner scanner,
         RuleEvaluator evaluator,
@@ -183,8 +192,35 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial bool IsScanning { get; set; }
 
+    /// <summary>
+    /// Anything long enough to want a spinner and a way out.
+    ///
+    /// IsScanning was set on both scan paths and bound to NOTHING: the footer's ring and
+    /// Cancel button both watched IsApplying only, so dropping a large tree gave a growing
+    /// "Read 45,000 files…" with no way to stop it - while FileScanner had taken a
+    /// cancellation token all along and checked it per entry. Exposing the recursion
+    /// setting turns deep drops into something people do deliberately, which is what makes
+    /// this worth fixing now rather than later.
+    /// </summary>
+    public bool IsBusy => this.IsApplying || this.IsScanning;
+
+    partial void OnIsScanningChanged(bool value)
+    {
+        this.OnPropertyChanged(nameof(this.IsBusy));
+        this.NotifyDeck();
+    }
+
     [ObservableProperty]
     public partial string ScanStatus { get; set; } = string.Empty;
+
+    // The deck's headline quotes this while a run is in flight, so it has to move with it.
+    partial void OnScanStatusChanged(string value)
+    {
+        if (this.IsApplying)
+        {
+            this.OnPropertyChanged(nameof(this.ResultHeadline));
+        }
+    }
 
     // ---- Intent -----------------------------------------------------------------------
 
@@ -412,6 +448,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.HasAnyFiles));
         this.OnPropertyChanged(nameof(this.IsListEmpty));
         this.OnPropertyChanged(nameof(this.CanStartOver));
+
+        // The deck restates the intent, the source and the ticked fields, so every one of
+        // those edits reaches it through here. Summary alone is not enough: it is a record,
+        // so an edit that leaves the counts identical raises nothing.
+        this.NotifyDeck();
     }
 
     // ---- Templates --------------------------------------------------------------------
@@ -673,6 +714,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.HasActiveTemplate));
         this.OnPropertyChanged(nameof(this.ActiveTemplateNote));
         this.OnPropertyChanged(nameof(this.CanDeleteActiveTemplate));
+
+        // Picking up or dropping a template changes WHICH sentence the deck's rule segment
+        // shows, not just its words.
+        this.NotifyDeck();
     }
 
     // ---- Source -----------------------------------------------------------------------
@@ -1025,6 +1070,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
 
 
+        bool ownsScan = this.BeginScan(cancellationToken, out CancellationToken token);
+
         this.IsScanning = true;
         this.ScanStatus = $"Reading {folder}…";
 
@@ -1032,7 +1079,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             int added = 0;
 
-            await foreach (ScannedFile file in this._scanner.ScanAsync(folder, filter, cancellationToken))
+            await foreach (ScannedFile file in this._scanner.ScanAsync(folder, filter, token))
             {
                 this._allRows.Add(this.TrackRow(new PlanRowViewModel(file)));
                 added++;
@@ -1049,7 +1096,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files from {folder}.");
             this.Recompute();
 
-            await this.ReadMetadataAsync(cancellationToken).ConfigureAwait(true);
+            await this.ReadMetadataAsync(token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -1063,6 +1110,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         finally
         {
             this.IsScanning = false;
+            this.EndScan(ownsScan);
         }
     }
 
@@ -1222,12 +1270,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._rowsFromDrop = [];
         this.CanReplaceWithDrop = this._rowsBeforeDrop.Count > 0;
 
+        bool ownsScan = this.BeginScan(cancellationToken, out CancellationToken token);
+
         this.IsScanning = true;
         this.ScanStatus = "Reading dropped items…";
 
         try
         {
-            await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, ScanFilter.Default, cancellationToken))
+            await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, ScanFilter.Default, token))
             {
                 PlanRowViewModel row = this.TrackRow(new PlanRowViewModel(file));
                 this._allRows.Add(row);
@@ -1277,7 +1327,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 this._rowsFromDrop.Count,
                 this._allRows.Count);
 
-            await this.ReadMetadataAsync(cancellationToken).ConfigureAwait(true);
+            await this.ReadMetadataAsync(token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
@@ -1291,6 +1341,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         finally
         {
             this.IsScanning = false;
+            this.EndScan(ownsScan);
         }
     }
 
@@ -1351,10 +1402,56 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     public bool IsFilteredToNothing => this._allRows.Count > 0 && this.Rows.Count == 0;
 
-    /// <summary>The filter, for the message that says what is hiding everything.</summary>
-    public string FilteredToNothingNote => string.Create(
-        CultureInfo.CurrentCulture,
-        $"Nothing matches {this.TypeFilter}. {this._allRows.Count:N0} file{(this._allRows.Count == 1 ? string.Empty : "s")} are hidden by it.");
+    /// <summary>
+    /// What is hiding everything, named - and it has to name the RIGHT one.
+    ///
+    /// This used to be hardcoded to the type filter, on the assumption that the type filter
+    /// was the only thing that could empty the list. It is not: the two view toggles can
+    /// too, and with an empty filter box the sentence came out as "Nothing matches . 128
+    /// files are hidden by it", followed by an instruction to clear a box that is already
+    /// empty. The worst path is the common one - Apply rescans on success, so finishing a
+    /// run with "only files that will change" on empties the list, and the app announced
+    /// that it had lost 128 files immediately after writing them correctly.
+    /// </summary>
+    public string FilteredToNothingNote
+    {
+        get
+        {
+            string hidden = string.Create(
+                CultureInfo.CurrentCulture,
+                $"{this._allRows.Count:N0} file{(this._allRows.Count == 1 ? string.Empty : "s")} hidden.");
+
+            List<string> causes = [];
+
+            if (this.HasTypeFilter)
+            {
+                causes.Add(string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"Only {this.TypeFilter} is shown, and nothing matches."));
+            }
+
+            if (this.ShowOnlyChanging)
+            {
+                causes.Add("Only files that will change are shown, and none do right now.");
+            }
+
+            if (this.ShowOnlyProblems)
+            {
+                causes.Add("Only files that need a look are shown, and none do.");
+            }
+
+            // With several on at once, naming them all reads like an accusation and none of
+            // them is individually the culprit anyway - the combination is.
+            string why = causes.Count switch
+            {
+                0 => "Nothing is shown.",
+                1 => causes[0],
+                _ => "Between them, the filters in force leave nothing to show.",
+            };
+
+            return $"{why} {hidden}";
+        }
+    }
 
     /// <summary>
     /// Whether anything would actually change. Covers the view state as well as the list,
@@ -2025,6 +2122,232 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.RefreshSummary();
     }
 
+    // ---- The command deck --------------------------------------------------------------
+    //
+    // Three statements across the top of the window: what is loaded, what the run will do,
+    // and what comes out. Every one of them is derived - the deck sets nothing that the
+    // options pane also sets, because two controls for one question is what the title bar
+    // mode switch was removed for.
+    //
+    // Everything here is raised together by NotifyDeck(). Do not split the notifications up
+    // by input; that is how the older derived properties went stale twice.
+
+    /// <summary>
+    /// What the SOURCE segment states: how much is loaded, and how many folders it came
+    /// from. Files dropped individually have no folder, so the second half is conditional
+    /// rather than reading "0 folders" over a list of twelve files.
+    /// </summary>
+    public string SourceHeadline
+    {
+        get
+        {
+            if (this._allRows.Count == 0)
+            {
+                return "No files yet";
+            }
+
+            string files = string.Create(
+                CultureInfo.CurrentCulture,
+                $"{this._allRows.Count:N0} file{(this._allRows.Count == 1 ? string.Empty : "s")}");
+
+            if (this._roots.Count == 0)
+            {
+                return files;
+            }
+
+            return string.Create(
+                CultureInfo.CurrentCulture,
+                $"{files} · {this._roots.Count:N0} folder{(this._roots.Count == 1 ? string.Empty : "s")}");
+        }
+    }
+
+    /// <summary>
+    /// Whether the RULE segment must state the TEMPLATE rather than the pane's controls.
+    ///
+    /// This is not cosmetic. A template can carry a rule the pane cannot show: the built-in
+    /// "Make every date consistent" reads the EARLIEST of three fields, while the pane
+    /// displays only the first of them. Paraphrasing the controls would put a confident,
+    /// wrong sentence in the most prominent place in the window, contradicting the
+    /// template's own description - which is the only place that part of the run is stated.
+    /// So when a template is in charge, the deck says so and quotes it instead of guessing.
+    /// </summary>
+    public bool IsRuleFromTemplate => this.HasActiveTemplate;
+
+    /// <summary>The other half of <see cref="IsRuleFromTemplate" />, so the view needs no converter.</summary>
+    public bool IsRuleFromPane => !this.HasActiveTemplate;
+
+    public string RuleTemplateName => this.ActiveTemplate?.Name ?? string.Empty;
+
+    /// <summary>The intent, in the pane's own words so the two can never read differently.</summary>
+    public string RuleIntentLine => this.Intent switch
+    {
+        WorkIntent.FileDates => "File dates",
+        WorkIntent.PhotoDates => "Photo and video dates",
+        WorkIntent.Custom => "Let me pick the fields",
+        _ => "Nothing chosen yet",
+    };
+
+    /// <summary>Where the date comes from. The arrow carries the "from".</summary>
+    public string RuleSourceLine => !this.HasChosenIntent
+        ? string.Empty
+        : this.Source switch
+        {
+            SourceChoice.PickADate => "← a date I pick",
+            SourceChoice.ShiftBy => "← the existing date, shifted",
+            SourceChoice.FromAnotherDate => "← a date the file already has",
+            SourceChoice.FromFileName => "← the file name",
+            _ => string.Empty,
+        };
+
+    /// <summary>
+    /// The fields the run is AIMED at, which is not the same as the fields it will manage -
+    /// that is the summary band's job, and the band is where a blocked field is reported.
+    /// Read from the same conditions that decide whether each checkbox is on screen, so the
+    /// card cannot name a field the pane is not offering.
+    ///
+    /// "Taken" rather than "Taken (photo)": the parenthetical disambiguates a checkbox in a
+    /// list of four, and is noise in a sentence that has already said Photo and video dates.
+    /// </summary>
+    public string RuleTargetLine
+    {
+        get
+        {
+            if (!this.HasChosenIntent)
+            {
+                return string.Empty;
+            }
+
+            List<string> fields = [];
+
+            if (this.ShowsFileDates && this.WriteCreated)
+            {
+                fields.Add("Created");
+            }
+
+            if (this.ShowsFileDates && this.WriteModified)
+            {
+                fields.Add("Modified");
+            }
+
+            if (this.IsPhotoMode && this.WriteTaken)
+            {
+                fields.Add("Taken");
+            }
+
+            if (this.ShowsAdvancedFields && this.WriteChanged)
+            {
+                fields.Add("Changed");
+            }
+
+            return fields.Count == 0 ? "→ no fields ticked" : "→ " + string.Join(" · ", fields);
+        }
+    }
+
+    /// <summary>
+    /// The RESULT headline, and it counts what APPLY counts.
+    ///
+    /// FilesChanging - the old summary's headline number - ignores ticking, so unticking
+    /// eighty rows left the top of the window saying 96 while the button said 12. The
+    /// headline of a dashboard has to be the number the button acts on; "can change" is
+    /// demoted to the line below it, where it is a filter rather than a promise.
+    ///
+    /// Mid-run it defers to the footer's own sentence. The summary is not rebuilt while
+    /// writing, so anything else here would be a stale number sitting beside a live one.
+    /// </summary>
+    public string ResultHeadline
+    {
+        get
+        {
+            if (this.IsApplying)
+            {
+                return this.ScanStatus;
+            }
+
+            if (this.Summary.FilesTotal == 0)
+            {
+                return "Nothing loaded yet";
+            }
+
+            if (this.Summary.FilesToWrite == 0)
+            {
+                return "Nothing to apply";
+            }
+
+            return string.Create(
+                CultureInfo.CurrentCulture,
+                $"{this.Summary.FilesToWrite:N0} of {this.Summary.FilesTotal:N0} will be written");
+        }
+    }
+
+    public string ChangingFilterLabel => string.Create(
+        CultureInfo.CurrentCulture,
+        $"{this.Summary.FilesChanging:N0} can change");
+
+    /// <summary>
+    /// Labelled from FilesWithProblems, never from FilesBlocked or FilesSuspicious. Those
+    /// are independent tallies that double-count a file which is both, and neither is the
+    /// size of the set this toggle reveals.
+    /// </summary>
+    public string ProblemsFilterLabel => string.Create(
+        CultureInfo.CurrentCulture,
+        $"{this.Summary.FilesWithProblems:N0} need{(this.Summary.FilesWithProblems == 1 ? "s" : string.Empty)} a look");
+
+    /// <summary>
+    /// A count of zero is not worth clicking, so it greys - but only while its own filter
+    /// is OFF. Apply rescans on success, so a run that succeeds takes "can change" to zero
+    /// while that filter is still on; disabling it there would lock someone inside a view
+    /// of nothing with the way out greyed.
+    /// </summary>
+    public bool CanFilterChanging =>
+        !this.IsApplying && (this.Summary.FilesChanging > 0 || this.ShowOnlyChanging);
+
+    public bool CanFilterProblems =>
+        !this.IsApplying && (this.Summary.FilesWithProblems > 0 || this.ShowOnlyProblems);
+
+    /// <summary>Everything in the deck goes quiet mid-run. Disabled, not hidden.</summary>
+    public bool DeckEnabled => !this.IsApplying;
+
+    /// <summary>Whether any view is narrowing the list, and therefore whether there is a way back.</summary>
+    public bool IsAnyFilterOn => this.HasTypeFilter || this.ShowOnlyChanging || this.ShowOnlyProblems;
+
+    /// <summary>
+    /// The single way out of a view that is hiding everything, whichever filter is doing it.
+    ///
+    /// Offered as one button rather than three because somebody looking at an empty list
+    /// does not know which of the three emptied it - that is the entire problem.
+    /// </summary>
+    [RelayCommand]
+    public void ShowAllFiles()
+    {
+        this.TypeFilter = string.Empty;
+        this.ShowOnlyChanging = false;
+        this.ShowOnlyProblems = false;
+    }
+
+    private void NotifyDeck()
+    {
+        this.OnPropertyChanged(nameof(this.SourceHeadline));
+
+        this.OnPropertyChanged(nameof(this.IsRuleFromTemplate));
+        this.OnPropertyChanged(nameof(this.IsRuleFromPane));
+        this.OnPropertyChanged(nameof(this.RuleTemplateName));
+        this.OnPropertyChanged(nameof(this.RuleIntentLine));
+        this.OnPropertyChanged(nameof(this.RuleSourceLine));
+        this.OnPropertyChanged(nameof(this.RuleTargetLine));
+
+        this.OnPropertyChanged(nameof(this.ResultHeadline));
+        this.OnPropertyChanged(nameof(this.ChangingFilterLabel));
+        this.OnPropertyChanged(nameof(this.ProblemsFilterLabel));
+        this.OnPropertyChanged(nameof(this.CanFilterChanging));
+        this.OnPropertyChanged(nameof(this.CanFilterProblems));
+
+        this.OnPropertyChanged(nameof(this.DeckEnabled));
+        this.OnPropertyChanged(nameof(this.IsAnyFilterOn));
+        this.OnPropertyChanged(nameof(this.IsBusy));
+    }
+
+    partial void OnSummaryChanged(ChangeSummary value) => this.NotifyDeck();
+
     /// <summary>Called by the view when a checkbox changes, so the Apply count keeps up.</summary>
     public void RefreshSummary() =>
         this.Summary = ChangeSummary.Build(
@@ -2037,6 +2360,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     public partial bool IsApplying { get; set; }
+
+    partial void OnIsApplyingChanged(bool value)
+    {
+        this.OnPropertyChanged(nameof(this.IsBusy));
+        this.NotifyDeck();
+    }
 
     [ObservableProperty]
     public partial double ApplyProgressPercent { get; set; }
@@ -2119,7 +2448,44 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    public void CancelRun() => this._run?.Cancel();
+    public void CancelRun()
+    {
+        this._run?.Cancel();
+
+        // Reading the disk is the other thing worth escaping, and for a recursive drop it
+        // is the longer of the two. Both are behind one button because from the outside
+        // they are one thing: Chronora is busy and you want it to stop.
+        this._scan?.Cancel();
+    }
+
+    /// <summary>
+    /// Opens a cancellable scan, or joins the one already in flight.
+    /// </summary>
+    /// <returns>True when this call owns the source and must close it.</returns>
+    private bool BeginScan(CancellationToken outer, out CancellationToken token)
+    {
+        if (this._scan is not null)
+        {
+            token = this._scan.Token;
+            return false;
+        }
+
+        this._scan = CancellationTokenSource.CreateLinkedTokenSource(outer);
+        token = this._scan.Token;
+
+        return true;
+    }
+
+    private void EndScan(bool owned)
+    {
+        if (!owned)
+        {
+            return;
+        }
+
+        this._scan?.Dispose();
+        this._scan = null;
+    }
 
     /// <summary>Puts the most recent apply back, skipping anything that has since changed.</summary>
     [RelayCommand]
@@ -2264,9 +2630,26 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this._allRows.Clear();
 
-        foreach (string root in roots)
+        // One scan source around the whole loop, claimed here so that cancelling partway
+        // stops the rescan rather than just the folder currently being read. AddFolderAsync
+        // joins it instead of opening its own.
+        bool ownsScan = this.BeginScan(CancellationToken.None, out CancellationToken token);
+
+        try
         {
-            await this.AddFolderAsync(root, ScanFilter.Default);
+            foreach (string root in roots)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                await this.AddFolderAsync(root, ScanFilter.Default, token);
+            }
+        }
+        finally
+        {
+            this.EndScan(ownsScan);
         }
     }
 
@@ -2359,6 +2742,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._run?.Cancel();
         this._run?.Dispose();
         this._run = null;
+
+        this._scan?.Cancel();
+        this._scan?.Dispose();
+        this._scan = null;
     }
 
     // ---- Recompute --------------------------------------------------------------------
@@ -2532,6 +2919,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.HasAnyFiles));
         this.OnPropertyChanged(nameof(this.IsListEmpty));
         this.OnPropertyChanged(nameof(this.CanStartOver));
+
+        // The filters decide whether the deck's toggles can be turned OFF again, which is
+        // not something Summary knows about.
+        this.NotifyDeck();
     }
 
     private Recipe BuildRecipe()

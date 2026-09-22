@@ -194,6 +194,19 @@ public sealed partial class MainWindow : Window
         this.TitleBarAbout.Margin = new Thickness(0, 0, Math.Max(0, captionWidth - alreadyInset), 0);
     }
 
+    /// <summary>
+    /// The deck's RULE segment states the run; this is the link to where it is built.
+    ///
+    /// Moving focus is all it does, and all it claims to do. An earlier design had the
+    /// whole card clickable and "focusing the pane" - which would have been a dead click,
+    /// because the pane is a ScrollViewer over a StackPanel with no anchors and everything
+    /// below the first question is collapsed until that question is answered. There is
+    /// nothing to scroll to. Focusing the first question is honest and, for anyone working
+    /// from the keyboard, is the useful half of what the fiction promised.
+    /// </summary>
+    private void OnEditRule(object sender, RoutedEventArgs e) =>
+        this.IntentChoice.Focus(FocusState.Programmatic);
+
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         if (!args.DidSizeChange && !args.DidPositionChange)
