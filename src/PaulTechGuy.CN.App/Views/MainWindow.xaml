@@ -62,12 +62,18 @@
 
 
         <!--
-            The title bar carries no controls. It used to hold a File dates / Photo dates
-            switch, which was redundant with the options pane and could actively contradict
-            it: choosing a photo preset set the switch, but moving the switch did not clear
-            the preset. One question, asked once, in one place.
+            The title bar carries exactly one control, and the rule that kept it empty is
+            still in force. It used to hold a File dates / Photo dates switch, which was
+            redundant with the options pane and could actively contradict it: choosing a
+            photo preset set the switch, but moving the switch did not clear the preset.
+            One question, asked once, in one place.
+
+            About is allowed here because it says nothing about the run - it cannot
+            contradict the options pane, because it makes no claim the options pane could
+            disagree with. Anything that describes what a run will do stays out.
         -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0"
+              ColumnDefinitions="Auto,*,Auto">
 
             <!--
                 IsHitTestVisible is off on both, and that is not decoration. This Grid is the
@@ -75,9 +81,15 @@
                 from dragging - so a logo and a title that answer the mouse would leave a dead
                 strip at the top left where the window cannot be picked up. Neither is
                 interactive, so neither needs to be.
+
+                The About button is the same rule read the other way: it IS hit-testable, so
+                the framework takes it out of the drag region on its own and it stays
+                clickable. SetTitleBar still points at this entire Grid - no
+                InputNonClientPointerSource.SetRegionRects needed. Column 1 is empty and
+                stretches, so there is always a wide strip left to drag the window by.
             -->
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"
-                        IsHitTestVisible="False">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10"
+                        VerticalAlignment="Center" IsHitTestVisible="False">
 
                 <!--
                     Source is set in code, not bound to ms-appx: - Chronora is unpackaged, so
@@ -90,6 +102,23 @@
                 <TextBlock Text="Chronora" VerticalAlignment="Center"
                            Style="{StaticResource BodyStrongTextBlockStyle}" />
             </StackPanel>
+
+            <!--
+                Spelled out. This was an info glyph and the first person to look for About
+                could not find it - which is the whole job of the control, and a tooltip
+                only helps somebody already hovering over the thing they could not see.
+                Moving it into the title bar is NOT permission to shrink it back to an icon.
+
+                Transparent chrome so it reads as part of the title bar rather than a button
+                dropped onto it; the right margin is set in code, because the width of the
+                minimize/maximize/close buttons is AppWindow.TitleBar.RightInset, which is
+                zero until the window has been laid out and changes with the monitor.
+            -->
+            <Button x:Name="TitleBarAbout" Grid.Column="2" Content="About" Click="OnOpenAbout"
+                    VerticalAlignment="Center" Padding="12,0"
+                    Background="Transparent" BorderBrush="Transparent"
+                    Height="{StaticResource CnChromeButtonHeight}"
+                    ToolTipService.ToolTip="Version, where Chronora keeps your data and logs, the Send to menu, and a check for updates." />
         </Grid>
 
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto,320">
@@ -279,29 +308,11 @@
                                 ToolTipService.ToolTip="Back to the opening question: no files, no filters, and no choice made yet. Nothing on disk changes." />
 
                         <!--
-                            Always enabled, even with nothing applied yet. A greyed-out
-                            History teaches people the app has no undo; an empty one that
-                            says so teaches them it does, and that they have not used it.
+                            History and About used to sit here. They are not list controls
+                            and they were the two widest things in a row that was already
+                            too wide. About moved to the title bar; History moved to the
+                            footer, beside Undo last run - see the comments at both.
                         -->
-                        <Button Content="History" Click="OnOpenHistory"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Every run Chronora has applied, and the way back. Undo works days later, not just straight after." />
-
-                        <!--
-                            Version, where the data and logs live, and a manual update
-                            check. Small, but the folder buttons inside it are the only
-                            thing standing between somebody and pasting %LOCALAPPDATA%
-                            into Explorer when a log is what would explain their problem.
-                        -->
-                        <!--
-                            Spelled out. This was an info glyph and the first person to
-                            look for About could not find it - which is the whole job of
-                            the control, and a tooltip only helps somebody already
-                            hovering over the thing they could not see.
-                        -->
-                        <Button Content="About" Click="OnOpenAbout"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Version, where Chronora keeps your data and logs, the Send to menu, and a check for updates." />
                     </StackPanel>
                 </Grid>
 
@@ -676,7 +687,7 @@
 
         <Border Grid.Row="2" Padding="16,8" BorderThickness="0,1,0,0"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
                 <ProgressRing Grid.Column="0" Width="16" Height="16" Margin="0,0,8,0"
                               IsActive="{x:Bind Workbench.IsApplying, Mode=OneWay}"
                               Visibility="{x:Bind Workbench.IsApplying, Mode=OneWay}" />
@@ -691,9 +702,25 @@
                         Visibility="{x:Bind Workbench.IsApplying, Mode=OneWay}"
                         Height="{StaticResource CnChromeButtonHeight}" />
 
+                <!--
+                    History sits beside Undo last run because they are one feature at two
+                    depths: Undo is the run you just regretted, History is the one from
+                    Tuesday. They used to be at opposite ends of the window, History filed
+                    with About as though it were app trivia rather than the way back.
+
+                    Always enabled, even with nothing applied yet. A greyed-out History
+                    teaches people the app has no undo; an empty one that says so teaches
+                    them it does, and that they have not used it - which is why the window
+                    it opens has an empty state of its own.
+                -->
+                <Button Grid.Column="3" Content="History" Margin="0,0,8,0"
+                        Click="OnOpenHistory"
+                        Height="{StaticResource CnChromeButtonHeight}"
+                        ToolTipService.ToolTip="Every run Chronora has applied, and the way back. Undo works days later, not just straight after." />
+
                 <!-- Undo sits beside Apply rather than in a menu, because the moment someone
                      wants it is the moment straight after the run they regret. -->
-                <Button Grid.Column="3" Content="Undo last run" Margin="0,0,8,0"
+                <Button Grid.Column="4" Content="Undo last run" Margin="0,0,8,0"
                         Command="{x:Bind Workbench.UndoLastCommand}"
                         IsEnabled="{x:Bind Workbench.CanUndo, Mode=OneWay}"
                         Height="{StaticResource CnChromeButtonHeight}" />
@@ -703,11 +730,11 @@
                     preview quietly tells the user the thing they have been looking at might
                     not be real; an export is the same reassurance and is actually useful.
                 -->
-                <Button Grid.Column="4" Content="Export preview (CSV)" Margin="0,0,8,0"
+                <Button Grid.Column="5" Content="Export preview (CSV)" Margin="0,0,8,0"
                         Click="OnExportPreview"
                         Height="{StaticResource CnChromeButtonHeight}" />
 
-                <Button Grid.Column="5" Style="{StaticResource AccentButtonStyle}"
+                <Button Grid.Column="6" Style="{StaticResource AccentButtonStyle}"
                         Content="{x:Bind Workbench.Summary.ApplyLabel, Mode=OneWay}"
                         Click="OnApply"
                         MinWidth="{StaticResource CnCommandButtonMinWidth}"

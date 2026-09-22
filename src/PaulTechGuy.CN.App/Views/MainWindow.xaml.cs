@@ -55,7 +55,32 @@ public sealed partial class MainWindow : Window
         this.Title = "Chronora";
         this.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
         this.ExtendsContentIntoTitleBar = true;
+
+        // Still the whole Grid, even though it now contains a button. A hit-testable child
+        // of the drag region is excluded from dragging by the framework, which is what
+        // makes About clickable without any InputNonClientPointerSource.SetRegionRects
+        // work - the same behaviour that forces IsHitTestVisible="False" onto the logo.
         this.SetTitleBar(this.AppTitleBar);
+
+        // Tall caption buttons, because the bar is 48px. The default 32px buttons leave a
+        // 16px strip below them that looks like title bar and is not: it drags, but the
+        // button above it is where the pointer expects to land.
+        this.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+
+        // The caption buttons are laid out by the system and their width is not known yet.
+        // AppWindow.TitleBar.RightInset reads ZERO in the constructor, and XamlRoot - which
+        // is where the scaling comes from - is null here too. Both exist by Loaded.
+        this.RootGrid.Loaded += (_, _) =>
+        {
+            this.UpdateTitleBarInset();
+
+            // RasterizationScale changes when the window is dragged to a monitor at a
+            // different scaling, and no AppWindow event reports that on its own.
+            if (this.RootGrid.XamlRoot is { } root)
+            {
+                root.Changed += (_, _) => this.UpdateTitleBarInset();
+            }
+        };
 
         this.RestorePlacement();
         this.AppWindow.Changed += this.OnAppWindowChanged;
@@ -144,6 +169,29 @@ public sealed partial class MainWindow : Window
         {
             Serilog.Log.Warning(ex, "Could not set the window icon from {Path}.", AppImages.IconPath);
         }
+    }
+
+    /// <summary>
+    /// Keeps the About button clear of the minimize/maximize/close buttons.
+    ///
+    /// RightInset is in RAW pixels; a XAML margin is in effective pixels. Using it straight
+    /// looks right at 100% and parks About underneath the close button at 150%, which is
+    /// where most laptops sit. The title bar's own right padding already accounts for part
+    /// of the gap, so only the remainder belongs in the margin.
+    /// </summary>
+    private void UpdateTitleBarInset()
+    {
+        double scale = this.RootGrid.XamlRoot?.RasterizationScale ?? 1.0;
+
+        if (scale <= 0)
+        {
+            scale = 1.0;
+        }
+
+        double captionWidth = this.AppWindow.TitleBar.RightInset / scale;
+        double alreadyInset = this.AppTitleBar.Padding.Right;
+
+        this.TitleBarAbout.Margin = new Thickness(0, 0, Math.Max(0, captionWidth - alreadyInset), 0);
     }
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)

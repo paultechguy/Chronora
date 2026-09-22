@@ -2184,6 +2184,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool HasHistory => this.HistoryRows.Count > 0;
 
     /// <summary>
+    /// For the empty state in the History window.
+    ///
+    /// The History button is deliberately never greyed out, because a greyed one teaches
+    /// people the app has no undo. That only works if the window it opens says so out loud
+    /// rather than showing a blank list, which reads as a failure to load.
+    /// </summary>
+    public bool IsHistoryEmpty => this.HistoryRows.Count == 0;
+
+    /// <summary>
     /// How far back undo still reaches, stated rather than left to be discovered.
     ///
     /// Retention prunes old runs, and the one thing worse than a limit is a limit nobody
@@ -2237,6 +2246,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.OnPropertyChanged(nameof(this.CanUndo));
         this.OnPropertyChanged(nameof(this.HasHistory));
+        this.OnPropertyChanged(nameof(this.IsHistoryEmpty));
         this.OnPropertyChanged(nameof(this.RetentionNote));
     }
 

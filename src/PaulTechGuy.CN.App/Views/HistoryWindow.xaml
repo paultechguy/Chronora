@@ -66,6 +66,35 @@
                 </ListView.ItemTemplate>
             </ListView>
 
+            <!--
+                The empty state, in the same cell as the list, for the same reason the file
+                list has one: an empty ListView and a ListView that failed to load look
+                identical, and this window is the one place that is supposed to teach
+                somebody the app HAS undo.
+
+                That is the whole argument for the History button never being greyed out -
+                "a greyed-out History teaches people the app has no undo; an empty one that
+                says so teaches them it does". Until now the button kept its half of that
+                bargain and the window did not.
+
+                Not hit-testable, so it cannot eat a click meant for the list behind it.
+            -->
+            <StackPanel Grid.Row="2" Spacing="10"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        IsHitTestVisible="False"
+                        Visibility="{x:Bind Workbench.IsHistoryEmpty, Mode=OneWay}">
+                <FontIcon Glyph="&#xE81C;" FontSize="36" HorizontalAlignment="Center"
+                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <TextBlock Text="No runs to undo yet"
+                           Style="{StaticResource SubtitleTextBlockStyle}"
+                           HorizontalAlignment="Center" TextWrapping="Wrap"
+                           TextAlignment="Center" />
+                <TextBlock Text="Every change Chronora applies is recorded here, with a way back. Undo still works days later, not just straight after the run."
+                           Style="{StaticResource BodyTextBlockStyle}" Opacity="0.6"
+                           MaxWidth="360" HorizontalAlignment="Center"
+                           TextWrapping="Wrap" TextAlignment="Center" />
+            </StackPanel>
+
             <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,12,0,0" ColumnSpacing="8">
 
                 <!--
