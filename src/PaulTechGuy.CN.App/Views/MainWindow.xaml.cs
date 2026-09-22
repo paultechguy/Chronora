@@ -62,6 +62,13 @@ public sealed partial class MainWindow : Window
 
         ApplyIcon(this.AppWindow);
 
+        // Decoded at twice the 18px it is drawn at. DecodePixelType.Logical already follows
+        // display scaling, so 1:1 is correct at whole scale factors - but at 125% and 150%,
+        // which is where most laptops sit, a logo this small lands on fractional pixels and
+        // supersampling is what keeps it from going soft. Four times the memory of a
+        // negligible amount is still negligible.
+        this.HeaderLogo.Source = AppImages.Logo(36);
+
         // handledEventsToo, which is the whole point. A ListViewItem marks tap events as
         // handled while doing its own selection, so a DoubleTapped hook declared on the
         // ListView in XAML never fires - which is why double-clicking a row did nothing

@@ -68,8 +68,28 @@
             the preset. One question, asked once, in one place.
         -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0">
-            <TextBlock Text="Chronora" VerticalAlignment="Center"
-                       Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+            <!--
+                IsHitTestVisible is off on both, and that is not decoration. This Grid is the
+                window's drag region, and anything inside it that can be hit-tested is excluded
+                from dragging - so a logo and a title that answer the mouse would leave a dead
+                strip at the top left where the window cannot be picked up. Neither is
+                interactive, so neither needs to be.
+            -->
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"
+                        IsHitTestVisible="False">
+
+                <!--
+                    Source is set in code, not bound to ms-appx: - Chronora is unpackaged, so
+                    there is no package to resolve that against and a failure draws nothing
+                    while logging nothing.
+                -->
+                <Image x:Name="HeaderLogo" Width="18" Height="18" VerticalAlignment="Center"
+                       AutomationProperties.AccessibilityView="Raw" />
+
+                <TextBlock Text="Chronora" VerticalAlignment="Center"
+                           Style="{StaticResource BodyStrongTextBlockStyle}" />
+            </StackPanel>
         </Grid>
 
         <Grid Grid.Row="1" ColumnDefinitions="*,Auto,320">
