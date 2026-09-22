@@ -43,6 +43,9 @@ public sealed partial class AboutWindow : Window
 
         MainWindow.ApplyIcon(this.AppWindow);
 
+        // Decoded for 64 logical pixels, which is the size the Image above draws it at.
+        this.Logo.Source = AppImages.Logo(64);
+
         this.VersionLine.Text = string.Create(CultureInfo.CurrentCulture, $"Version {CurrentVersion().ToString(3)}");
         this.DataFolderLine.Text = paths.DataDirectory;
 

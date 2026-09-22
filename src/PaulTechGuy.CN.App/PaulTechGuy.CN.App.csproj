@@ -86,6 +86,15 @@
     <Content Include="Assets\ChronoraLogo.ico" CopyToOutputDirectory="PreserveNewest" />
 
     <!--
+      The logo as a bitmap, for the About window. A PNG rather than an SVG deliberately:
+      SvgImageSource is backed by Direct2D, whose SVG support covers neither CSS class
+      selectors nor text elements, so an export using either draws the wrong thing and writes
+      nothing to the log. Marqora learned that the expensive way. The vector master lives in
+      docs\assets\ and this is what ships.
+    -->
+    <Content Include="Assets\ChronoraLogo.png" CopyToOutputDirectory="PreserveNewest" />
+
+    <!--
       The ExifTool manifest that ships beside the executable, naming whatever version was
       current when the release was built. It was missing from the publish output.
 

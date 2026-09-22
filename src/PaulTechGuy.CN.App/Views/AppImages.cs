@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+
 namespace PaulTechGuy.CN.App.Views;
 
 /// <summary>
@@ -31,4 +34,42 @@ internal static class AppImages
     /// looks unbranded, which is a cosmetic problem and must never be a fatal one.
     /// </summary>
     public static bool HasIcon => File.Exists(IconPath);
+
+    private static readonly string LogoPath = Path.Combine(Root, "ChronoraLogo.png");
+
+    /// <summary>
+    /// The logo, decoded at the size it will actually be drawn.
+    ///
+    /// A bitmap rather than a vector, and that is a decision rather than laziness:
+    /// SvgImageSource is backed by Direct2D, whose SVG support covers neither CSS class
+    /// selectors nor text elements, so an export using either draws the wrong thing with
+    /// nothing written to the log. The vector master stays in docs\assets\ and the PNG ships.
+    ///
+    /// DecodePixelType.Logical matters. The size asked for is in logical pixels, so the
+    /// decode follows display scaling - at 200% a 96 here decodes 192 real pixels instead of
+    /// stretching 96 across them, which is the difference between a crisp logo and a soft one
+    /// on exactly the high-DPI screens most likely to be looking at it.
+    ///
+    /// Null when the file is missing, which the caller draws as nothing.
+    /// </summary>
+    public static ImageSource? Logo(int size)
+    {
+        if (!File.Exists(LogoPath))
+        {
+            return null;
+        }
+
+        // The decode properties are only read on the way in: setting UriSource starts the
+        // decode, so it has to be assigned last.
+        var logo = new BitmapImage
+        {
+            DecodePixelType = DecodePixelType.Logical,
+            DecodePixelWidth = size,
+            DecodePixelHeight = size,
+        };
+
+        logo.UriSource = new Uri(LogoPath);
+
+        return logo;
+    }
 }

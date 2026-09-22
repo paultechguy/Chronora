@@ -15,9 +15,21 @@
         <ScrollViewer Grid.Row="1" Padding="16,0,16,16">
             <StackPanel Spacing="12">
 
-                <TextBlock Text="Chronora" Style="{StaticResource TitleTextBlockStyle}" />
+                <!--
+                    Source is set in code rather than bound to a ms-appx: URI, because
+                    Chronora is unpackaged: there is no package for ms-appx to resolve
+                    against, and an Image whose Source fails to resolve draws nothing and
+                    says nothing. AppImages builds a real path from the base directory.
+                -->
+                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <Image x:Name="Logo" Width="64" Height="64"
+                           VerticalAlignment="Top" AutomationProperties.AccessibilityView="Raw" />
 
-                <TextBlock x:Name="VersionLine" Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8" />
+                    <StackPanel Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Text="Chronora" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBlock x:Name="VersionLine" Style="{StaticResource BodyTextBlockStyle}" Opacity="0.8" />
+                    </StackPanel>
+                </StackPanel>
 
                 <TextBlock TextWrapping="Wrap" Style="{StaticResource BodyTextBlockStyle}"
                            Text="Bulk-changes file dates and the capture dates inside photos and videos, behind a preview you can check and an undo that still works a week later." />

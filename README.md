@@ -1,3 +1,5 @@
+<img src="docs/assets/ChronoraLogo.png" alt="" width="128" align="right" />
+
 # Chronora
 
 Every date, every file.
