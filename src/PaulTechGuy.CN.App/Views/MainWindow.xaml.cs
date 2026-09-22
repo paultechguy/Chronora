@@ -28,8 +28,15 @@ public sealed partial class MainWindow : Window
     // Freely resizable because the primary content is a file listing: more screen means
     // more rows, which is the biggest usability lever in a bulk tool. The minimum only
     // stops the three regions collapsing into nonsense.
-    private const int MinimumWidth = 980;
-    private const int MinimumHeight = 640;
+    //
+    // In EFFECTIVE pixels, and that distinction is the whole reason these are doubles now.
+    // AppWindow.Size, Resize and MoveAndResize are all in RAW pixels, while the options
+    // pane's 320 and every measurement in the XAML is in effective ones. The old constant
+    // was 980 raw, which at 150% scaling - where most laptops sit - permitted a 653-epx
+    // layout: about 200 epx of file list once the pane and the divider had taken theirs.
+    // The clamp has meant something different on every monitor since it was written.
+    private const double MinimumWidthDips = 820;
+    private const double MinimumHeightDips = 640;
 
     private readonly SettingsStore _settings;
 
@@ -179,16 +186,42 @@ public sealed partial class MainWindow : Window
     /// where most laptops sit. The title bar's own right padding already accounts for part
     /// of the gap, so only the remainder belongs in the margin.
     /// </summary>
+    /// <summary>
+    /// Raw pixels per effective pixel, for this window, on the monitor it is on now.
+    ///
+    /// XamlRoot is the right answer and is null until the content is loaded, which is
+    /// exactly when RestorePlacement needs it. GetDpiForWindow works from the moment the
+    /// HWND exists and follows the window across monitors, so it is the fallback rather
+    /// than a guess of 1.0 - at 150% a guess is wrong by half the window.
+    /// </summary>
+    private double Scale
+    {
+        get
+        {
+            if (this.RootGrid?.XamlRoot?.RasterizationScale is > 0 and double fromXaml)
+            {
+                return fromXaml;
+            }
+
+            uint dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+            return dpi == 0 ? 1.0 : dpi / 96.0;
+        }
+    }
+
+    private int MinimumWidthPixels => (int)Math.Ceiling(MinimumWidthDips * this.Scale);
+
+    private int MinimumHeightPixels => (int)Math.Ceiling(MinimumHeightDips * this.Scale);
+
+    // DllImport rather than LibraryImport, for the same reason as the shell32 declaration
+    // further down: the generator LibraryImport uses emits unsafe code, and this project
+    // does not compile with /unsafe. One integer in, one out - there is nothing to marshal.
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
+
     private void UpdateTitleBarInset()
     {
-        double scale = this.RootGrid.XamlRoot?.RasterizationScale ?? 1.0;
-
-        if (scale <= 0)
-        {
-            scale = 1.0;
-        }
-
-        double captionWidth = this.AppWindow.TitleBar.RightInset / scale;
+        double captionWidth = this.AppWindow.TitleBar.RightInset / this.Scale;
         double alreadyInset = this.AppTitleBar.Padding.Right;
 
         this.TitleBarAbout.Margin = new Thickness(0, 0, Math.Max(0, captionWidth - alreadyInset), 0);
@@ -204,6 +237,25 @@ public sealed partial class MainWindow : Window
     /// nothing to scroll to. Focusing the first question is honest and, for anyone working
     /// from the keyboard, is the useful half of what the fiction promised.
     /// </summary>
+    // Separate handlers rather than one that reads a Tag, because a Tag that has to parse
+    // back into an enum is a string typo waiting to be a silent no-op.
+    //
+    // The three menu items SELECT; the Status column label TOGGLES. That difference is the
+    // point: a header click meaning "this column, or the other way round if it already is"
+    // is what every file list does, while a menu item that reversed the list because you
+    // picked the option already in force would hand you the opposite of what you asked for.
+    private void OnSortByName(object sender, RoutedEventArgs e) =>
+        this.Workbench.ChooseSort(SortChoice.Name);
+
+    private void OnSortByBiggestChange(object sender, RoutedEventArgs e) =>
+        this.Workbench.ChooseSort(SortChoice.BiggestChange);
+
+    private void OnSortByResultingDate(object sender, RoutedEventArgs e) =>
+        this.Workbench.ChooseSort(SortChoice.ResultingDate);
+
+    private void OnSortByStatus(object sender, RoutedEventArgs e) =>
+        this.Workbench.ToggleSort(SortChoice.Status);
+
     private void OnEditRule(object sender, RoutedEventArgs e) =>
         this.IntentChoice.Focus(FocusState.Programmatic);
 
@@ -216,8 +268,11 @@ public sealed partial class MainWindow : Window
 
         if (args.DidSizeChange)
         {
-            int width = Math.Max(sender.Size.Width, MinimumWidth);
-            int height = Math.Max(sender.Size.Height, MinimumHeight);
+            // Recomputed every time rather than cached, because a window dragged to a
+            // monitor at a different scaling needs a different number of raw pixels to hold
+            // the same layout.
+            int width = Math.Max(sender.Size.Width, this.MinimumWidthPixels);
+            int height = Math.Max(sender.Size.Height, this.MinimumHeightPixels);
 
             if (width != sender.Size.Width || height != sender.Size.Height)
             {
@@ -250,9 +305,12 @@ public sealed partial class MainWindow : Window
 
         var fallback = new SizeInt32(1360, 880);
 
+        // Saved bounds are raw pixels, so they are compared against the raw minimum. Left
+        // against the effective one, a window saved on a 100% monitor would be rejected as
+        // too small when reopened on a 150% one and silently thrown away.
         if (saved is { WindowX: { } x, WindowY: { } y, WindowWidth: { } w, WindowHeight: { } h }
-            && w >= MinimumWidth
-            && h >= MinimumHeight
+            && w >= this.MinimumWidthPixels
+            && h >= this.MinimumHeightPixels
             && DisplayArea.GetFromRect(new RectInt32(x, y, w, h), DisplayAreaFallback.None) is not null)
         {
             this.AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
@@ -1428,16 +1486,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnSortChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (this.Workbench is not null
-            && sender is ComboBox { SelectedItem: ComboBoxItem { Tag: string tag } }
-            && Enum.TryParse(tag, out SortChoice choice))
-        {
-            this.Workbench.Sort = choice;
-        }
-    }
-
     /// <summary>
     /// Apply, behind a confirmation.
     ///
@@ -1527,7 +1575,11 @@ public sealed partial class MainWindow : Window
         {
             _ = body.AppendLine();
             _ = body.AppendLine(CultureInfo.CurrentCulture,
-                $"⚠ {summary.FilesSuspicious:N0} results look wrong. Sort by biggest change to see them first.");
+                // Names a control that is on screen. This said "Sort by biggest change"
+                // when that was an item in a ComboBox on the toolbar; the ComboBox is gone
+                // and the wording has to follow it, or the one instruction in the dialog
+                // that guards the destructive action points at nothing.
+                $"⚠ {summary.FilesSuspicious:N0} results look wrong. Sort by biggest change, under the File column header, to see them first.");
         }
 
         _ = body.AppendLine();

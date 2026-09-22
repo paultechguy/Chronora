@@ -69,6 +69,13 @@ public sealed record AppSettings
     /// <summary>The name of a <c>SortChoice</c>.</summary>
     public string? Sort { get; set; }
 
+    /// <summary>
+    /// Which way round <see cref="Sort" /> runs. Set, never init: the source generator
+    /// treats an init member as a constructor parameter and writes the type default over
+    /// anything the file does not mention.
+    /// </summary>
+    public bool SortDescending { get; set; }
+
     public bool ShowOnlyChanging { get; set; }
 
     public bool ShowOnlyProblems { get; set; }

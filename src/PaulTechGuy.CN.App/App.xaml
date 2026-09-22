@@ -61,6 +61,53 @@
                 in the SYSTEM accent. That is deliberate: the one place in the deck that
                 needs to shout is the one place the accent rule already provides for.
             -->
+            <!--
+                Column labels that are also the sort control.
+
+                Sized and coloured like a label rather than a button, because that is what
+                it is: the click is a convenience on top of a caption, not a command anybody
+                needs to find. The hover state the template already provides is what says it
+                can be clicked at all.
+            -->
+            <Style x:Key="CnColumnHeaderStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="4,2" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="CornerRadius" Value="4" />
+            </Style>
+
+            <!-- The same label, for the one header that also carries the sorts with no column. -->
+            <Style x:Key="CnColumnHeaderDropDownStyle" TargetType="DropDownButton"
+                   BasedOn="{StaticResource CnColumnHeaderStyle}" />
+
+            <!--
+                A chip: a piece of state that is in force, saying so, with the way to
+                dismiss it attached. Used for the two things that silently change what the
+                list shows and what the run covers.
+            -->
+            <Style x:Key="CnChipStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource ControlAltFillColorSecondaryBrush}" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Padding" Value="8,1,2,1" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="CnChipCloseStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="4,0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="FontSize" Value="10" />
+                <Setter Property="CornerRadius" Value="9" />
+            </Style>
+
             <Style x:Key="CnDeckFilterToggleStyle" TargetType="ToggleButton">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />

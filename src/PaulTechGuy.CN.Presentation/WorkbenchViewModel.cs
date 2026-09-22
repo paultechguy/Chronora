@@ -928,7 +928,166 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial SortChoice Sort { get; set; } = SortChoice.Name;
 
-    partial void OnSortChanged(SortChoice value) => this.Reproject();
+    partial void OnSortChanged(SortChoice value)
+    {
+        if (this._applyingSort)
+        {
+            return;
+        }
+
+        this.Reproject();
+    }
+
+    /// <summary>
+    /// Which way round the chosen sort runs.
+    ///
+    /// Stored as the direction of the COMPARISON, not as "the natural order or the other
+    /// one", so the caret on a header can be read literally. That means each choice has its
+    /// own sensible starting direction: names read A to Z, but "biggest change" that opened
+    /// on the smallest change would be a strange thing to call biggest.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool SortDescending { get; set; }
+
+    partial void OnSortDescendingChanged(bool value)
+    {
+        if (this._applyingSort)
+        {
+            return;
+        }
+
+        this.Reproject();
+    }
+
+    private bool _applyingSort;
+
+    private static bool OpensDescending(SortChoice choice) =>
+        choice is SortChoice.BiggestChange or SortChoice.Status;
+
+    /// <summary>
+    /// Picking a sort. Always a selection, never a toggle.
+    ///
+    /// This is what a MENU item does, and a menu item that quietly reversed the list
+    /// because you picked the option already in force would be a nasty little surprise -
+    /// you asked for "sort by name" and got the opposite of what you were looking at.
+    /// Reversing has its own verb.
+    /// </summary>
+    public void ChooseSort(SortChoice choice)
+    {
+        // Both at once, then reproject once. Setting them one after the other would sort
+        // the list twice and throw the scroll position away twice with it.
+        this._applyingSort = true;
+
+        try
+        {
+            this.Sort = choice;
+            this.SortDescending = OpensDescending(choice);
+        }
+        finally
+        {
+            this._applyingSort = false;
+        }
+
+        this.Reproject();
+    }
+
+    /// <summary>
+    /// What a COLUMN HEADER does: pick this column, or reverse it if it is already the one.
+    ///
+    /// The thirty-year-old behaviour of every file list anybody has used, and the reason it
+    /// is separate from <see cref="ChooseSort" /> is that a header click and a menu pick
+    /// genuinely mean different things.
+    /// </summary>
+    public void ToggleSort(SortChoice choice)
+    {
+        if (this.Sort == choice)
+        {
+            this.SortDescending = !this.SortDescending;
+            return;
+        }
+
+        this.ChooseSort(choice);
+    }
+
+    /// <summary>
+    /// Reversing whatever is in force, for the sorts whose header is a menu rather than a
+    /// column label and so has no second click to give.
+    /// </summary>
+    [RelayCommand]
+    public void ReverseSort() => this.SortDescending = !this.SortDescending;
+
+    /// <summary>The caret, as the direction it actually sorts in.</summary>
+    public string SortCaret => this.SortDescending ? "▼" : "▲";
+
+    // The caret shows on a column header ONLY when the sort is that column's. Two of the
+    // four sorts have no column, and parking the caret on the nearest header - or worse,
+    // renaming that header to match - would have a header describing something other than
+    // what is underneath it.
+    public string FileHeaderCaret => this.Sort == SortChoice.Name ? this.SortCaret : string.Empty;
+
+    public string StatusHeaderCaret => this.Sort == SortChoice.Status ? this.SortCaret : string.Empty;
+
+    /// <summary>Whether the sort is one with no column of its own, and so needs stating in words.</summary>
+    public bool IsSortOffColumn => this.Sort is SortChoice.BiggestChange or SortChoice.ResultingDate;
+
+    public string SortChipLabel => this.Sort switch
+    {
+        SortChoice.BiggestChange => $"Sorted by biggest change {this.SortCaret}",
+        SortChoice.ResultingDate => $"Sorted by resulting date {this.SortCaret}",
+        _ => string.Empty,
+    };
+
+    /// <summary>Back to the default, for the chip's dismiss button.</summary>
+    [RelayCommand]
+    public void SortByName() => this.ChooseSort(SortChoice.Name);
+
+    private void NotifySortState()
+    {
+        this.OnPropertyChanged(nameof(this.SortCaret));
+        this.OnPropertyChanged(nameof(this.FileHeaderCaret));
+        this.OnPropertyChanged(nameof(this.StatusHeaderCaret));
+        this.OnPropertyChanged(nameof(this.IsSortOffColumn));
+        this.OnPropertyChanged(nameof(this.SortChipLabel));
+
+        this.OnPropertyChanged(nameof(this.SelectAllLabel));
+        this.OnPropertyChanged(nameof(this.SelectNoneLabel));
+        this.OnPropertyChanged(nameof(this.TypeFilterChipLabel));
+    }
+
+    /// <summary>
+    /// The two selection verbs, each carrying its own SCOPE as a number.
+    ///
+    /// These cover different sets on purpose - all-shown versus none-of-everything - and
+    /// that asymmetry is deliberate: both err the same way, so neither can leave a file
+    /// ticked that nobody laid eyes on. It also means they can never be merged into one
+    /// tri-state checkbox in the list header, because a checkbox above a list means the
+    /// rows below it, and unticking one with a filter on would silently clear hundreds of
+    /// files that are not on screen. Putting the counts in the labels is what makes the
+    /// difference visible at the moment of clicking rather than afterwards.
+    /// </summary>
+    public string SelectAllLabel => string.Create(
+        CultureInfo.CurrentCulture,
+        $"All shown ({this.Rows.Count:N0})");
+
+    public string SelectNoneLabel => this.Rows.Count == this._allRows.Count
+        ? string.Create(CultureInfo.CurrentCulture, $"None ({this._allRows.Count:N0})")
+        : string.Create(
+            CultureInfo.CurrentCulture,
+            $"None, including hidden ({this._allRows.Count:N0})");
+
+    /// <summary>
+    /// What the type filter is doing, in words, beside the box that set it.
+    ///
+    /// The Apply button already states it, and that is the last line of defence rather than
+    /// the first. This filter scopes the RUN, not the view, so the place it was typed
+    /// should say so too.
+    /// </summary>
+    public string TypeFilterChipLabel => string.Create(
+        CultureInfo.CurrentCulture,
+        $"Run limited to {this.TypeFilter} — {this.Summary.FilesHiddenByTypeFilter:N0} excluded");
+
+    [RelayCommand]
+    public void ClearTypeFilter() => this.TypeFilter = string.Empty;
 
     /// <summary>
     /// Which files the run covers, as semicolon-separated wildcards. Empty means all.
@@ -1461,6 +1620,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.HasAnyFiles
         || this.Intent != WorkIntent.None
         || this.Sort != SortChoice.Name
+        || this.SortDescending
         || this.ShowOnlyChanging
         || this.ShowOnlyProblems;
 
@@ -1883,6 +2043,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         if (Enum.TryParse(settings.Sort, out SortChoice sort))
         {
             this.Sort = sort;
+            this.SortDescending = settings.SortDescending;
         }
 
         this.ShiftHours = settings.ShiftHours;
@@ -1938,6 +2099,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         settings.CopyFromField = this.CopyFromField.ToString();
         settings.ShiftHours = this.ShiftHours;
         settings.Sort = this.Sort.ToString();
+        settings.SortDescending = this.SortDescending;
         settings.ShowOnlyChanging = this.ShowOnlyChanging;
         settings.ShowOnlyProblems = this.ShowOnlyProblems;
     }
@@ -2904,13 +3066,28 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             query = query.Where(r => r.Plan?.HasProblem == true || r.Plan?.IsSuspicious == true);
         }
 
-        query = this.Sort switch
+        // The name is always the tie-break, whatever the primary key is, so that two files
+        // the sort cannot separate still come out in a stable and obvious order.
+        IOrderedEnumerable<PlanRowViewModel> ordered = this.Sort switch
         {
-            SortChoice.BiggestChange => query.OrderByDescending(r => r.SortDeltaTicks).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase),
-            SortChoice.ResultingDate => query.OrderBy(r => r.SortAfterDate ?? DateTimeOffset.MaxValue).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase),
-            SortChoice.Status => query.OrderByDescending(r => (int)r.SortStatus).ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase),
-            _ => query.OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase),
+            SortChoice.BiggestChange => this.SortDescending
+                ? query.OrderByDescending(r => r.SortDeltaTicks)
+                : query.OrderBy(r => r.SortDeltaTicks),
+
+            SortChoice.ResultingDate => this.SortDescending
+                ? query.OrderByDescending(r => r.SortAfterDate ?? DateTimeOffset.MinValue)
+                : query.OrderBy(r => r.SortAfterDate ?? DateTimeOffset.MaxValue),
+
+            SortChoice.Status => this.SortDescending
+                ? query.OrderByDescending(r => (int)r.SortStatus)
+                : query.OrderBy(r => r.SortStatus),
+
+            _ => this.SortDescending
+                ? query.OrderByDescending(r => r.Name, StringComparer.CurrentCultureIgnoreCase)
+                : query.OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase),
         };
+
+        query = ordered.ThenBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase);
 
         this.SyncRows([.. query]);
         this.RefreshSummary();
@@ -2923,6 +3100,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // The filters decide whether the deck's toggles can be turned OFF again, which is
         // not something Summary knows about.
         this.NotifyDeck();
+
+        // Carets, the off-column sort chip, and the two selection scopes - all of which
+        // move with the projection rather than with the summary.
+        this.NotifySortState();
     }
 
     private Recipe BuildRecipe()
