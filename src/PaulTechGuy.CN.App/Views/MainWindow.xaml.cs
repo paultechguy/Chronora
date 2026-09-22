@@ -118,6 +118,16 @@ public sealed partial class MainWindow : Window
             new RightTappedEventHandler(this.OnRowRightTapped),
             handledEventsToo: true);
 
+        // A click gives the row the same focus rectangle the arrow keys do. Windows hides
+        // focus visuals for pointer input by design, which is right for a button and wrong
+        // for a list you work down a row at a time: the selection shading alone is a few
+        // percent of brightness apart from an unselected row, and in dark mode that is very
+        // nearly nothing. Asking for Keyboard focus is what draws the border.
+        this.FileList.AddHandler(
+            UIElement.TappedEvent,
+            new TappedEventHandler(this.OnRowTapped),
+            handledEventsToo: true);
+
         // Space ticks and unticks the selected row, which is what a list of checkboxes is
         // expected to do and is the difference between working this list from the keyboard
         // and not. handledEventsToo for the usual reason: the ListViewItem claims the key
@@ -288,6 +298,25 @@ public sealed partial class MainWindow : Window
         {
             Serilog.Log.Error(ex, "Could not re-read the folders with the new scan options.");
         }
+    }
+
+    /// <summary>
+    /// Gives a clicked row the focus rectangle, the one the arrow keys produce.
+    ///
+    /// Not marked handled, so selection, double-click and the row menu all carry on
+    /// exactly as before - this only changes which focus state the row ends up in, and
+    /// therefore whether the border is drawn.
+    /// </summary>
+    private void OnRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        // A click on the tick box belongs to the tick box. Pulling focus up to the row
+        // would take the border off the control the pointer actually hit.
+        if (e.OriginalSource is CheckBox)
+        {
+            return;
+        }
+
+        _ = FindContainer(e.OriginalSource)?.Focus(FocusState.Keyboard);
     }
 
     /// <summary>
