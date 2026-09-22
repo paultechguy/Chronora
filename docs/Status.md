@@ -10,6 +10,9 @@ dotnet test PaulTechGuy.CN.slnx
 
 ---
 
+Work that is known and deferred lives in `Todo.md`, not here. This file is what needs a
+human to look at it; that one is what needs doing.
+
 ## What needs testing
 
 Everything below landed without anyone looking at it, and is unseen unless it says
