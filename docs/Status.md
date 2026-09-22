@@ -1,7 +1,7 @@
 # Where Chronora is
 
 Last updated 2026-09-20. Branch `dev`, no remote. Build clean at `-warnaserror`,
-458 tests passing.
+465 tests passing.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -99,21 +99,28 @@ its existing time of day.
 
 ## Open, unresolved
 
-- **`AppPaths.BackupDirectory` is dead code.** `<data>/backups` is created at every startup
-  and nothing has ever written to it — `MetadataWriter` is not even given `IAppPaths`. It
-  should be deleted or used; as it stands it is a signpost to the wrong place, which cost
-  time during the backup bug below.
-- **A failed run says how many, never why.** The status bar read "Done. 0 changed, 5
-  failed, 0 skipped" while the journal held the exact reason on every file. The reason is
-  recorded and was never shown, which is what turned a one-line wiring bug into a long hunt.
-  Surfacing the first distinct error — or making the count a link to History — is the
-  smallest thing that would have prevented it.
 - **Folder processing and recursion.** Paul deferred this on 2026-09-20 and wants to
   discuss it. Nothing is decided. Drops and Add-folder both pass `ScanFilter.Default`, so
   whatever recursion does today was never actually chosen — and dropping a folder is the
   most destructive gesture in the app. `ScanFilter` already carries `Recurse`,
   `IncludeFiles`, `IncludeDirectories` and `IncludeRootDirectory` as independent toggles,
   and the UI exposes none of them.
+
+  **Measured 2026-09-21, and one part is a straight bug rather than a preference.**
+  `ScanFilter.Default` is `Recurse: true, IncludeFiles: true, IncludeDirectories: false,
+  IncludeRootDirectory: false`, so recursion is on and unbounded at every entry point — drop,
+  Add folder, Send To, command line — with no depth limit, no file cap and no confirmation.
+  `AttributesToSkip = FileAttributes.None` overrides .NET's default, so hidden and system
+  files are included. And **recursion follows junctions**: a probe with the app's own
+  enumeration options walked a junction out of the dropped folder and returned a file
+  outside it. A junction loop would walk for ever. `FileScanner` detects `ReparsePoint` as a
+  trait and never uses it to stop traversal.
+
+  Separate the two: stopping traversal at reparse points needs no design debate — "I dropped
+  this folder" cannot reasonably mean "and everywhere its links point". The rest are product
+  decisions: default recursion on or off, whether a drop expanding to thousands should
+  confirm, whether hidden/system should be skipped, and whether folders themselves become
+  datable (`IncludeDirectories` is false today, so they never get dates; FileTouch could).
 - **An installer test failed once and never reproduced** in 4+ runs. Still unexplained.
 - **The QuickTime local-time camera case is unverified.** Pixel writes UTC, so the other
   branch of the per-file inference has never been exercised against a real file.
@@ -224,6 +231,20 @@ taskbar, Settings ▸ Apps and the Send To entry all read via `"<exe>,0"`; and a
 ships the file so `AppWindow.SetIcon` can put it on the three windows and in alt-tab. Verified
 rather than assumed — the icon extracted from the built exe is pixel-for-pixel identical to
 the 32px frame of the source `.ico`. The 1464px master is in `docs/assets/`.
+
+**Fixed 2026-09-22, and the one most likely to save a future session.** A failed run said
+how many, never why: "Done. 0 changed, 5 failed, 0 skipped" while the journal held the exact
+sentence against every file. `ApplyOutcome` now carries the distinct reasons, deduplicated
+and capped at three, the status line takes the first and points at History for the rest, and
+the log carries them too. Five tests. The message that cost two sessions would now read
+"…5 failed… ExifTool is not available, so the photo date was not written."
+
+**Also fixed 2026-09-22.** The ExifTool manifest fetch had no timeout of its own and
+inherited the shared client's five minutes, so the consent pane could freeze for five
+minutes on a proxy that blackholes — exactly the network the local fallback exists for.
+`AppPaths.BackupDirectory` is gone: created at every startup, never written to, and
+documented as holding schema-migration backups that do not exist. CI no longer triggers on
+`main`, which this repository does not have.
 
 **Remaining in 8:** theming.
 
