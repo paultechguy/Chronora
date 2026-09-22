@@ -23,7 +23,24 @@ public readonly record struct ApplyProgress(int Done, int Total, int Written, in
 /// <param name="Failed">Files that failed.</param>
 /// <param name="Skipped">Files with nothing to do.</param>
 /// <param name="Status">How it ended.</param>
-public sealed record ApplyOutcome(long RunId, int Written, int Failed, int Skipped, RunStatus Status);
+public sealed record ApplyOutcome(long RunId, int Written, int Failed, int Skipped, RunStatus Status)
+{
+    /// <summary>
+    /// Why files failed, deduplicated, in the order the reasons first appeared.
+    ///
+    /// The counts on their own are not enough, and that is not a theoretical complaint. A run
+    /// reported "0 changed, 5 failed, 0 skipped" while the journal held the exact sentence on
+    /// every one of those five files - "ExifTool is not available, so the photo date was not
+    /// written" - and the cause was a single missing DI registration. Finding it took two
+    /// sessions and a journal query, because the one place the answer was written down was the
+    /// one place nobody thinks to look while the app is still open.
+    ///
+    /// Capped, because a 50,000-file run must not build a list of 50,000 strings to say the
+    /// same thing. Distinct reasons are what carry the information; the number of files is
+    /// already reported separately.
+    /// </summary>
+    public IReadOnlyList<string> FailureReasons { get; init; } = [];
+}
 
 /// <summary>
 /// Writes a plan to disk, and puts it back again.
@@ -92,6 +109,10 @@ public sealed class ApplyService(
         int failed = 0;
         int skipped = 0;
         int done = 0;
+
+        // Ordinal, and capped at three. More than three distinct reasons in one run is not a
+        // status line any more, it is a trip to History.
+        var reasons = new List<string>();
         var status = RunStatus.Completed;
 
         try
@@ -122,6 +143,14 @@ public sealed class ApplyService(
                             break;
                         case FileOutcome.Failed:
                             failed++;
+
+                            if (result.Error is { Length: > 0 } reason
+                                && reasons.Count < 3
+                                && !reasons.Contains(reason, StringComparer.Ordinal))
+                            {
+                                reasons.Add(reason);
+                            }
+
                             break;
                         default:
                             skipped++;
@@ -158,10 +187,11 @@ public sealed class ApplyService(
         }
 
         this._logger.LogInformation(
-            "Run {RunId} finished: {Written} written, {Failed} failed, {Skipped} skipped.",
-            runId, written, failed, skipped);
+            "Run {RunId} finished: {Written} written, {Failed} failed, {Skipped} skipped.{Reasons}",
+            runId, written, failed, skipped,
+            reasons.Count > 0 ? " Reasons: " + string.Join(" | ", reasons) : string.Empty);
 
-        return new ApplyOutcome(runId, written, failed, skipped, status);
+        return new ApplyOutcome(runId, written, failed, skipped, status) { FailureReasons = reasons };
     }
 
     /// <summary>

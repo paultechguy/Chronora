@@ -398,6 +398,67 @@ public class ApplyServiceTests
         File.Exists(backup).ShouldBeTrue("a failed write leaves the only good copy where it is");
     }
 
+    /// <summary>
+    /// A failed run has to carry WHY, not just how many.
+    ///
+    /// This is the regression test for the most expensive bug in this project's history. A run
+    /// reported "0 changed, 5 failed, 0 skipped"; the journal held the reason on every one of
+    /// those files; nothing showed it; and the cause - one missing DI registration - took two
+    /// sessions to find. The counts were never the problem. The silence was.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_run_carries_the_reason_not_just_the_count()
+    {
+        using var ws = new Workspace();
+        _ = ws.CreateFile("photo.jpg", Original);
+
+        var engine = new RecordingGateway { Succeeds = false };
+        ApplyService apply = ws.ApplyWith(engine);
+
+        FilePlan plan = await ws.PlanAsync(
+            Target,
+            [DateField.ExifDateTimeOriginal, DateField.FileCreated],
+            "photo.jpg");
+
+        ApplyOutcome outcome = await apply.ApplyAsync([plan], Header, null, Ct);
+
+        outcome.Failed.ShouldBe(1);
+        outcome.FailureReasons.ShouldContain("Pretend failure.");
+    }
+
+    /// <summary>
+    /// Deduplicated, because five files failing for one reason is one reason. A status line
+    /// that repeats the same sentence five times is the same silence with more words.
+    /// </summary>
+    [Fact]
+    public async Task One_reason_shared_by_many_files_is_reported_once()
+    {
+        using var ws = new Workspace();
+
+        foreach (string name in new[] { "a.jpg", "b.jpg", "c.jpg" })
+        {
+            _ = ws.CreateFile(name, Original);
+        }
+
+        var engine = new RecordingGateway { Succeeds = false };
+        ApplyService apply = ws.ApplyWith(engine);
+
+        var plans = new List<FilePlan>();
+
+        foreach (string name in new[] { "a.jpg", "b.jpg", "c.jpg" })
+        {
+            plans.Add(await ws.PlanAsync(
+                Target,
+                [DateField.ExifDateTimeOriginal, DateField.FileCreated],
+                name));
+        }
+
+        ApplyOutcome outcome = await apply.ApplyAsync(plans, Header, null, Ct);
+
+        outcome.Failed.ShouldBe(3);
+        outcome.FailureReasons.Count.ShouldBe(1, "three files, one reason");
+    }
+
     [Fact]
     public async Task The_photo_date_is_written_before_the_file_dates()
     {

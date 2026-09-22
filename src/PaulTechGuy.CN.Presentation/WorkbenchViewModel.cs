@@ -1793,6 +1793,40 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ShowOnlyProblems = settings.ShowOnlyProblems;
     }
 
+    /// <summary>
+    /// What a finished run says, and why it says more than a count.
+    ///
+    /// "Done. 0 changed, 5 failed, 0 skipped." was the whole message. The reason was recorded
+    /// against every one of those files in the journal and shown nowhere, so the only way to
+    /// learn it was to open the database - which is not a thing anybody does while the app is
+    /// still sitting there reporting the failure. One wiring bug cost two sessions that way.
+    ///
+    /// The first distinct reason goes on the line. Anything beyond that is a count and a
+    /// pointer to History, because a status bar that tries to hold three sentences holds none.
+    /// </summary>
+    public static string DescribeOutcome(ApplyOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        string counts = string.Create(
+            CultureInfo.CurrentCulture,
+            $"Done. {outcome.Written:N0} changed, {outcome.Failed:N0} failed, {outcome.Skipped:N0} skipped.");
+
+        if (outcome.FailureReasons.Count == 0)
+        {
+            return counts;
+        }
+
+        if (outcome.FailureReasons.Count == 1)
+        {
+            return $"{counts} {outcome.FailureReasons[0]}";
+        }
+
+        return string.Create(
+            CultureInfo.CurrentCulture,
+            $"{counts} {outcome.FailureReasons[0]} ({outcome.FailureReasons.Count - 1:N0} other reason(s) - see History.)");
+    }
+
     /// <summary>Copies the current options into the settings about to be written.</summary>
     public void CaptureSettings(AppSettings settings)
     {
@@ -2065,9 +2099,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             ApplyOutcome outcome = await this._apply.ApplyAsync(plans, header, progress, this._run.Token);
 
-            this.ScanStatus = string.Create(
-                CultureInfo.CurrentCulture,
-                $"Done. {outcome.Written:N0} changed, {outcome.Failed:N0} failed, {outcome.Skipped:N0} skipped.");
+            this.ScanStatus = DescribeOutcome(outcome);
 
             // The files on disk have moved on, so the snapshot the preview was built from
             // is now stale. Re-reading is the honest thing to do rather than leaving the
