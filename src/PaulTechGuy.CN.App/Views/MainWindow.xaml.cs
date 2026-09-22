@@ -60,6 +60,8 @@ public sealed partial class MainWindow : Window
         this.RestorePlacement();
         this.AppWindow.Changed += this.OnAppWindowChanged;
 
+        ApplyIcon(this.AppWindow);
+
         // handledEventsToo, which is the whole point. A ListViewItem marks tap events as
         // handled while doing its own selection, so a DoubleTapped hook declared on the
         // ListView in XAML never fires - which is why double-clicking a row did nothing
@@ -113,6 +115,30 @@ public sealed partial class MainWindow : Window
     /// WinUI has no MinWidth on a Window, so the clamp is applied on resize. The same
     /// event is where the restorable bounds get remembered.
     /// </summary>
+    /// <summary>
+    /// Puts the app icon on a window. Shared by all three, because three windows each doing
+    /// this slightly differently is how one of them ends up without it.
+    ///
+    /// Never fatal. A missing or malformed icon makes the app look unbranded, and refusing to
+    /// open a window over that would be a far worse trade than the blank icon it replaces.
+    /// </summary>
+    internal static void ApplyIcon(AppWindow window)
+    {
+        if (!AppImages.HasIcon)
+        {
+            return;
+        }
+
+        try
+        {
+            window.SetIcon(AppImages.IconPath);
+        }
+        catch (Exception ex) when (ex is ArgumentException or FileNotFoundException or COMException)
+        {
+            Serilog.Log.Warning(ex, "Could not set the window icon from {Path}.", AppImages.IconPath);
+        }
+    }
+
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         if (!args.DidSizeChange && !args.DidPositionChange)

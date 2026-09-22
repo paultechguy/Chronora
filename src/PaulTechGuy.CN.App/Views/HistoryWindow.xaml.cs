@@ -39,6 +39,8 @@ public sealed partial class HistoryWindow : Window
         this.SetTitleBar(this.AppTitleBar);
 
         this.AppWindow.Resize(new SizeInt32(760, 620));
+
+        MainWindow.ApplyIcon(this.AppWindow);
         this.AppWindow.Changed += OnAppWindowChanged;
 
         // Re-read on open rather than trusting whatever the main window last loaded. A run

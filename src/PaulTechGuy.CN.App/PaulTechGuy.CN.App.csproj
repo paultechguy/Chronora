@@ -8,6 +8,14 @@
     <AssemblyName>Chronora</AssemblyName>
     <UseWinUI>true</UseWinUI>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+
+    <!--
+      Embeds the icon in Chronora.exe. This is the one every shell surface reads - Explorer,
+      the Start menu shortcut, the taskbar, Settings > Apps, and the Send To entry - because
+      the installer points them all at "<exe>,0". Without it every one of those is the generic
+      Windows executable icon, which is the first thing anyone sees after installing.
+    -->
+    <ApplicationIcon>Assets\ChronoraLogo.ico</ApplicationIcon>
     <EnableMsixTooling>false</EnableMsixTooling>
   </PropertyGroup>
 
@@ -69,6 +77,13 @@
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+
+    <!--
+      The same icon again, as a file this time. AppWindow.SetIcon takes a path, not a resource,
+      and it is what puts the icon on the window itself and in alt-tab. ApplicationIcon above
+      covers the shell; this covers the running app. Neither one does the other's job.
+    -->
+    <Content Include="Assets\ChronoraLogo.ico" CopyToOutputDirectory="PreserveNewest" />
 
     <!--
       The ExifTool manifest that ships beside the executable, naming whatever version was

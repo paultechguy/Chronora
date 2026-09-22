@@ -41,6 +41,8 @@ public sealed partial class AboutWindow : Window
 
         this.AppWindow.Resize(new SizeInt32(560, 700));
 
+        MainWindow.ApplyIcon(this.AppWindow);
+
         this.VersionLine.Text = string.Create(CultureInfo.CurrentCulture, $"Version {CurrentVersion().ToString(3)}");
         this.DataFolderLine.Text = paths.DataDirectory;
 

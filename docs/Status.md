@@ -114,7 +114,6 @@ its existing time of day.
   most destructive gesture in the app. `ScanFilter` already carries `Recurse`,
   `IncludeFiles`, `IncludeDirectories` and `IncludeRootDirectory` as independent toggles,
   and the UI exposes none of them.
-- **The app icon.** Start fresh — explicitly *not* FileTouch's `clock.ico`. Needs Paul.
 - **An installer test failed once and never reproduced** in 4+ runs. Still unexplained.
 - **The QuickTime local-time camera case is unverified.** Pixel writes UTC, so the other
   branch of the per-file inference has never been exercised against a real file.
@@ -218,7 +217,15 @@ purely a naming and discoverability failure, not a visibility bug. Worth remembe
 correctly-working, correctly-placed menu item was invisible in practice because it was named
 for its outcome instead of its action.
 
-**Remaining in 8:** the app icon, theming.
+**The app icon landed 2026-09-22.** `src/PaulTechGuy.CN.App/Assets/ChronoraLogo.ico`, nine
+sizes from 16 to 256, all 32bpp. It is wired two ways because one does not cover the other:
+`<ApplicationIcon>` embeds it in `Chronora.exe`, which is what Explorer, the Start menu, the
+taskbar, Settings ▸ Apps and the Send To entry all read via `"<exe>,0"`; and a `Content` item
+ships the file so `AppWindow.SetIcon` can put it on the three windows and in alt-tab. Verified
+rather than assumed — the icon extracted from the built exe is pixel-for-pixel identical to
+the 32px frame of the source `.ico`. The 1464px master is in `docs/assets/`.
+
+**Remaining in 8:** theming.
 
 **Milestone 9** is built, and half of it is verified by use rather than by reading.
 `ReleaseCommon.ps1`, `New-DevBuild.ps1`, `New-Release.ps1`, `New-ReleaseNotes.ps1`,
