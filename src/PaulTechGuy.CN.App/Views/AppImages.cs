@@ -46,8 +46,8 @@ internal static class AppImages
     /// nothing written to the log.
     ///
     /// Not hypothetical for this artwork. docs\assets\ChronoraLogo.svg is a CorelDRAW export
-    /// and opens with a &lt;style&gt; block and four class= attributes - exactly the case
-    /// Direct2D does not handle. The vector is the master and stays in docs\; the PNG ships.
+    /// and opens with a &lt;style&gt; block and class= attributes - exactly the case Direct2D
+    /// does not handle. The vector is the master and stays in docs\; the PNG ships.
     ///
     /// DecodePixelType.Logical matters. The size asked for is in logical pixels, so the
     /// decode follows display scaling - at 200% a 96 here decodes 192 real pixels instead of

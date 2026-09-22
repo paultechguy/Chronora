@@ -15,17 +15,23 @@ selectors nor text elements**. An export using either draws the wrong thing, and
 nothing to the log — so the failure is silent and looks like a layout problem.
 
 This is not hypothetical for this file. `ChronoraLogo.svg` is a CorelDRAW export and opens
-with a `<style>` block and four `class=` attributes, which is precisely the case Direct2D
+with a `<style>` block and `class=` attributes, which is precisely the case Direct2D
 does not handle. Marqora hit this and moved to a bitmap for the same reason.
 
 So: the vector is the master and stays here. The PNG is what ships.
 
 ## The icon
 
-Nine sizes — 16, 20, 24, 32, 40, 48, 64, 128, 256 — all 32bpp with alpha. Windows picks
-different ones for the taskbar, alt-tab, Explorer's views and the Settings ▸ Apps list, and
-a single-size icon is scaled badly in whichever of those it was not made for. 256 is the one
-Add/Remove Programs reads.
+Six sizes — 16, 32, 48, 64, 128, 256 — all 32bpp with alpha. Windows picks different ones for
+the taskbar, alt-tab, Explorer's views and the Settings ▸ Apps list, and a single-size icon is
+scaled badly in whichever of those it was not made for. 256 is the one Add/Remove Programs
+reads; 16, 32 and 48 are what Explorer and the taskbar use.
 
-Re-exporting? Keep all nine. `build/New-AppIcon.ps1` does not exist here yet; Marqora has one
-worth adapting if this becomes a chore.
+That set is the standard one and is enough. An earlier version also carried 20, 24 and 40 —
+the intermediates Windows wants at 125% and 150% scaling — and dropping them costs very
+little: Windows synthesises those from 32 and 16, and downscaling 32 to 24 or 40 is close to
+free visually. If small sizes ever look soft on a 125% display, adding 20, 24 and 40 back is
+the first thing to try.
+
+`build/New-AppIcon.ps1` does not exist here; Marqora has one worth adapting if re-exporting
+becomes a chore.
