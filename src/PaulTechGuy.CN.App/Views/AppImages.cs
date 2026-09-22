@@ -43,7 +43,11 @@ internal static class AppImages
     /// A bitmap rather than a vector, and that is a decision rather than laziness:
     /// SvgImageSource is backed by Direct2D, whose SVG support covers neither CSS class
     /// selectors nor text elements, so an export using either draws the wrong thing with
-    /// nothing written to the log. The vector master stays in docs\assets\ and the PNG ships.
+    /// nothing written to the log.
+    ///
+    /// Not hypothetical for this artwork. docs\assets\ChronoraLogo.svg is a CorelDRAW export
+    /// and opens with a &lt;style&gt; block and four class= attributes - exactly the case
+    /// Direct2D does not handle. The vector is the master and stays in docs\; the PNG ships.
     ///
     /// DecodePixelType.Logical matters. The size asked for is in logical pixels, so the
     /// decode follows display scaling - at 200% a 96 here decodes 192 real pixels instead of
