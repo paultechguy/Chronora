@@ -1,7 +1,7 @@
 # Where Chronora is
 
-Last updated 2026-09-20. Branch `dev`, no remote. Build clean at `-warnaserror`,
-465 tests passing.
+Last updated 2026-09-22. Branch `feature/UI-Refactor`, no remote. Build clean at
+`-warnaserror`, 487 tests passing.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -14,6 +14,52 @@ dotnet test PaulTechGuy.CN.slnx
 
 Everything below landed without anyone looking at it, and is unseen unless it says
 otherwise. Rough order of importance.
+
+### 0. The main window chrome refactor — `feature/UI-Refactor`
+
+The toolbar above the file list is gone. It held eleven controls across six unrelated kinds
+of action and was the widest thing in the window, which is what kept the minimum size where
+it was. Four commits, each buildable, nothing unreachable between them.
+
+**Confirmed by Paul 2026-09-22:** About in the title bar clear of the caption buttons,
+window dragging, the second monitor, History in the footer, and the History window's new
+empty state. The column-header menus opened centred on the column and were re-anchored to
+the label; the rest of the deck "generally looks better".
+
+**Still unseen, in the order worth checking:**
+
+- **The scan options**, which are the only behaviour change in the refactor. Turn off
+  *Include subfolders*, drop a tree, confirm only the top level arrives — then **apply a run
+  and confirm the rescan afterwards does not repopulate the tree**. That rescan is the fifth
+  entry point and it hard-coded `ScanFilter.Default`; every path now goes through
+  `BuildScanFilter()`.
+- **Two scanner defaults changed, and both were bugs rather than preferences.** Hidden and
+  system files are no longer collected (`AttributesToSkip` was set to `None`, overriding
+  .NET's own default), and **subfolders are no longer added as rows of their own**.
+  `IncludeDirectories` was honoured only when folders were the *only* thing asked for, so
+  every subfolder of a dropped tree arrived as a row and took the run's dates along with the
+  photos in it. Both are now checkboxes, both default off. A run over a tree will therefore
+  change fewer things than it used to — that is the point, but it is worth one deliberate
+  look at a folder you do not mind.
+- **The RESULT card's counts.** `N need a look` must equal the number of rows clicking it
+  produces. The old tallies double-counted a file that was both blocked and suspicious.
+- **Apply with `can change` on.** The list empties on the rescan, and must say
+  "Only files that will change are shown, and none do right now" with a **Show all files**
+  button — not the old "Nothing matches ." pointing at an empty filter box.
+- **Cancel during a scan.** `IsScanning` was set on both scan paths and bound to nothing, so
+  a large drop counted up with no spinner and no way out. Drop something big and stop it.
+- **Sorting**: `Status` toggles on a second click; the `File ▾` menu selects and has its own
+  *Reverse the order*. Two of the four sorts have no column, so they show a chip instead of
+  a caret. Scroll jumps to the top on any sort — expected, and what the old ComboBox did.
+- **Shift+F10 and the menu key on a row.** Still no log has ever contained
+  `via=context/keyboard`, and this work moved what has focus.
+- **820 effective pixels** is the new minimum. The old 980 was in *raw* pixels while the
+  options pane's 320 is in effective ones, so at 150% scaling it permitted a 653-epx layout.
+  Worth one drag on a scaled monitor.
+
+Not done, deliberately: the reparse-point fix. `FileScanner` still walks through junctions,
+because `EnumerationOptions` is not documented to stop descent at one and the alternative is
+hand-rolling the walk. It needs measuring with `mklink /J` first, and it is its own commit.
 
 ### 1. The row context menu — right-click a row
 

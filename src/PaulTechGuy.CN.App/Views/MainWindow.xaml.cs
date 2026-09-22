@@ -369,7 +369,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await this.Workbench.AddFolderAsync(folder.Path, ScanFilter.Default);
+        // The same builder every other entry point uses, so Add folder cannot quietly
+        // disagree with what a drop of the same folder would do.
+        await this.Workbench.AddFolderAsync(folder.Path, this.Workbench.BuildScanFilter());
     }
 
     /// <summary>

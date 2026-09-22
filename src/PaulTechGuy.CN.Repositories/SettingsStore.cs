@@ -79,6 +79,23 @@ public sealed record AppSettings
     public bool ShowOnlyChanging { get; set; }
 
     public bool ShowOnlyProblems { get; set; }
+
+    // How a folder is read. Sticky, because "include subfolders" is a habit rather than a
+    // per-drop decision - and stated on screen, because a sticky setting only visible
+    // inside a flyout is how somebody recursively scans a drive by accident.
+    //
+    // Set, never init, like everything else here: the source generator treats an init
+    // member as a constructor parameter and writes the type default over anything the file
+    // does not mention.
+
+    /// <summary>Whether a dropped or added folder is read all the way down. Defaults to true.</summary>
+    public bool ScanRecurse { get; set; } = true;
+
+    /// <summary>Whether hidden and system files come in with it.</summary>
+    public bool ScanIncludeHidden { get; set; }
+
+    /// <summary>Whether the folders themselves get dated, as well as what is in them.</summary>
+    public bool ScanIncludeFolders { get; set; }
 }
 
 [JsonSourceGenerationOptions(

@@ -63,6 +63,17 @@ public sealed class FileScanner(
 
             bool isDirectory = Directory.Exists(path);
 
+            // IncludeDirectories was honoured in exactly one case - when folders were the
+            // ONLY thing asked for - and ignored otherwise. Enumerate hands back folders
+            // as well as files whenever files are wanted, and nothing here checked, so
+            // every subfolder of a dropped tree arrived as a row of its own and took the
+            // run's dates along with the photos in it. The parameter has always been
+            // documented as "whether folders are collected"; now it is.
+            if (isDirectory && !filter.IncludeDirectories)
+            {
+                continue;
+            }
+
             ScannedFile? entry = this.Describe(path, isDirectory, volume);
             if (entry is not null)
             {
@@ -124,7 +135,15 @@ public sealed class FileScanner(
         {
             RecurseSubdirectories = filter.Recurse,
             IgnoreInaccessible = true,
-            AttributesToSkip = FileAttributes.None,
+
+            // This was FileAttributes.None, which overrides .NET's own default and meant
+            // every scan collected hidden and system files with nothing on screen saying
+            // so. It is now the caller's choice, and the caller's default is to leave them
+            // alone - somebody dropping a folder means the files they can see in it.
+            AttributesToSkip = filter.IncludeHidden
+                ? FileAttributes.None
+                : FileAttributes.Hidden | FileAttributes.System,
+
             ReturnSpecialDirectories = false,
         };
 

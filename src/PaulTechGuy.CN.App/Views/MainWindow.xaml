@@ -155,6 +155,58 @@
                                Style="{StaticResource BodyStrongTextBlockStyle}" />
 
                     <!--
+                        How a folder gets read, stated on the card rather than hidden in the
+                        flyout - a sticky setting nobody can see is how somebody recursively
+                        scans a drive by accident.
+
+                        Worded as the SETTING, not as a description of the list: those are
+                        different tenses, and changing the setting does not re-read the
+                        disk. "4,000 files / deep" on adjacent lines would go on claiming
+                        the list was read deep after you had turned that off.
+
+                        A plain Flyout rather than a MenuFlyout, because a MenuFlyout closes
+                        on every invoke - ticking a box would shut the menu and you would
+                        reopen it to tick the next one.
+                    -->
+                    <DropDownButton Style="{StaticResource CnColumnHeaderStyle}"
+                                    Content="{x:Bind Workbench.ScanSettingLabel, Mode=OneWay}"
+                                    AutomationProperties.Name="How folders are read"
+                                    ToolTipService.ToolTip="Applies to drops, Add folder, Send To and the command line alike.">
+                        <DropDownButton.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedLeft">
+                                <StackPanel Spacing="8" MinWidth="260">
+                                    <TextBlock Text="When Chronora reads a folder"
+                                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                                    <CheckBox Content="Include subfolders"
+                                              IsChecked="{x:Bind Workbench.ScanRecurse, Mode=TwoWay}"
+                                              ToolTipService.ToolTip="Read the whole tree beneath the folder, not just the files sitting directly in it." />
+
+                                    <CheckBox Content="Hidden and system files"
+                                              IsChecked="{x:Bind Workbench.ScanIncludeHidden, Mode=TwoWay}"
+                                              ToolTipService.ToolTip="Off by default. Chronora used to collect these silently, which is not what dropping a folder looks like it means." />
+
+                                    <CheckBox Content="Also set the folders' own dates"
+                                              IsChecked="{x:Bind Workbench.ScanIncludeFolders, Mode=TwoWay}"
+                                              ToolTipService.ToolTip="Folders carry Created and Modified dates too. Off by default, because a run aimed at photos should not quietly restamp the folders holding them." />
+
+                                    <!--
+                                        Changing a setting does not re-read the disk, so
+                                        this is how the list is made to match it. Enabled
+                                        only when they actually differ - offering it
+                                        otherwise would imply something was out of step.
+                                    -->
+                                    <Button Content="Read the folders again"
+                                            HorizontalAlignment="Stretch"
+                                            Command="{x:Bind Workbench.RescanWithOptionsCommand}"
+                                            IsEnabled="{x:Bind Workbench.CanRescanWithOptions, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Applies these settings to the folders already in the list. Files added one at a time are not re-read." />
+                                </StackPanel>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+
+                    <!--
                         These three are also in the toolbar below for now. The toolbar goes
                         in the next commit; duplicating them for one commit keeps every
                         action reachable at every point in the series, which deleting the

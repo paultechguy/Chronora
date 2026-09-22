@@ -1231,6 +1231,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         bool ownsScan = this.BeginScan(cancellationToken, out CancellationToken token);
 
+        // Remembered so the source card can tell when the settings have moved on from the
+        // list they produced, and offer to read it again rather than describing it wrongly.
+        this._listScanFilter = filter;
+
         this.IsScanning = true;
         this.ScanStatus = $"Reading {folder}…";
 
@@ -1436,7 +1440,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         try
         {
-            await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, ScanFilter.Default, token))
+            ScanFilter filter = this.BuildScanFilter();
+            this._listScanFilter = filter;
+
+            await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, filter, token))
             {
                 PlanRowViewModel row = this.TrackRow(new PlanRowViewModel(file));
                 this._allRows.Add(row);
@@ -1537,7 +1544,114 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._rowsFromDrop = [];
     }
 
-    // ---- Clearing and starting over ---------------------------------------------------
+    // ---- How a folder is read ----------------------------------------------------------
+    //
+    // Sticky rather than asked on every drop, and stated on the source card in words rather
+    // than left inside the flyout. Until now none of this was a choice at all: every entry
+    // point - drop, Add folder, Send To, the command line, and the rescan after a run -
+    // passed ScanFilter.Default, which is recursive and unbounded, and the scanner then
+    // overrode .NET's own default to sweep in hidden and system files as well.
+    //
+    // ONE builder, used by all of them. Two mechanisms is how the fifth entry point gets
+    // missed, and the fifth entry point is the rescan after an apply - the one that would
+    // quietly refill the list with the whole tree you just told it not to read.
+
+    [ObservableProperty]
+    public partial bool ScanRecurse { get; set; } = true;
+
+    [ObservableProperty]
+    public partial bool ScanIncludeHidden { get; set; }
+
+    [ObservableProperty]
+    public partial bool ScanIncludeFolders { get; set; }
+
+    partial void OnScanRecurseChanged(bool value) => this.NotifyDeck();
+
+    partial void OnScanIncludeHiddenChanged(bool value) => this.NotifyDeck();
+
+    partial void OnScanIncludeFoldersChanged(bool value) => this.NotifyDeck();
+
+    /// <summary>The filter every scan uses, built from the settings that are on screen.</summary>
+    public ScanFilter BuildScanFilter() => new(
+        ["*"],
+        Recurse: this.ScanRecurse,
+        IncludeFiles: true,
+        IncludeDirectories: this.ScanIncludeFolders,
+        IncludeRootDirectory: this.ScanIncludeFolders,
+        IncludeHidden: this.ScanIncludeHidden);
+
+    /// <summary>What produced the list currently on screen, so the card can tell when it is stale.</summary>
+    private ScanFilter? _listScanFilter;
+
+    /// <summary>
+    /// The setting, worded as a setting rather than as a description of the list.
+    ///
+    /// Those are different tenses and putting them on adjacent lines is a trap: turn
+    /// "include subfolders" off with four thousand files already loaded and nothing
+    /// rescans, so a card reading "4,000 files / 3 folders · deep" would be describing a
+    /// list that no longer matches its own settings, directly above the list that does.
+    /// </summary>
+    public string ScanSettingLabel
+    {
+        get
+        {
+            var parts = new List<string> { this.ScanRecurse ? "subfolders" : "this folder only" };
+
+            if (this.ScanIncludeHidden)
+            {
+                parts.Add("hidden files");
+            }
+
+            if (this.ScanIncludeFolders)
+            {
+                parts.Add("folders too");
+            }
+
+            return "New drops: " + string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>
+    /// Whether the settings now differ from the ones that read the current list.
+    ///
+    /// This is what makes the difference between a setting and a lie: changing it does not
+    /// re-read the disk, so when it no longer matches what is on screen the card has to
+    /// offer the way to make it match.
+    /// </summary>
+    public bool CanRescanWithOptions =>
+        this._roots.Count > 0
+        && this._listScanFilter is { } used
+        && !SameScan(used, this.BuildScanFilter());
+
+    /// <summary>
+    /// Compares the parts that are SETTINGS, which is not the same as comparing the records.
+    ///
+    /// ScanFilter is a record, so == looks like the obvious answer and is not: Patterns is
+    /// an IReadOnlyList and records compare members with the default equality comparer,
+    /// which for a collection is reference equality. Two filters built a second apart are
+    /// never equal, so the card offered to re-read the folders the instant they were read.
+    /// Patterns is excluded on purpose anyway - it is always ["*"] here, because narrowing
+    /// by type is the type filter's job and lives on the list header.
+    /// </summary>
+    private static bool SameScan(ScanFilter a, ScanFilter b) =>
+        a.Recurse == b.Recurse
+        && a.IncludeFiles == b.IncludeFiles
+        && a.IncludeDirectories == b.IncludeDirectories
+        && a.IncludeRootDirectory == b.IncludeRootDirectory
+        && a.IncludeHidden == b.IncludeHidden;
+
+    /// <summary>Re-reads every folder in the list with the settings as they are now.</summary>
+    [RelayCommand]
+    public async Task RescanWithOptionsAsync()
+    {
+        await this.RescanAsync().ConfigureAwait(true);
+
+        this.ScanStatus = string.Create(
+            CultureInfo.CurrentCulture,
+            $"Read the folders again: {this.ScanSettingLabel[12..]}.");
+    }
+
+    // ---- Clearing and starting over ----------------------------------------------------
 
     /// <summary>Whether there is a list at all, which is what Clear needs to mean anything.</summary>
     public bool HasAnyFiles => this._allRows.Count > 0;
@@ -2049,6 +2163,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ShiftHours = settings.ShiftHours;
         this.ShowOnlyChanging = settings.ShowOnlyChanging;
         this.ShowOnlyProblems = settings.ShowOnlyProblems;
+
+        // Restored before the command line and Send To paths run, which is what makes a
+        // remembered "this folder only" actually apply to a launch that starts with files.
+        this.ScanRecurse = settings.ScanRecurse;
+        this.ScanIncludeHidden = settings.ScanIncludeHidden;
+        this.ScanIncludeFolders = settings.ScanIncludeFolders;
     }
 
     /// <summary>
@@ -2102,6 +2222,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         settings.SortDescending = this.SortDescending;
         settings.ShowOnlyChanging = this.ShowOnlyChanging;
         settings.ShowOnlyProblems = this.ShowOnlyProblems;
+        settings.ScanRecurse = this.ScanRecurse;
+        settings.ScanIncludeHidden = this.ScanIncludeHidden;
+        settings.ScanIncludeFolders = this.ScanIncludeFolders;
     }
 
     /// <summary>
@@ -2490,6 +2613,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         this.OnPropertyChanged(nameof(this.SourceHeadline));
 
+        // The scan settings belong to the source segment, and CanRescanWithOptions moves
+        // with the LIST as well as with the settings - clearing the list takes it false
+        // without anything about the settings having changed. Raised here, with everything
+        // else the segment shows, rather than from its own cluster that half the callers
+        // would forget: the notification tests caught exactly that.
+        this.OnPropertyChanged(nameof(this.ScanSettingLabel));
+        this.OnPropertyChanged(nameof(this.CanRescanWithOptions));
+
         this.OnPropertyChanged(nameof(this.IsRuleFromTemplate));
         this.OnPropertyChanged(nameof(this.IsRuleFromPane));
         this.OnPropertyChanged(nameof(this.RuleTemplateName));
@@ -2799,6 +2930,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         try
         {
+            // The fifth entry point, and the one that matters most here: this runs after
+            // every apply. Left on ScanFilter.Default, turning "include subfolders" off and
+            // then running a job would silently repopulate the list with the whole tree.
+            ScanFilter filter = this.BuildScanFilter();
+
             foreach (string root in roots)
             {
                 if (token.IsCancellationRequested)
@@ -2806,7 +2942,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                     break;
                 }
 
-                await this.AddFolderAsync(root, ScanFilter.Default, token);
+                await this.AddFolderAsync(root, filter, token);
             }
         }
         finally

@@ -81,6 +81,54 @@ public class FileScannerTests
     }
 
     /// <summary>
+    /// Subfolders are not files, and collecting them was never asked for.
+    ///
+    /// IncludeDirectories was honoured in exactly one case - when folders were the only
+    /// thing wanted - and ignored the rest of the time, because the enumeration hands back
+    /// folders as well as files whenever files are wanted and nothing downstream checked.
+    /// So every subfolder of a dropped tree arrived as a row and took the run's dates along
+    /// with the photos inside it.
+    /// </summary>
+    [Fact]
+    public async Task Subfolders_are_collected_only_when_asked_for()
+    {
+        using var temp = new TempFolder();
+        _ = temp.CreateFile("top.jpg");
+        _ = temp.CreateFile(Path.Combine("nested", "deep.jpg"));
+
+        List<ScannedFile> without = await ScanAsync(temp.Path, ScanFilter.Default);
+        List<ScannedFile> with = await ScanAsync(temp.Path, ScanFilter.Default with { IncludeDirectories = true });
+
+        without.Count.ShouldBe(2);
+        without.Any(f => f.IsDirectory).ShouldBeFalse("the folder is not one of the files in it");
+
+        with.Any(f => f.IsDirectory).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Hidden and system files stay out unless asked for.
+    ///
+    /// AttributesToSkip was set to None, which overrides .NET's own default, so every scan
+    /// swept them in with nothing on screen saying so. Dropping a folder means the files
+    /// you can see in it.
+    /// </summary>
+    [Fact]
+    public async Task Hidden_files_are_collected_only_when_asked_for()
+    {
+        using var temp = new TempFolder();
+        _ = temp.CreateFile("plain.jpg");
+
+        string hidden = temp.CreateFile("secret.jpg");
+        File.SetAttributes(hidden, FileAttributes.Hidden);
+
+        List<ScannedFile> without = await ScanAsync(temp.Path, ScanFilter.Default);
+        List<ScannedFile> with = await ScanAsync(temp.Path, ScanFilter.Default with { IncludeHidden = true });
+
+        without.Select(f => f.FileName).ShouldBe(["plain.jpg"]);
+        with.Select(f => f.FileName).OrderBy(n => n).ShouldBe(["plain.jpg", "secret.jpg"]);
+    }
+
+    /// <summary>
     /// The root folder itself is a separate request from its contents. FileTouch separated
     /// these correctly and it is easy to miss.
     /// </summary>
