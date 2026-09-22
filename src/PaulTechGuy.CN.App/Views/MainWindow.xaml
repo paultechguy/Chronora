@@ -288,8 +288,21 @@
                         as a control - and the card beside it really does toggle a filter,
                         so three segments that look alike must not behave three ways.
                     -->
+                    <!--
+                        Gone until there is a rule to edit. With nothing chosen the card
+                        says so and holds two blank lines, and a lone link floating in an
+                        otherwise empty card looks like the card failed to load. The pane it
+                        would jump to is already showing its question at full size a few
+                        inches away, so nothing is lost by not offering a shortcut to it.
+
+                        Hidden rather than greyed, which is the opposite of the rule this
+                        app usually follows - but that rule is about controls people go
+                        looking for, and nobody hunts for "Edit" on a card that has just
+                        told them there is nothing to edit.
+                    -->
                     <HyperlinkButton Grid.Column="1" Content="Edit →" VerticalAlignment="Top"
                                      Padding="6,0" Click="OnEditRule"
+                                     Visibility="{x:Bind Workbench.HasChosenIntent, Mode=OneWay}"
                                      ToolTipService.ToolTip="The options pane on the right is where the run is built." />
                 </Grid>
             </Border>

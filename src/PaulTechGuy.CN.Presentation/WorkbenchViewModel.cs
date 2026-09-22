@@ -2666,9 +2666,31 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial IReadOnlyList<JournalRun> History { get; set; } = [];
 
-    /// <summary>True when something has been applied and can still be put back.</summary>
-    public bool CanUndo => this.History.Any(r =>
-        r.Kind == RunKind.Apply && r.Status is RunStatus.Completed or RunStatus.PartiallyReverted);
+    /// <summary>
+    /// The run this session applied, if it has applied one. Null until then, and null again
+    /// once it has been put back.
+    /// </summary>
+    private long? _lastRunThisSession;
+
+    /// <summary>
+    /// True when THIS SESSION has applied a run that can still be put back.
+    ///
+    /// Deliberately not "the journal contains a revertible run". It used to be, and the
+    /// button that says "Undo last run" was therefore live the moment the app opened,
+    /// offering to revert whatever was applied days ago - while sitting beside Apply, where
+    /// the comment says the moment someone wants it is the moment straight after the run
+    /// they regret. Undoing Tuesday's work from a button captioned "last run" is exactly
+    /// the surprise the rest of this app is built to avoid.
+    ///
+    /// Older runs are not lost, and are not meant to be reached from here: History lists
+    /// every one of them with what it did and when, and its Undo sits on the row it undoes
+    /// where it cannot be misread.
+    /// </summary>
+    public bool CanUndo => this._lastRunThisSession is { } runId
+        && this.History.Any(r =>
+            r.RunId == runId
+            && r.Kind == RunKind.Apply
+            && r.Status is RunStatus.Completed or RunStatus.PartiallyReverted);
 
     /// <summary>
     /// Writes the ticked rows that actually change something.
@@ -2720,6 +2742,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 this._roots);
 
             ApplyOutcome outcome = await this._apply.ApplyAsync(plans, header, progress, this._run.Token);
+
+            // What "Undo last run" means from here on. Recorded even when the run partly
+            // failed, because the part that succeeded is exactly what somebody would want
+            // back.
+            this._lastRunThisSession = outcome.RunId;
 
             this.ScanStatus = DescribeOutcome(outcome);
 
@@ -2784,12 +2811,18 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [RelayCommand]
     public async Task UndoLastAsync()
     {
-        JournalRun? last = this.History.FirstOrDefault(r =>
-            r.Kind == RunKind.Apply && r.Status is RunStatus.Completed or RunStatus.PartiallyReverted);
+        // The run this session applied, not merely the newest revertible one in the
+        // journal - see CanUndo. Without the run id this reached back into previous days.
+        JournalRun? last = this._lastRunThisSession is { } runId
+            ? this.History.FirstOrDefault(r =>
+                r.RunId == runId
+                && r.Kind == RunKind.Apply
+                && r.Status is RunStatus.Completed or RunStatus.PartiallyReverted)
+            : null;
 
         if (last is null)
         {
-            this.ScanStatus = "There is nothing to undo.";
+            this.ScanStatus = "There is nothing to undo. Older runs are in History.";
             return;
         }
 
