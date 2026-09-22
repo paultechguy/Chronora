@@ -181,6 +181,38 @@ public class CommandDeckTests
         fixture.ViewModel.RuleTargetLine.ShouldContain("Created");
     }
 
+    /// <summary>
+    /// The edit link appears and disappears with the rule it offers to edit.
+    ///
+    /// A lone link floating in a card that has just said "Nothing chosen yet" looks like
+    /// the card failed to load - and the pane it would jump to is showing that same
+    /// question at full size a few inches away, so there is nothing to shortcut to.
+    /// </summary>
+    [Fact]
+    public async Task The_edit_link_is_gone_until_there_is_a_rule()
+    {
+        var fixture = new WorkbenchFixture();
+
+        using (fixture)
+        {
+            await fixture.LoadAsync("a.txt");
+
+            fixture.ViewModel.RuleIntentLine.ShouldBe("Nothing chosen yet");
+            fixture.ViewModel.HasRuleToEdit.ShouldBeFalse();
+
+            fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+            fixture.ViewModel.RuleIntentLine.ShouldBe("File dates");
+            fixture.ViewModel.HasRuleToEdit.ShouldBeTrue();
+
+            fixture.ViewModel.StartOver();
+
+            fixture.ViewModel.RuleIntentLine.ShouldBe("Nothing chosen yet");
+            fixture.ViewModel.HasRuleToEdit.ShouldBeFalse(
+                "the link has to move with the line it sits beside, not merely agree with it");
+        }
+    }
+
     /// <summary>The source segment counts folders separately from files, and says neither when empty.</summary>
     [Fact]
     public async Task The_source_segment_states_what_is_loaded()

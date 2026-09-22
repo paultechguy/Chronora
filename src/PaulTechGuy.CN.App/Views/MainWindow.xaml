@@ -302,7 +302,7 @@
                     -->
                     <HyperlinkButton Grid.Column="1" Content="Edit →" VerticalAlignment="Top"
                                      Padding="6,0" Click="OnEditRule"
-                                     Visibility="{x:Bind Workbench.HasChosenIntent, Mode=OneWay}"
+                                     Visibility="{x:Bind Workbench.HasRuleToEdit, Mode=OneWay}"
                                      ToolTipService.ToolTip="The options pane on the right is where the run is built." />
                 </Grid>
             </Border>
