@@ -220,11 +220,21 @@ for its outcome instead of its action.
 
 **Remaining in 8:** the app icon, theming.
 
-**Milestone 9** is barely started. `build/` has only `Get-ExifTool.ps1` and
-`Test-ExifToolManifest.ps1`; `build/installer/` is empty. Needed: `ReleaseCommon.ps1`,
-`Publish-Release.ps1`, `New-Release.ps1`, `New-DevBuild.ps1`, the per-user installer, and
-the upgrade-over-previous smoke test — which cannot run even once until a previous
-release exists.
+**Milestone 9** is built, and half of it is verified by use rather than by reading.
+`ReleaseCommon.ps1`, `New-DevBuild.ps1`, `New-Release.ps1`, `New-ReleaseNotes.ps1`,
+`Publish-Release.ps1`, the two note templates and `build/installer/` are all in place, and
+`docs/Releasing.md` is no longer a stub. Adapted from Marqora, with two of its gates
+deliberately dropped and three added that Chronora needs — see Releasing.md.
+
+**Seen working 2026-09-21/22:** `New-DevBuild.ps1` produces an 82 MB zip with the right seven
+root entries and no ExifTool binary; that zip installs, the app runs, Send To adds and removes
+correctly, and Add/Remove Programs uninstalls cleanly — removing the managed ExifTool and
+keeping settings, templates and history. The gate machinery is live: `New-ReleaseNotes -Check`
+correctly refused a release while `dev` was ahead of `origin/dev`.
+
+**Not yet exercised:** `Publish-Release.ps1`. It cannot be until there is something to
+release, and its `-Verify` step — which writes `docs/version.json` — has never run. The
+upgrade-over-previous test is structurally impossible for 0.1.0 and is in force from 0.2.0.
 
 **Milestone 10 (0.2.0):** Google Takeout importer, winget manifest.
 
