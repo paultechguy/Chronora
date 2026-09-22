@@ -150,7 +150,8 @@
             <Border Grid.Column="0" Style="{StaticResource CnDeckCardStyle}">
                 <StackPanel Spacing="2">
                     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
-                        <FontIcon Glyph="&#xE8B7;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
+                        <FontIcon Glyph="&#xE8B7;" Style="{StaticResource CnDeckCaptionGlyphStyle}"
+                                  AutomationProperties.AccessibilityView="Raw" />
                         <TextBlock Text="SOURCE" Style="{StaticResource CnDeckCaptionStyle}" />
                     </StackPanel>
 
@@ -248,7 +249,8 @@
             <Border Grid.Column="1" Style="{StaticResource CnDeckCardStyle}">
                     <StackPanel Spacing="2">
                         <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
-                            <FontIcon Glyph="&#xE9D5;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
+                            <FontIcon Glyph="&#xE9D5;" Style="{StaticResource CnDeckCaptionGlyphStyle}"
+                                      AutomationProperties.AccessibilityView="Raw" />
                             <TextBlock Text="RULE" Style="{StaticResource CnDeckCaptionStyle}" />
                         </StackPanel>
 
@@ -295,7 +297,8 @@
             <Border Grid.Column="2" Style="{StaticResource CnDeckCardStyle}" MinWidth="200">
                 <StackPanel Spacing="2">
                     <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
-                        <FontIcon Glyph="&#xE9D9;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
+                        <FontIcon Glyph="&#xE9D9;" Style="{StaticResource CnDeckCaptionGlyphStyle}"
+                                  AutomationProperties.AccessibilityView="Raw" />
                         <TextBlock Text="RESULT" Style="{StaticResource CnDeckCaptionStyle}" />
                     </StackPanel>
 
@@ -326,7 +329,8 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0" Text="{x:Bind Workbench.ChangingFilterLabel, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" />
-                            <FontIcon Grid.Column="1" Glyph="&#xE71C;" FontSize="10" Margin="8,0,0,0" />
+                            <FontIcon Grid.Column="1" Glyph="&#xE71C;" FontSize="10" Margin="8,0,0,0"
+                                      AutomationProperties.AccessibilityView="Raw" />
                         </Grid>
                     </ToggleButton>
 
@@ -338,7 +342,8 @@
                         <Grid ColumnDefinitions="*,Auto">
                             <TextBlock Grid.Column="0" Text="{x:Bind Workbench.ProblemsFilterLabel, Mode=OneWay}"
                                        Style="{StaticResource CaptionTextBlockStyle}" />
-                            <FontIcon Grid.Column="1" Glyph="&#xE71C;" FontSize="10" Margin="8,0,0,0" />
+                            <FontIcon Grid.Column="1" Glyph="&#xE71C;" FontSize="10" Margin="8,0,0,0"
+                                      AutomationProperties.AccessibilityView="Raw" />
                         </Grid>
                     </ToggleButton>
                 </StackPanel>
@@ -475,6 +480,7 @@
                         -->
                         <FontIcon Grid.Column="0" Glyph="&#xE71C;" FontSize="12"
                                   Foreground="{ThemeResource CnAccentBrush}"
+                                  AutomationProperties.AccessibilityView="Raw"
                                   VerticalAlignment="Center" />
 
                         <TextBox Grid.Column="1" MinWidth="140"
@@ -748,6 +754,7 @@
                             IsHitTestVisible="False"
                             Visibility="{x:Bind Workbench.IsListEmpty, Mode=OneWay}">
                     <FontIcon Glyph="&#xE8DE;" FontSize="36" HorizontalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw"
                               Foreground="{ThemeResource CnAccentBrush}" />
                     <TextBlock Text="Drop files and/or folders here to begin"
                                Style="{StaticResource SubtitleTextBlockStyle}"
@@ -775,6 +782,7 @@
                             HorizontalAlignment="Center" VerticalAlignment="Center"
                             Visibility="{x:Bind Workbench.IsFilteredToNothing, Mode=OneWay}">
                     <FontIcon Glyph="&#xE71C;" FontSize="32" HorizontalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw"
                               Foreground="{ThemeResource SystemFillColorCautionBrush}" />
                     <TextBlock Text="{x:Bind Workbench.FilteredToNothingNote, Mode=OneWay}"
                                Style="{StaticResource SubtitleTextBlockStyle}"

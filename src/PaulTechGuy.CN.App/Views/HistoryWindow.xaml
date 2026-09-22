@@ -84,7 +84,8 @@
                         IsHitTestVisible="False"
                         Visibility="{x:Bind Workbench.IsHistoryEmpty, Mode=OneWay}">
                 <FontIcon Glyph="&#xE81C;" FontSize="36" HorizontalAlignment="Center"
-                          Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                          AutomationProperties.AccessibilityView="Raw"
+                          Foreground="{ThemeResource CnAccentBrush}" />
                 <TextBlock Text="No runs to undo yet"
                            Style="{StaticResource SubtitleTextBlockStyle}"
                            HorizontalAlignment="Center" TextWrapping="Wrap"

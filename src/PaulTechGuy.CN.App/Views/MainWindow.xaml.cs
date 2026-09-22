@@ -319,6 +319,16 @@ public sealed partial class MainWindow : Window
         _ = FindContainer(e.OriginalSource)?.Focus(FocusState.Keyboard);
     }
 
+    private static bool IsControlDown() =>
+        Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    private static bool IsShiftDown() =>
+        Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
     /// <summary>
     /// Space ticks or unticks the selected row.
     ///
@@ -328,6 +338,30 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnFileListKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        // Ctrl+A and Ctrl+Shift+A, handled here rather than left to the accelerators on the
+        // Select menu's items. Those give the menu its shortcut captions, which is worth
+        // having, but an accelerator on a MenuFlyoutItem is only reliable while the flyout
+        // is open - and a shortcut you have to open a menu to use is not a shortcut. Both
+        // commands are idempotent, so if the accelerator does fire as well, running twice
+        // lands in the same place.
+        //
+        // Scoped to the list on purpose: Ctrl+A while typing in the filter box should
+        // select the text, which is what it will now do.
+        if (e.Key == Windows.System.VirtualKey.A && IsControlDown())
+        {
+            if (IsShiftDown())
+            {
+                this.Workbench.SelectNone();
+            }
+            else
+            {
+                this.Workbench.SelectAllShown();
+            }
+
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key != Windows.System.VirtualKey.Space)
         {
             return;
