@@ -164,6 +164,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.Summary = ChangeSummary.Empty;
         this.Templates = templates.All;
         this.RefreshHistory();
+
+        // Before any settings are restored, so a host that never calls ApplySettings still
+        // gets a sensible baseline rather than a null one.
+        this.MarkResting();
     }
 
     /// <summary>
@@ -1730,13 +1734,67 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// Whether anything would actually change. Covers the view state as well as the list,
     /// because a stale filter is precisely the thing you cannot see the cause of.
     /// </summary>
-    public bool CanStartOver =>
-        this.HasAnyFiles
-        || this.Intent != WorkIntent.None
-        || this.Sort != SortChoice.Name
-        || this.SortDescending
-        || this.ShowOnlyChanging
-        || this.ShowOnlyProblems;
+    /// <summary>
+    /// Everything Start over would put back, as one comparable value.
+    /// </summary>
+    private sealed record SessionState(
+        WorkIntent Intent,
+        SourceChoice Source,
+        SortChoice Sort,
+        bool SortDescending,
+        bool ShowOnlyChanging,
+        bool ShowOnlyProblems,
+        string TypeFilter,
+        bool WriteCreated,
+        bool WriteModified,
+        bool WriteChanged,
+        bool WriteTaken,
+        string? Template);
+
+    private SessionState Snapshot() => new(
+        this.Intent,
+        this.Source,
+        this.Sort,
+        this.SortDescending,
+        this.ShowOnlyChanging,
+        this.ShowOnlyProblems,
+        this.TypeFilter,
+        this.WriteCreated,
+        this.WriteModified,
+        this.WriteChanged,
+        this.WriteTaken,
+        this.ActiveTemplate?.Name);
+
+    /// <summary>
+    /// Where this session came in. Anything different from this is something to start over
+    /// FROM; anything equal to it is the state the app opened in.
+    /// </summary>
+    private SessionState _restingState;
+
+    /// <summary>
+    /// Declares the current state to be the one Start over has nothing to do about.
+    ///
+    /// Called when the app opens, again once the saved settings have been restored, and
+    /// again after a Start over - each of which is a moment where the user has, by
+    /// definition, not yet changed anything.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_restingState))]
+    private void MarkResting() => this._restingState = this.Snapshot();
+
+    /// <summary>
+    /// Whether anything would actually change.
+    ///
+    /// Compared against where the session STARTED rather than against hard defaults, and
+    /// that distinction is the whole point. Settings persist the intent, the sort and the
+    /// filters, so a fresh launch restores them and a rule built from defaults is the
+    /// exception rather than the norm - which left Start over lit up on an empty window
+    /// where nothing had been done yet, offering to undo a choice made days ago.
+    ///
+    /// The intent still counts, which it has to: without it the button stayed disabled
+    /// right after somebody picked the wrong one, and that is the moment they want it.
+    /// It now counts as a CHANGE to the intent rather than as the intent being set at all.
+    /// </summary>
+    public bool CanStartOver => this.HasAnyFiles || this.Snapshot() != this._restingState;
 
     /// <summary>
     /// Back to the opening question: no files, no filters, no intent.
@@ -1787,6 +1845,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this._applyingIntent = false;
             this._applyingTemplate = false;
         }
+
+        // Having just started over, there is nothing left to start over from - so this
+        // becomes the new resting state and the button goes out. Undoing it puts the old
+        // values back, which differ from this one, and the button returns on its own.
+        this.MarkResting();
 
         this.NotifyIntentDerived();
         this.NotifyTemplateState();
@@ -2169,6 +2232,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ScanRecurse = settings.ScanRecurse;
         this.ScanIncludeHidden = settings.ScanIncludeHidden;
         this.ScanIncludeFolders = settings.ScanIncludeFolders;
+
+        // What was restored is where this session starts, not something the user has done.
+        // Without this the window opened with Start over already live, offering to undo a
+        // choice made on another day.
+        this.MarkResting();
+        this.OnPropertyChanged(nameof(this.CanStartOver));
     }
 
     /// <summary>

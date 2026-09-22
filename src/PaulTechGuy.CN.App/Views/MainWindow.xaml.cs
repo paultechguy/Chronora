@@ -118,6 +118,15 @@ public sealed partial class MainWindow : Window
             new RightTappedEventHandler(this.OnRowRightTapped),
             handledEventsToo: true);
 
+        // Space ticks and unticks the selected row, which is what a list of checkboxes is
+        // expected to do and is the difference between working this list from the keyboard
+        // and not. handledEventsToo for the usual reason: the ListViewItem claims the key
+        // for its own selection handling on the way past.
+        this.FileList.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(this.OnFileListKeyDown),
+            handledEventsToo: true);
+
         // Registered as well, not instead, and only for Shift+F10 and the menu key.
         // ContextRequested DOES fire on a right-click - an earlier reading of the log
         // said it never did, and that was wrong. It arrives about a millisecond after
@@ -279,6 +288,40 @@ public sealed partial class MainWindow : Window
         {
             Serilog.Log.Error(ex, "Could not re-read the folders with the new scan options.");
         }
+    }
+
+    /// <summary>
+    /// Space ticks or unticks the selected row.
+    ///
+    /// The checkbox is what decides whether a file is in the run, so a list that can be
+    /// walked with the arrow keys and not ticked with the space bar is only half usable
+    /// from the keyboard.
+    /// </summary>
+    private void OnFileListKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Space)
+        {
+            return;
+        }
+
+        // The row's own checkbox already does this when it holds focus. Acting here as
+        // well would toggle twice and land back where it started, which looks like the key
+        // doing nothing at all.
+        if (e.OriginalSource is CheckBox)
+        {
+            return;
+        }
+
+        if (this.Workbench.SelectedRow is not { } row)
+        {
+            return;
+        }
+
+        // The view model is subscribed to every row, so ticking one is enough on its own
+        // to move the summary and the Apply count - no refresh call belongs here.
+        row.IsIncluded = !row.IsIncluded;
+
+        e.Handled = true;
     }
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)

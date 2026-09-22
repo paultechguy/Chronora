@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using PaulTechGuy.CN.Repositories;
 using Shouldly;
 
 namespace PaulTechGuy.CN.Presentation.Tests;
@@ -211,6 +212,63 @@ public class CommandDeckTests
 
             fixture.ViewModel.RuleIntentLine.ShouldBe("Nothing chosen yet");
             fixture.ViewModel.RuleSourceLine.ShouldBeEmpty();
+        }
+    }
+
+    /// <summary>
+    /// Start over is about this session, not about the settings file.
+    ///
+    /// Intent, sort and the view filters all persist, so a fresh launch restores them and a
+    /// window built from hard defaults is the exception rather than the norm. Measured
+    /// against defaults, the button came up lit on an empty window where nothing had been
+    /// done, offering to undo a choice made on another day.
+    /// </summary>
+    [Fact]
+    public void Start_over_is_dead_until_this_session_has_changed_something()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        // The fields have to agree with the intent, because the intent is reconciled FROM
+        // them - a saved PhotoDates with the photo field unticked is a FileDates run, and
+        // the app is right to say so.
+        var saved = new AppSettings
+        {
+            Intent = nameof(WorkIntent.PhotoDates),
+            WriteCreated = false,
+            WriteModified = false,
+            WriteTaken = true,
+            Sort = nameof(SortChoice.Status),
+            SortDescending = true,
+        };
+
+        fixture.ViewModel.ApplySettings(saved);
+
+        fixture.ViewModel.Intent.ShouldBe(WorkIntent.PhotoDates, "the settings really did restore a non-default state");
+        fixture.ViewModel.CanStartOver.ShouldBeFalse("nothing has been done yet this session");
+
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+
+        fixture.ViewModel.CanStartOver.ShouldBeTrue(
+            "changing the intent is exactly when somebody who picked wrong wants this");
+
+        fixture.ViewModel.StartOver();
+
+        fixture.ViewModel.CanStartOver.ShouldBeFalse("having just started over, there is nothing left to start over from");
+    }
+
+    /// <summary>Files alone are enough, whatever the options say.</summary>
+    [Fact]
+    public async Task Start_over_wakes_up_as_soon_as_there_are_files()
+    {
+        var fixture = new WorkbenchFixture();
+
+        using (fixture)
+        {
+            fixture.ViewModel.CanStartOver.ShouldBeFalse();
+
+            await fixture.LoadAsync("a.txt");
+
+            fixture.ViewModel.CanStartOver.ShouldBeTrue();
         }
     }
 
