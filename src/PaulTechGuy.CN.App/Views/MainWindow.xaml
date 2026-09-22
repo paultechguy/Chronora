@@ -381,7 +381,7 @@
                                         -->
                                         <TextBlock Grid.Column="0" Text="{x:Bind FieldName}"
                                                    Style="{StaticResource CaptionTextBlockStyle}"
-                                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                                   Foreground="{ThemeResource CnAccentBrush}" />
                                         <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
                                                    Style="{StaticResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Column="2" Text="{x:Bind SuspiciousDetail}"
@@ -476,7 +476,8 @@
                             "narrow what I see" to everybody who has ever used a computer,
                             and this control narrows what gets WRITTEN.
                         -->
-                        <FontIcon Grid.Column="0" Glyph="&#xE71C;" FontSize="12" Opacity="0.6"
+                        <FontIcon Grid.Column="0" Glyph="&#xE71C;" FontSize="12"
+                                  Foreground="{ThemeResource CnAccentBrush}"
                                   VerticalAlignment="Center" />
 
                         <TextBox Grid.Column="1" MinWidth="140"
@@ -642,7 +643,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="File" />
                                     <TextBlock Text="{x:Bind Workbench.FileHeaderCaret, Mode=OneWay}"
-                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                               Foreground="{ThemeResource CnAccentBrush}" />
                                 </StackPanel>
                             </Button>
 
@@ -659,7 +660,7 @@
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="Status" />
                                     <TextBlock Text="{x:Bind Workbench.StatusHeaderCaret, Mode=OneWay}"
-                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                               Foreground="{ThemeResource CnAccentBrush}" />
                                 </StackPanel>
                             </Button>
                         </Grid>
@@ -750,7 +751,7 @@
                             IsHitTestVisible="False"
                             Visibility="{x:Bind Workbench.IsListEmpty, Mode=OneWay}">
                     <FontIcon Glyph="&#xE8DE;" FontSize="36" HorizontalAlignment="Center"
-                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                              Foreground="{ThemeResource CnAccentBrush}" />
                     <TextBlock Text="Drop files and/or folders here to begin"
                                Style="{StaticResource SubtitleTextBlockStyle}"
                                HorizontalAlignment="Center" TextWrapping="Wrap"
@@ -825,7 +826,7 @@
                         Visibility="{x:Bind Workbench.HasActionNotice, Mode=OneWay}">
                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE73E;" FontSize="14" VerticalAlignment="Center"
-                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                  Foreground="{ThemeResource CnAccentBrush}"
                                   AutomationProperties.AccessibilityView="Raw" />
 
                         <TextBlock Text="{x:Bind Workbench.ActionNotice, Mode=OneWay}"
