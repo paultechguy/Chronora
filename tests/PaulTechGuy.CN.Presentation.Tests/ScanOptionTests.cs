@@ -128,6 +128,79 @@ public class ScanOptionTests
         fixture.ViewModel.Rows.Count.ShouldBe(2, "asked for, so collected");
     }
 
+    /// <summary>
+    /// A file dropped on its own survives the rescan that follows a run.
+    ///
+    /// The rescan re-reads the ROOTS, and a file named on its own belongs to no root - so
+    /// clearing the rows and rebuilding them from the folders quietly threw every loose
+    /// file away. It needs a folder in the list as well to show up at all: with only loose
+    /// files there were no roots, the rescan returned early, and nothing was lost.
+    /// </summary>
+    [Fact]
+    public async Task A_file_dropped_on_its_own_survives_a_rescan()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        // A folder, so the rescan has something to rebuild from...
+        await fixture.LoadAsync("in-folder.txt");
+
+        // ...and a file from somewhere else entirely, named on its own.
+        string elsewhere = Path.Combine(Path.GetTempPath(), "chronora-loose", Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(elsewhere);
+
+        string loose = Path.Combine(elsewhere, "on-its-own.txt");
+        await File.WriteAllTextAsync(loose, "x", TestContext.Current.CancellationToken);
+
+        try
+        {
+            await fixture.ViewModel.AddDroppedAsync([loose], TestContext.Current.CancellationToken);
+
+            fixture.ViewModel.Rows.Count.ShouldBe(2);
+
+            await fixture.ViewModel.RescanWithOptionsAsync();
+
+            fixture.ViewModel.Rows.Count.ShouldBe(2, "the loose file was dropped on the floor by the rescan");
+            fixture.ViewModel.Rows.Any(r => r.Name == "on-its-own.txt").ShouldBeTrue();
+            fixture.ViewModel.Rows.Any(r => r.Name == "in-folder.txt").ShouldBeTrue();
+        }
+        finally
+        {
+            Directory.Delete(elsewhere, recursive: true);
+        }
+    }
+
+    /// <summary>A loose file that has since gone leaves the list rather than coming back broken.</summary>
+    [Fact]
+    public async Task A_loose_file_that_has_gone_does_not_come_back()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        await fixture.LoadAsync("in-folder.txt");
+
+        string elsewhere = Path.Combine(Path.GetTempPath(), "chronora-loose", Guid.NewGuid().ToString("N"));
+        _ = Directory.CreateDirectory(elsewhere);
+
+        string loose = Path.Combine(elsewhere, "doomed.txt");
+        await File.WriteAllTextAsync(loose, "x", TestContext.Current.CancellationToken);
+
+        try
+        {
+            await fixture.ViewModel.AddDroppedAsync([loose], TestContext.Current.CancellationToken);
+            fixture.ViewModel.Rows.Count.ShouldBe(2);
+
+            File.Delete(loose);
+
+            await fixture.ViewModel.RescanWithOptionsAsync();
+
+            fixture.ViewModel.Rows.Count.ShouldBe(1);
+            fixture.ViewModel.Rows.Any(r => r.Name == "doomed.txt").ShouldBeFalse();
+        }
+        finally
+        {
+            Directory.Delete(elsewhere, recursive: true);
+        }
+    }
+
     [Fact]
     public void The_settings_survive_a_restart()
     {

@@ -112,6 +112,17 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private readonly List<string> _roots = [];
 
     /// <summary>
+    /// Files dropped one at a time, rather than found inside a folder.
+    ///
+    /// Tracked separately because a rescan re-reads the folders, and these have no folder
+    /// to be re-read from. Without them the list silently lost every individually dropped
+    /// file the moment a run finished - the rescan after an apply cleared the rows and put
+    /// back only what the roots gave it. Quiet until the deck put a file count at the top
+    /// of the window, where it became a number that visibly dropped after every run.
+    /// </summary>
+    private readonly List<string> _looseFiles = [];
+
+    /// <summary>
     /// Guards the reconcile loop: choosing an intent ticks boxes, and a ticked box would
     /// otherwise reconcile the intent straight back to Custom.
     /// </summary>
@@ -1462,6 +1473,16 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 }
             }
 
+            // And the other half of what was dropped. A file named on its own belongs to no
+            // folder, so a rescan has nothing to find it by unless it is remembered here.
+            foreach (string path in paths.Where(File.Exists))
+            {
+                if (!this._looseFiles.Contains(path, StringComparer.OrdinalIgnoreCase))
+                {
+                    this._looseFiles.Add(path);
+                }
+            }
+
             string what = paths.Count == 1 ? Path.GetFileName(paths[0].TrimEnd(Path.DirectorySeparatorChar)) : $"{paths.Count} items";
 
             List<PlanRowViewModel> before = [.. this._rowsBeforeDrop];
@@ -1808,6 +1829,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         List<PlanRowViewModel> rows = [.. this._allRows];
         List<string> roots = [.. this._roots];
+        List<string> loose = [.. this._looseFiles];
         WorkIntent intent = this.Intent;
         SourceChoice source = this.Source;
         SortChoice sort = this.Sort;
@@ -1819,6 +1841,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this._allRows.Clear();
         this._roots.Clear();
+        this._looseFiles.Clear();
         this.SelectedRow = null;
         this.ScanStatus = string.Empty;
         this.DismissNudge();
@@ -1860,6 +1883,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             this._allRows.AddRange(rows);
             this._roots.AddRange(roots);
+            this._looseFiles.AddRange(loose);
 
             this._applyingIntent = true;
             this._applyingTemplate = true;
@@ -1959,9 +1983,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         List<PlanRowViewModel> rows = [.. this._allRows];
         List<string> roots = [.. this._roots];
+        List<string> loose = [.. this._looseFiles];
 
         this._allRows.Clear();
         this._roots.Clear();
+        this._looseFiles.Clear();
         this.SelectedRow = null;
         this.ScanStatus = string.Empty;
         this.DismissNudge();
@@ -1975,6 +2001,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             this._allRows.AddRange(rows);
             this._roots.AddRange(roots);
+            this._looseFiles.AddRange(loose);
         };
     }
 
@@ -3018,14 +3045,23 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private async Task RescanAsync()
     {
         List<string> roots = [.. this._roots];
-        if (roots.Count == 0)
+
+        // Files dropped one at a time as well as the folders. Left out, the clear below
+        // threw them away and nothing put them back: an apply ended with every loose file
+        // gone from the list, which is a poor thing to discover after a write.
+        //
+        // Checked against the disk, because a file that has since been moved or deleted
+        // should leave rather than come back as a row pointing at nothing.
+        List<string> loose = [.. this._looseFiles.Where(File.Exists)];
+
+        if (roots.Count == 0 && loose.Count == 0)
         {
             return;
         }
 
         this._allRows.Clear();
 
-        // One scan source around the whole loop, claimed here so that cancelling partway
+        // One scan source around the whole thing, claimed here so that cancelling partway
         // stops the rescan rather than just the folder currently being read. AddFolderAsync
         // joins it instead of opening its own.
         bool ownsScan = this.BeginScan(CancellationToken.None, out CancellationToken token);
@@ -3045,6 +3081,19 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 }
 
                 await this.AddFolderAsync(root, filter, token);
+            }
+
+            if (loose.Count > 0 && !token.IsCancellationRequested)
+            {
+                // ScanPathsAsync takes a file as readily as a folder, which is what makes
+                // this one call rather than a second code path.
+                await foreach (ScannedFile file in this._scanner.ScanPathsAsync(loose, filter, token))
+                {
+                    this._allRows.Add(this.TrackRow(new PlanRowViewModel(file)));
+                }
+
+                this.Recompute();
+                await this.ReadMetadataAsync(token).ConfigureAwait(true);
             }
         }
         finally
