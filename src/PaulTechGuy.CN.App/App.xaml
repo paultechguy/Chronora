@@ -72,11 +72,25 @@
             <Style x:Key="CnColumnHeaderStyle" TargetType="Button">
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="Padding" Value="4,2" />
+
+                <!--
+                    No horizontal padding, so the label's left edge is the column's left
+                    edge and sits directly over the text it names.
+                -->
+                <Setter Property="Padding" Value="0,2" />
                 <Setter Property="MinHeight" Value="0" />
                 <Setter Property="MinWidth" Value="0" />
-                <Setter Property="HorizontalAlignment" Value="Stretch" />
+
+                <!--
+                    Left, NOT Stretch. A stretched header fills its whole column, and a
+                    flyout hung off it opens centred on the column - which for the File
+                    column is half the window away from the label that was clicked. Hugging
+                    the content puts the menu under the word, where every other dropdown in
+                    Windows puts it.
+                -->
+                <Setter Property="HorizontalAlignment" Value="Left" />
                 <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="VerticalAlignment" Value="Bottom" />
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
                 <Setter Property="CornerRadius" Value="4" />
