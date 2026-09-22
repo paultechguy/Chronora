@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Collections.Frozen;
+using System.IO.Enumeration;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -157,12 +158,42 @@ public sealed class FileScanner(
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            bool directoriesOnly = filter.IncludeDirectories && !filter.IncludeFiles;
+            string current = pattern;
+
             IEnumerable<string> matches;
             try
             {
-                matches = filter.IncludeDirectories && !filter.IncludeFiles
-                    ? Directory.EnumerateDirectories(root, pattern, options)
-                    : Directory.EnumerateFileSystemEntries(root, pattern, options);
+                matches = new FileSystemEnumerable<string>(
+                    root,
+                    static (ref FileSystemEntry entry) => entry.ToFullPath(),
+                    options)
+                {
+                    // The junction guard, and the reason this is hand-built rather than a
+                    // call to Directory.EnumerateFileSystemEntries.
+                    //
+                    // RecurseSubdirectories follows reparse points: measured 2026-09-22, a
+                    // junction inside a dropped folder handed back a file from outside it,
+                    // and a junction that points at one of its own ancestors walks for
+                    // ever. "I dropped this folder" cannot reasonably mean "and everywhere
+                    // its links point".
+                    //
+                    // Adding ReparsePoint to AttributesToSkip DOES stop the descent - also
+                    // measured - and is the wrong tool, because that flag applies to files
+                    // as well as folders, and a dehydrated OneDrive file is a reparse
+                    // point. A photo-date tool that silently skipped somebody's cloud
+                    // photos to guard against junctions would be a poor trade. This
+                    // predicate is only consulted for directories, so files are untouched.
+                    ShouldRecursePredicate = static (ref FileSystemEntry entry) =>
+                        !entry.Attributes.HasFlag(FileAttributes.ReparsePoint),
+
+                    // MatchesSimpleExpression, not Win32: EnumerationOptions.MatchType
+                    // defaults to Simple, so this is the matcher the app has always used.
+                    // Win32 would quietly change what IMG_????.CR2 means.
+                    ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+                        (!directoriesOnly || entry.IsDirectory)
+                        && FileSystemName.MatchesSimpleExpression(current, entry.FileName),
+                };
             }
             catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException)
             {
