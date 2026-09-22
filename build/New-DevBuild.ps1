@@ -202,7 +202,7 @@ and run its Install.cmd over the top of this one.
     Set-Content -LiteralPath $path -Value ($banner + $existing) -Encoding UTF8 -NoNewline
 }
 
-Initialize-TaskList -Total $(if ($Test) { 4 } else { 3 })
+Initialize-TaskList -Total $(if ($Test) { 5 } else { 4 })
 
 try {
     $numericVersion = Assert-DevVersion -Value $Version
@@ -218,8 +218,18 @@ try {
     # The offline form only: a dev build is for turnaround, and -Verify pulls 11 MB. It still
     # catches the thing that matters here, which is a placeholder hash that would refuse
     # every ExifTool install on the machine this zip lands on.
+    # The script directly rather than Test-GateExifToolManifest: that helper writes its own
+    # label for the release script's checklist, which here would print the step twice.
     Write-Task 'exiftool manifest'
-    Test-GateExifToolManifest -ScriptPath $manifestScript -Offline
+    $manifestOutput = & pwsh -NoProfile -File $manifestScript 2>&1
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Failed
+        Write-CapturedOutput $manifestOutput
+        throw 'The ExifTool manifest is not usable. Run: pwsh .\build\Test-ExifToolManifest.ps1'
+    }
+
+    Write-Done 'offline check'
 
     # ---- tests
     if ($Test) {

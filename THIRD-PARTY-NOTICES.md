@@ -10,9 +10,14 @@ Harvey (<https://exiftool.org>), licensed under the GNU General Public License v
 or the Artistic License.
 
 **No part of ExifTool is included in Chronora, in its repository, or in any Chronora
-release.** The release archive contains no third-party binary and no GPL code, and CI
-fails the build if anything named `exiftool*` other than Chronora's own manifest appears
-in the publish output.
+release.** The release archive contains no GPL code and no part of ExifTool, and CI fails
+the build if anything named `exiftool*` other than Chronora's own manifest appears in the
+publish output.
+
+The archive does carry other third-party binaries. Chronora ships as a self-contained
+build, so the .NET runtime, the Windows App SDK, SQLitePCLRaw's `e_sqlite3.dll` and Serilog
+travel inside it. All of them are listed under [Packages](#packages) below, none of them is
+copyleft, and `LICENSE` and this file ship in the archive alongside them.
 
 Chronora runs ExifTool as a separate process over its documented `-stay_open` interface.
 A copy reaches the machine one of three ways, all chosen by the person using it:
