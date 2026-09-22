@@ -149,7 +149,10 @@
             <!-- SOURCE -->
             <Border Grid.Column="0" Style="{StaticResource CnDeckCardStyle}">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="SOURCE" Style="{StaticResource CnDeckCaptionStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
+                        <FontIcon Glyph="&#xE8B7;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
+                        <TextBlock Text="SOURCE" Style="{StaticResource CnDeckCaptionStyle}" />
+                    </StackPanel>
 
                     <TextBlock Text="{x:Bind Workbench.SourceHeadline, Mode=OneWay}"
                                Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -235,7 +238,10 @@
             <Border Grid.Column="1" Style="{StaticResource CnDeckCardStyle}">
                 <Grid ColumnDefinitions="*,Auto">
                     <StackPanel Grid.Column="0" Spacing="2">
-                        <TextBlock Text="RULE" Style="{StaticResource CnDeckCaptionStyle}" />
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
+                            <FontIcon Glyph="&#xE9D5;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
+                            <TextBlock Text="RULE" Style="{StaticResource CnDeckCaptionStyle}" />
+                        </StackPanel>
 
                         <!--
                             A template can carry a rule the pane cannot show - the built-in
@@ -291,7 +297,10 @@
             <!-- RESULT -->
             <Border Grid.Column="2" Style="{StaticResource CnDeckCardStyle}" MinWidth="200">
                 <StackPanel Spacing="2">
-                    <TextBlock Text="RESULT" Style="{StaticResource CnDeckCaptionStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
+                        <FontIcon Glyph="&#xE9D9;" Style="{StaticResource CnDeckCaptionGlyphStyle}" />
+                        <TextBlock Text="RESULT" Style="{StaticResource CnDeckCaptionStyle}" />
+                    </StackPanel>
 
                     <!--
                         The number Apply acts on, not the number of files that COULD change.
@@ -363,8 +372,16 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:SummaryLine">
                                     <Grid ColumnDefinitions="110,*,Auto">
+                                        <!--
+                                            The field name in the accent, because it is the
+                                            column the eye scans down when checking a run -
+                                            and because a window this grey needs the
+                                            structure of its most-read block to be visible
+                                            without reading it.
+                                        -->
                                         <TextBlock Grid.Column="0" Text="{x:Bind FieldName}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                         <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
                                                    Style="{StaticResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Column="2" Text="{x:Bind SuspiciousDetail}"
@@ -402,29 +419,6 @@
                 </Border>
 
                 <StackPanel Grid.Row="1" Spacing="6">
-                    <!--
-                        What the last drop did, offered back rather than assumed. A drop
-                        adds, because gathering is almost always the intent, and both
-                        alternatives sit right here while the bar is up. No dialog on an
-                        action people repeat.
-                    -->
-                    <InfoBar IsOpen="{x:Bind Workbench.HasActionNotice, Mode=OneWay}"
-                             Message="{x:Bind Workbench.ActionNotice, Mode=OneWay}"
-                             Severity="Success" IsClosable="True" CloseButtonClick="OnDismissActionNotice">
-                        <!-- ActionButton takes a single button, so both alternatives live
-                             in the content area where they can sit side by side. -->
-                        <InfoBar.Content>
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
-                                <!-- Only when the drop landed on top of something. Replacing
-                                     an empty list with what was just dropped is the same
-                                     list, so the button would offer to do nothing. -->
-                                <Button Content="Replace list instead"
-                                        Visibility="{x:Bind Workbench.CanReplaceWithDrop, Mode=OneWay}"
-                                        Command="{x:Bind Workbench.ReplaceWithDropCommand}" />
-                                <Button Content="Undo" Command="{x:Bind Workbench.UndoLastActionCommand}" />
-                            </StackPanel>
-                        </InfoBar.Content>
-                    </InfoBar>
 
                     <!--
                         The metadata half is unavailable. Shown rather than hidden: hiding
@@ -647,7 +641,8 @@
                                     ToolTipService.ToolTip="Sort by file name. Click again to reverse it. The other two orders are under the ⋯ button.">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="File" />
-                                    <TextBlock Text="{x:Bind Workbench.FileHeaderCaret, Mode=OneWay}" />
+                                    <TextBlock Text="{x:Bind Workbench.FileHeaderCaret, Mode=OneWay}"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                 </StackPanel>
                             </Button>
 
@@ -663,7 +658,8 @@
                                     ToolTipService.ToolTip="Sort by status to bring anything blocked or questionable to the top.">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="Status" />
-                                    <TextBlock Text="{x:Bind Workbench.StatusHeaderCaret, Mode=OneWay}" />
+                                    <TextBlock Text="{x:Bind Workbench.StatusHeaderCaret, Mode=OneWay}"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                 </StackPanel>
                             </Button>
                         </Grid>
@@ -802,6 +798,59 @@
                             Height="{StaticResource CnChromeButtonHeight}"
                             ToolTipService.ToolTip="Clears the type filter and both view filters, whichever of them is hiding the list." />
                 </StackPanel>
+
+                <!--
+                    What the last action did, and the way back from it.
+
+                    This was a fourth InfoBar in the stack above the list, which meant
+                    clearing a list moved the entire window down by forty pixels to tell you
+                    so, and left the bar there until it was dismissed. A banner that reflows
+                    the window reads as though something went wrong; this is a thing that
+                    went RIGHT and is merely reversible.
+
+                    So: floating, over the bottom of the list, out of the layout entirely,
+                    and it takes itself away after a few seconds. The two InfoBars left
+                    upstairs describe conditions that are still true and stay put, which is
+                    what that shape is for.
+
+                    Hovering holds it open - reaching for Undo and having it vanish under
+                    the pointer would be worse than never offering it.
+                -->
+                <Border x:Name="ActionToast" Grid.Row="3"
+                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                        Margin="16" Padding="14,8" CornerRadius="8" BorderThickness="1"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        PointerEntered="OnToastPointerEntered" PointerExited="OnToastPointerExited"
+                        Visibility="{x:Bind Workbench.HasActionNotice, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE73E;" FontSize="14" VerticalAlignment="Center"
+                                  Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                  AutomationProperties.AccessibilityView="Raw" />
+
+                        <TextBlock Text="{x:Bind Workbench.ActionNotice, Mode=OneWay}"
+                                   VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="360" />
+
+                        <!--
+                            Only when the drop landed on top of something. Replacing an empty
+                            list with what was just dropped is the same list, so the button
+                            would offer to do nothing.
+                        -->
+                        <Button Content="Replace list instead"
+                                Visibility="{x:Bind Workbench.CanReplaceWithDrop, Mode=OneWay}"
+                                Command="{x:Bind Workbench.ReplaceWithDropCommand}"
+                                Height="{StaticResource CnFormRowHeight}" />
+
+                        <Button Content="Undo" Command="{x:Bind Workbench.UndoLastActionCommand}"
+                                Height="{StaticResource CnFormRowHeight}" />
+
+                        <Button Content="&#xE711;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                Style="{StaticResource CnChipCloseStyle}"
+                                Click="OnDismissActionNotice"
+                                AutomationProperties.Name="Dismiss"
+                                VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
 
                 <!--
                     Nothing is hidden: the full field-by-field breakdown is one selection

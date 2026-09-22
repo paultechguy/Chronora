@@ -134,9 +134,17 @@ public sealed partial class MainWindow : Window
         // stays alive while ANY window is open. Left alone, closing Chronora with History
         // open leaves an orphaned window and a running process behind - the app looks like
         // it did not shut down, because it did not.
+        // One subscription rather than a timer started at each of the dozen places that
+        // raise a notice - see OnWorkbenchPropertyChanged.
+        this.Workbench.PropertyChanged += this.OnWorkbenchPropertyChanged;
+
         this.Closed += (_, _) =>
         {
             this.SavePlacement();
+
+            this.Workbench.PropertyChanged -= this.OnWorkbenchPropertyChanged;
+            this._toastTimer?.Stop();
+            this._toastTimer = null;
 
             this._history?.Close();
             this._history = null;
@@ -466,7 +474,75 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnDismissActionNotice(InfoBar sender, object args) => this.Workbench.DismissActionNotice();
+    /// <summary>
+    /// How long the action toast stays up on its own.
+    ///
+    /// Long enough to read a sentence and reach for Undo, short enough that it is gone
+    /// before it becomes furniture. Hovering it stops the clock, so the only way to lose
+    /// the button is to not be looking.
+    /// </summary>
+    private static readonly TimeSpan ToastLifetime = TimeSpan.FromSeconds(8);
+
+    private DispatcherTimer? _toastTimer;
+
+    private void OnDismissActionNotice(object sender, RoutedEventArgs e) =>
+        this.Workbench.DismissActionNotice();
+
+    /// <summary>
+    /// Restarts the toast's clock whenever a new notice arrives.
+    ///
+    /// Driven from the view model's own PropertyChanged rather than from each of the dozen
+    /// places that set a notice, because the next person to add one will not remember to
+    /// start a timer and the toast would sit there for ever.
+    /// </summary>
+    private void OnWorkbenchPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(WorkbenchViewModel.ActionNotice))
+        {
+            return;
+        }
+
+        this._toastTimer?.Stop();
+
+        if (!this.Workbench.HasActionNotice)
+        {
+            return;
+        }
+
+        this._toastTimer ??= CreateToastTimer();
+        this._toastTimer.Start();
+    }
+
+    private DispatcherTimer CreateToastTimer()
+    {
+        var timer = new DispatcherTimer { Interval = ToastLifetime };
+
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+
+            // Pointer is over it, so somebody is reading it or about to press Undo.
+            // Checked at the tick rather than cancelled on enter, so the clock restarts
+            // cleanly when the pointer leaves.
+            if (this._toastHovered)
+            {
+                timer.Start();
+                return;
+            }
+
+            this.Workbench.DismissActionNotice();
+        };
+
+        return timer;
+    }
+
+    private bool _toastHovered;
+
+    private void OnToastPointerEntered(object sender, PointerRoutedEventArgs e) =>
+        this._toastHovered = true;
+
+    private void OnToastPointerExited(object sender, PointerRoutedEventArgs e) =>
+        this._toastHovered = false;
 
     private void OnDismissNudge(InfoBar sender, object args) => this.Workbench.DismissNudge();
 

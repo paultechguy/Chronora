@@ -22,6 +22,22 @@
                 anything defined here wins over the framework's copy of the same key.
             -->
 
+            <!--
+                Focus, in the user's accent.
+
+                Not an accent override - the opposite. The rule above forbids Chronora
+                having a colour of its OWN, because a ContentDialog resolves the accent
+                aliases in the popup root and a brand colour leaves the app two-toned. This
+                takes the colour the user already chose and spends it on chrome, which is
+                what that rule says this file is for.
+
+                Worth doing because the default focus rectangle is a black-on-white double
+                border: correct, legible, and the single greyest thing in a window that is
+                already very grey. Only the outer border moves; the inner one stays as it is,
+                because it is what keeps the rectangle visible against the accent itself.
+            -->
+            <SolidColorBrush x:Key="FocusVisualPrimaryBrush" Color="{ThemeResource SystemAccentColorLight2}" />
+
             <!-- Shared metrics, so that no button states its own size inline. -->
             <x:Double x:Key="CnChromeButtonHeight">34</x:Double>
             <x:Double x:Key="CnFormRowHeight">32</x:Double>
@@ -47,11 +63,22 @@
                 <Setter Property="Padding" Value="12,8" />
             </Style>
 
-            <!-- SOURCE / RULE / RESULT. Small and quiet: orientation, not content. -->
+            <!--
+                SOURCE / RULE / RESULT. Small and quiet: orientation, not content - but in
+                the accent rather than in grey, because three identical grey cards give the
+                eye nothing to tell them apart by, and these labels are the only thing that
+                does. Each carries a glyph in the same colour for the same reason.
+            -->
             <Style x:Key="CnDeckCaptionStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
-                <Setter Property="Opacity" Value="0.55" />
+                <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                 <Setter Property="CharacterSpacing" Value="80" />
-                <Setter Property="Margin" Value="0,0,0,2" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="CnDeckCaptionGlyphStyle" TargetType="FontIcon">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
 
             <!--
