@@ -117,12 +117,21 @@ public sealed record DateRule(
 /// Whether the root folder itself is collected, independent of its contents. FileTouch
 /// separated this correctly and it is easy to miss.
 /// </param>
+/// <param name="IncludeHidden">
+/// Whether hidden and system files are collected.
+///
+/// Defaults to FALSE, which is both .NET's own default and a change in behaviour: the
+/// scanner used to set AttributesToSkip to None, so every scan swept up hidden and system
+/// files with nothing on screen saying so. Nobody chose that - it is what a hand-built
+/// EnumerationOptions does when the field is filled in without thinking about it.
+/// </param>
 public sealed record ScanFilter(
     IReadOnlyList<string> Patterns,
     bool Recurse = true,
     bool IncludeFiles = true,
     bool IncludeDirectories = false,
-    bool IncludeRootDirectory = false)
+    bool IncludeRootDirectory = false,
+    bool IncludeHidden = false)
 {
     public static ScanFilter Default => new(["*"]);
 }

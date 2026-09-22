@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Diagnostics;
 using PaulTechGuy.CN.Domain;
 using Shouldly;
 
@@ -78,6 +79,115 @@ public class FileScannerTests
         shallow.Select(f => f.FileName).ShouldContain("top.jpg");
         shallow.Select(f => f.FileName).ShouldNotContain("deep.jpg");
         deep.Select(f => f.FileName).ShouldContain("deep.jpg");
+    }
+
+    /// <summary>
+    /// A junction is a door out of the folder, and a scan must not walk through it.
+    ///
+    /// Measured 2026-09-21: a junction inside a dropped folder handed back a file from
+    /// outside it. A junction pointing at one of its own ancestors is worse - the walk
+    /// never finishes. "I dropped this folder" cannot reasonably mean "and everywhere its
+    /// links point".
+    ///
+    /// mklink /J rather than Directory.CreateSymbolicLink on purpose: a junction needs no
+    /// elevation and no Developer Mode, so this test actually runs on an ordinary machine
+    /// instead of skipping every time while looking like it passed.
+    /// </summary>
+    [Fact]
+    public async Task A_scan_does_not_follow_a_junction_out_of_the_folder()
+    {
+        using var temp = new TempFolder();
+
+        string tree = temp.CreateDirectory("tree");
+        _ = temp.CreateFile(Path.Combine("tree", "inside.jpg"));
+
+        // The target sits under the same temp root, so cleanup stays contained - but it is
+        // outside the folder being scanned, which is the whole point.
+        string outside = temp.CreateDirectory("outside");
+        _ = temp.CreateFile(Path.Combine("outside", "ESCAPED.jpg"));
+
+        string link = Path.Combine(tree, "link");
+
+        using (var mklink = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{outside}\"")
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        }))
+        {
+            if (mklink is not null)
+            {
+                await mklink.WaitForExitAsync(TestContext.Current.CancellationToken);
+            }
+        }
+
+        Assert.SkipUnless(Directory.Exists(link), "This filesystem would not take a junction.");
+
+        try
+        {
+            List<ScannedFile> found = await ScanAsync(tree, ScanFilter.Default);
+
+            found.Select(f => f.FileName).ShouldContain("inside.jpg");
+            found.Select(f => f.FileName).ShouldNotContain(
+                "ESCAPED.jpg",
+                "the scan walked through the junction and collected a file from outside the folder");
+        }
+        finally
+        {
+            // Taken out by hand, and recursive: false, which removes the link and leaves
+            // whatever it points at alone. A recursive delete of the tree would otherwise
+            // be the second thing in this file walking through a junction.
+            Directory.Delete(link, recursive: false);
+        }
+    }
+
+    /// <summary>
+    /// Subfolders are not files, and collecting them was never asked for.
+    ///
+    /// IncludeDirectories was honoured in exactly one case - when folders were the only
+    /// thing wanted - and ignored the rest of the time, because the enumeration hands back
+    /// folders as well as files whenever files are wanted and nothing downstream checked.
+    /// So every subfolder of a dropped tree arrived as a row and took the run's dates along
+    /// with the photos inside it.
+    /// </summary>
+    [Fact]
+    public async Task Subfolders_are_collected_only_when_asked_for()
+    {
+        using var temp = new TempFolder();
+        _ = temp.CreateFile("top.jpg");
+        _ = temp.CreateFile(Path.Combine("nested", "deep.jpg"));
+
+        List<ScannedFile> without = await ScanAsync(temp.Path, ScanFilter.Default);
+        List<ScannedFile> with = await ScanAsync(temp.Path, ScanFilter.Default with { IncludeDirectories = true });
+
+        without.Count.ShouldBe(2);
+        without.Any(f => f.IsDirectory).ShouldBeFalse("the folder is not one of the files in it");
+
+        with.Any(f => f.IsDirectory).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Hidden and system files stay out unless asked for.
+    ///
+    /// AttributesToSkip was set to None, which overrides .NET's own default, so every scan
+    /// swept them in with nothing on screen saying so. Dropping a folder means the files
+    /// you can see in it.
+    /// </summary>
+    [Fact]
+    public async Task Hidden_files_are_collected_only_when_asked_for()
+    {
+        using var temp = new TempFolder();
+        _ = temp.CreateFile("plain.jpg");
+
+        string hidden = temp.CreateFile("secret.jpg");
+        File.SetAttributes(hidden, FileAttributes.Hidden);
+
+        List<ScannedFile> without = await ScanAsync(temp.Path, ScanFilter.Default);
+        List<ScannedFile> with = await ScanAsync(temp.Path, ScanFilter.Default with { IncludeHidden = true });
+
+        without.Select(f => f.FileName).ShouldBe(["plain.jpg"]);
+        with.Select(f => f.FileName).OrderBy(n => n).ShouldBe(["plain.jpg", "secret.jpg"]);
     }
 
     /// <summary>

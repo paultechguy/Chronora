@@ -98,6 +98,17 @@ public sealed record ChangeSummary(
     public int FilesToWrite { get; init; }
 
     /// <summary>
+    /// Files worth a second look: blocked, or questionable, or both, counted ONCE.
+    ///
+    /// This exists because FilesBlocked and FilesSuspicious are independent tallies and a
+    /// file that is both is in both. Neither is the size of the set the "only problems"
+    /// view shows, which is the union - so a control labelled with either number and wired
+    /// to that view says four and then shows nine. Anything that offers to filter down to
+    /// these files must be labelled from here.
+    /// </summary>
+    public int FilesWithProblems { get; init; }
+
+    /// <summary>
     /// Fields the user asked for that will not happen. Shown as prominently as the ones
     /// that will, because "you asked for this and it is not going to work" is more urgent
     /// information than "these other things will".
@@ -205,6 +216,7 @@ public sealed record ChangeSummary(
         int changing = 0;
         int blocked = 0;
         int suspicious = 0;
+        int withProblems = 0;
         int included = 0;
         int toWrite = 0;
         int takenInvisible = 0;
@@ -253,6 +265,14 @@ public sealed record ChangeSummary(
             if (plan.IsSuspicious)
             {
                 suspicious++;
+            }
+
+            // Once, whichever of the two it is - and the condition is a copy of the one
+            // the "only problems" view filters on, deliberately. If they ever drift, the
+            // count stops describing the rows the filter produces.
+            if (plan.HasProblem || plan.IsSuspicious)
+            {
+                withProblems++;
             }
 
             foreach (PlannedChange change in plan.Changes)
@@ -309,6 +329,7 @@ public sealed record ChangeSummary(
         return new ChangeSummary(lines, rows.Count, changing, blocked, suspicious, included)
         {
             FilesToWrite = toWrite,
+            FilesWithProblems = withProblems,
             FilesWithInvisibleTakenDate = takenInvisible,
             BlockedLines = blockedLines,
             UntouchedFileDates = untouched,

@@ -1,7 +1,7 @@
 # Where Chronora is
 
-Last updated 2026-09-20. Branch `dev`, no remote. Build clean at `-warnaserror`,
-465 tests passing.
+Last updated 2026-09-22. Branch `feature/UI-Refactor`, no remote. Build clean at
+`-warnaserror`, 496 tests passing.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -14,6 +14,63 @@ dotnet test PaulTechGuy.CN.slnx
 
 Everything below landed without anyone looking at it, and is unseen unless it says
 otherwise. Rough order of importance.
+
+### 0. The main window chrome refactor — `feature/UI-Refactor`
+
+The toolbar above the file list is gone. It held eleven controls across six unrelated kinds
+of action and was the widest thing in the window, which is what kept the minimum size where
+it was. It was three altitudes in one row: app-level buttons, session management, and view
+controls for the pane below them. Sixteen commits, each buildable, nothing unreachable
+between them.
+
+Where things went: **About** to the title bar, **History** to the footer beside Undo,
+**Add folder / Clear list / Start over** to the deck's SOURCE segment, **sort, filter and
+select** onto the list's own header, **Export preview (CSV)** into that header's overflow.
+
+**Confirmed by Paul 2026-09-22:** About clear of the caption buttons, window dragging, a
+second monitor, History in the footer, the History window's empty state, and the deck
+generally. Two things he sent back and both are fixed: the column-header menus opened
+centred on the column rather than under the label, and the File header carried a sort caret
+and a dropdown chevron at once.
+
+**Still unseen, in the order worth checking:**
+
+- **Scan options and the two scanner defaults that changed with them.** Hidden and system
+  files are no longer collected (`AttributesToSkip` was `None`, overriding .NET's own
+  default) and **subfolders are no longer rows of their own** (`IncludeDirectories` was
+  honoured only when folders were the *only* thing asked for, so every subfolder of a
+  dropped tree took the run's dates along with the photos in it). Both are now checkboxes,
+  both default off. **A run over a tree will touch fewer things than it used to** — that is
+  the point, but it deserves one deliberate look at a folder you do not mind.
+- **Turn off *Include subfolders*, drop a tree, then apply.** The rescan afterwards is the
+  fifth `ScanFilter.Default` entry point and the easiest to miss; it must not repopulate the
+  tree.
+- **Drop some files individually alongside a folder, then apply.** They used to vanish: the
+  rescan rebuilt the list from the roots, and a loose file belongs to no root.
+- **Junctions.** `FileScanner` no longer descends through one. Measured both ways before it
+  was written — see the commit. A junction pointing at its own ancestor used to walk for
+  ever.
+- **The RESULT counts.** `N need a look` must equal the number of rows clicking it produces;
+  the old tallies double-counted a file that was both blocked and suspicious.
+- **Apply with `can change` on.** The list empties on the rescan and must offer **Show all
+  files**, not the old "Nothing matches ." pointing at an empty filter box.
+- **Cancel during a scan.** `IsScanning` was set on both scan paths and bound to nothing.
+- **Undo last run** is now scoped to a run made *this session*; older runs are History's
+  job. It should be greyed on a fresh launch however full the journal is.
+- **Start over** is measured against where the session started, not against hard defaults —
+  settings restore the intent and sort, so measured against defaults it came up lit on an
+  empty window.
+- **Keyboard**: space ticks the selected row, Ctrl+A / Ctrl+Shift+A select shown / all, and
+  a mouse click now draws the same focus border the arrow keys do. **Shift+F10 and the menu
+  key are still unexercised** — no log has ever contained `via=context/keyboard`.
+- **820 effective pixels** is the new minimum; the old 980 was in *raw* pixels. Worth one
+  drag on a scaled monitor.
+- **Colour**: the deck edges, captions, carets and focus rings use the Windows accent
+  through one chrome brush, `CnAccentBrush`. It exists because
+  `AccentTextFillColorPrimaryBrush` resolves to near-white in dark theme — the first attempt
+  at this added colour that could not be seen. **No accent alias is overridden**, so every
+  `ContentDialog` still matches the window; that rule is in `App.xaml` and is load-bearing.
+- **High contrast** is unchecked, for the deck, the chips and the focus visuals alike.
 
 ### 1. The row context menu — right-click a row
 
@@ -99,28 +156,16 @@ its existing time of day.
 
 ## Open, unresolved
 
-- **Folder processing and recursion.** Paul deferred this on 2026-09-20 and wants to
-  discuss it. Nothing is decided. Drops and Add-folder both pass `ScanFilter.Default`, so
-  whatever recursion does today was never actually chosen — and dropping a folder is the
-  most destructive gesture in the app. `ScanFilter` already carries `Recurse`,
-  `IncludeFiles`, `IncludeDirectories` and `IncludeRootDirectory` as independent toggles,
-  and the UI exposes none of them.
+- **Folder processing and recursion — mostly settled 2026-09-22 on `feature/UI-Refactor`.**
+  Recursion, hidden/system files and folders-as-items are now three checkboxes on the source
+  card, sticky, stated on the card in words, and built by one `BuildScanFilter()` that every
+  entry point uses — drop, Add folder, Send To, the command line and the rescan after a run.
+  Junction traversal is stopped. Hidden/system and folders-as-items both default off, which
+  are changes of behaviour and are listed in section 0 for a look.
 
-  **Measured 2026-09-21, and one part is a straight bug rather than a preference.**
-  `ScanFilter.Default` is `Recurse: true, IncludeFiles: true, IncludeDirectories: false,
-  IncludeRootDirectory: false`, so recursion is on and unbounded at every entry point — drop,
-  Add folder, Send To, command line — with no depth limit, no file cap and no confirmation.
-  `AttributesToSkip = FileAttributes.None` overrides .NET's default, so hidden and system
-  files are included. And **recursion follows junctions**: a probe with the app's own
-  enumeration options walked a junction out of the dropped folder and returned a file
-  outside it. A junction loop would walk for ever. `FileScanner` detects `ReparsePoint` as a
-  trait and never uses it to stop traversal.
-
-  Separate the two: stopping traversal at reparse points needs no design debate — "I dropped
-  this folder" cannot reasonably mean "and everywhere its links point". The rest are product
-  decisions: default recursion on or off, whether a drop expanding to thousands should
-  confirm, whether hidden/system should be skipped, and whether folders themselves become
-  datable (`IncludeDirectories` is false today, so they never get dates; FileTouch could).
+  **Still open, and still product decisions:** whether a drop that expands to thousands of
+  files should confirm first, and whether there should be a depth limit or a file cap. There
+  is neither today. Dropping a folder remains the most destructive gesture in the app.
 - **An installer test failed once and never reproduced** in 4+ runs. Still unexplained.
 - **The QuickTime local-time camera case is unverified.** Pixel writes UTC, so the other
   branch of the per-file inference has never been exercised against a real file.

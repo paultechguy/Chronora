@@ -11,7 +11,7 @@
         there is no obvious target to aim at, and a drop that lands on the wrong pane and
         does nothing teaches people the feature does not exist.
     -->
-    <Grid x:Name="RootGrid" RowDefinitions="Auto,*,Auto"
+    <Grid x:Name="RootGrid" RowDefinitions="Auto,Auto,*,Auto"
           AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop" DragLeave="OnDragLeave">
 
         <!--
@@ -62,12 +62,18 @@
 
 
         <!--
-            The title bar carries no controls. It used to hold a File dates / Photo dates
-            switch, which was redundant with the options pane and could actively contradict
-            it: choosing a photo preset set the switch, but moving the switch did not clear
-            the preset. One question, asked once, in one place.
+            The title bar carries exactly one control, and the rule that kept it empty is
+            still in force. It used to hold a File dates / Photo dates switch, which was
+            redundant with the options pane and could actively contradict it: choosing a
+            photo preset set the switch, but moving the switch did not clear the preset.
+            One question, asked once, in one place.
+
+            About is allowed here because it says nothing about the run - it cannot
+            contradict the options pane, because it makes no claim the options pane could
+            disagree with. Anything that describes what a run will do stays out.
         -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="48" Padding="16,0"
+              ColumnDefinitions="Auto,*,Auto">
 
             <!--
                 IsHitTestVisible is off on both, and that is not decoration. This Grid is the
@@ -75,9 +81,15 @@
                 from dragging - so a logo and a title that answer the mouse would leave a dead
                 strip at the top left where the window cannot be picked up. Neither is
                 interactive, so neither needs to be.
+
+                The About button is the same rule read the other way: it IS hit-testable, so
+                the framework takes it out of the drag region on its own and it stays
+                clickable. SetTitleBar still points at this entire Grid - no
+                InputNonClientPointerSource.SetRegionRects needed. Column 1 is empty and
+                stretches, so there is always a wide strip left to drag the window by.
             -->
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center"
-                        IsHitTestVisible="False">
+            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10"
+                        VerticalAlignment="Center" IsHitTestVisible="False">
 
                 <!--
                     Source is set in code, not bound to ms-appx: - Chronora is unpackaged, so
@@ -90,9 +102,256 @@
                 <TextBlock Text="Chronora" VerticalAlignment="Center"
                            Style="{StaticResource BodyStrongTextBlockStyle}" />
             </StackPanel>
+
+            <!--
+                Spelled out. This was an info glyph and the first person to look for About
+                could not find it - which is the whole job of the control, and a tooltip
+                only helps somebody already hovering over the thing they could not see.
+                Moving it into the title bar is NOT permission to shrink it back to an icon.
+
+                Transparent chrome so it reads as part of the title bar rather than a button
+                dropped onto it; the right margin is set in code, because the width of the
+                minimize/maximize/close buttons is AppWindow.TitleBar.RightInset, which is
+                zero until the window has been laid out and changes with the monitor.
+            -->
+            <Button x:Name="TitleBarAbout" Grid.Column="2" Content="About" Click="OnOpenAbout"
+                    VerticalAlignment="Center" Padding="12,0"
+                    Background="Transparent" BorderBrush="Transparent"
+                    Height="{StaticResource CnChromeButtonHeight}"
+                    ToolTipService.ToolTip="Version, where Chronora keeps your data and logs, the Send to menu, and a check for updates." />
         </Grid>
 
-        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,320">
+        <!--
+            The command deck: what is loaded, what the run will do, what comes out.
+
+            Full window width, above the split, and not inside the file-list column. At the
+            minimum window size that column is about 520 effective pixels once the options
+            pane has taken its 320, which is not enough for three segments. Spanning the
+            window is what lets the deck exist at a size somebody actually runs the app at.
+
+            Every segment is DERIVED. Nothing here sets anything the options pane also sets,
+            because two controls for one question is what the title bar mode switch was
+            taken out for. The two counts in RESULT are the exception and they are not a
+            second opinion: they drive the same two view filters the toolbar checkboxes do.
+
+            Disabled, not hidden, while a run is in flight.
+        -->
+        <!--
+            The ContentControl is here only to carry IsEnabled, which lives on Control and
+            not on Panel - a Grid cannot be disabled. IsTabStop off so it adds a wrapper
+            without adding a tab stop.
+        -->
+        <ContentControl Grid.Row="1" IsTabStop="False"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        IsEnabled="{x:Bind Workbench.DeckEnabled, Mode=OneWay}">
+        <Grid Margin="16,0,16,8" ColumnSpacing="8" ColumnDefinitions="Auto,*,Auto">
+
+            <!-- SOURCE -->
+            <Border Grid.Column="0" Style="{StaticResource CnDeckCardStyle}">
+                <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
+                        <FontIcon Glyph="&#xE8B7;" Style="{StaticResource CnDeckCaptionGlyphStyle}"
+                                  AutomationProperties.AccessibilityView="Raw" />
+                        <TextBlock Text="SOURCE" Style="{StaticResource CnDeckCaptionStyle}" />
+                    </StackPanel>
+
+                    <TextBlock Text="{x:Bind Workbench.SourceHeadline, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                    <!--
+                        How a folder gets read, stated on the card rather than hidden in the
+                        flyout - a sticky setting nobody can see is how somebody recursively
+                        scans a drive by accident.
+
+                        Worded as the SETTING, not as a description of the list: those are
+                        different tenses, and changing the setting does not re-read the
+                        disk. "4,000 files / deep" on adjacent lines would go on claiming
+                        the list was read deep after you had turned that off.
+
+                        A plain Flyout rather than a MenuFlyout, because a MenuFlyout closes
+                        on every invoke - ticking a box would shut the menu and you would
+                        reopen it to tick the next one.
+                    -->
+                    <DropDownButton Style="{StaticResource CnColumnHeaderStyle}"
+                                    Content="{x:Bind Workbench.ScanSettingLabel, Mode=OneWay}"
+                                    AutomationProperties.Name="How folders are read"
+                                    ToolTipService.ToolTip="Applies to drops, Add folder, Send To and the command line alike.">
+                        <DropDownButton.Flyout>
+                            <Flyout x:Name="ScanOptionsFlyout" Placement="BottomEdgeAlignedLeft">
+                                <StackPanel Spacing="8" MinWidth="260">
+                                    <TextBlock Text="When Chronora reads a folder"
+                                               Style="{StaticResource BodyStrongTextBlockStyle}" />
+
+                                    <CheckBox Content="Include subfolders"
+                                              IsChecked="{x:Bind Workbench.ScanRecurse, Mode=TwoWay}"
+                                              ToolTipService.ToolTip="Read the whole tree beneath the folder, not just the files sitting directly in it." />
+
+                                    <CheckBox Content="Hidden and system files"
+                                              IsChecked="{x:Bind Workbench.ScanIncludeHidden, Mode=TwoWay}"
+                                              ToolTipService.ToolTip="Off by default. Chronora used to collect these silently, which is not what dropping a folder looks like it means." />
+
+                                    <CheckBox Content="Also set the folders' own dates"
+                                              IsChecked="{x:Bind Workbench.ScanIncludeFolders, Mode=TwoWay}"
+                                              ToolTipService.ToolTip="Folders carry Created and Modified dates too. Off by default, because a run aimed at photos should not quietly restamp the folders holding them." />
+
+                                    <!--
+                                        Changing a setting does not re-read the disk, so
+                                        this is how the list is made to match it. Enabled
+                                        only when they actually differ - offering it
+                                        otherwise would imply something was out of step.
+                                    -->
+                                    <Button Content="Read the folders again"
+                                            HorizontalAlignment="Stretch"
+                                            Click="OnRescanWithOptions"
+                                            IsEnabled="{x:Bind Workbench.CanRescanWithOptions, Mode=OneWay}"
+                                            ToolTipService.ToolTip="Applies these settings to the folders already in the list. Files added one at a time are not re-read." />
+                                </StackPanel>
+                            </Flyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+
+                    <!--
+                        These three are also in the toolbar below for now. The toolbar goes
+                        in the next commit; duplicating them for one commit keeps every
+                        action reachable at every point in the series, which deleting the
+                        toolbar first would not.
+                    -->
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
+                                Spacing="{StaticResource CnButtonGroupSpacing}">
+                        <Button Content="Add folder…" Click="OnAddFolder"
+                                Height="{StaticResource CnFormRowHeight}"
+                                ToolTipService.ToolTip="Read a folder into the list. Dropping files or folders onto the window does the same thing." />
+
+                        <Button Content="Clear list" Command="{x:Bind Workbench.ClearListCommand}"
+                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
+                                Height="{StaticResource CnFormRowHeight}"
+                                ToolTipService.ToolTip="Remove every file from the list. Your options are kept, and nothing on disk changes." />
+
+                        <Button Content="Start over" Command="{x:Bind Workbench.StartOverCommand}"
+                                IsEnabled="{x:Bind Workbench.CanStartOver, Mode=OneWay}"
+                                Height="{StaticResource CnFormRowHeight}"
+                                ToolTipService.ToolTip="Back to the opening question: no files, no filters, and no choice made yet. Nothing on disk changes." />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!--
+                RULE
+
+                A statement of the run, and only that. It carried an "Edit" link for a
+                while, on the reasoning that a card stating something should offer a way to
+                change it - but the only thing that link could honestly do was move focus,
+                because the pane it points at is a ScrollViewer with no anchors. A control
+                whose whole effect is a focus rectangle, eight inches from a pane already
+                asking the same question at full size, is decoration that looks like a
+                command. The pane is the editor; this says what the editor has produced.
+            -->
+            <Border Grid.Column="1" Style="{StaticResource CnDeckCardStyle}">
+                    <StackPanel Spacing="2">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
+                            <FontIcon Glyph="&#xE9D5;" Style="{StaticResource CnDeckCaptionGlyphStyle}"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                            <TextBlock Text="RULE" Style="{StaticResource CnDeckCaptionStyle}" />
+                        </StackPanel>
+
+                        <!--
+                            A template can carry a rule the pane cannot show - the built-in
+                            "Make every date consistent" reads the earliest of three fields
+                            while the pane displays only the first. So when a template is in
+                            charge this quotes the template instead of paraphrasing controls
+                            that would state it wrongly, in the most prominent place in the
+                            window, against the template's own description.
+                        -->
+                        <StackPanel Spacing="2" Visibility="{x:Bind Workbench.IsRuleFromTemplate, Mode=OneWay}">
+                            <TextBlock Text="{x:Bind Workbench.RuleTemplateName, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{x:Bind Workbench.ActiveTemplateNote, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75"
+                                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <!--
+                            The ordinary case: the pane's own answers, restated. Separate
+                            panel rather than a converter, because this app has never needed
+                            one and a negated bool on the view model is easier to read than
+                            a converter instance nobody can grep for.
+                        -->
+                        <StackPanel Spacing="2" Visibility="{x:Bind Workbench.IsRuleFromPane, Mode=OneWay}">
+                            <TextBlock Text="{x:Bind Workbench.RuleIntentLine, Mode=OneWay}"
+                                       Style="{StaticResource BodyStrongTextBlockStyle}"
+                                       TextTrimming="CharacterEllipsis" />
+
+                            <TextBlock Text="{x:Bind Workbench.RuleSourceLine, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75"
+                                       TextTrimming="CharacterEllipsis" />
+
+                            <TextBlock Text="{x:Bind Workbench.RuleTargetLine, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+            </Border>
+
+            <!-- RESULT -->
+            <Border Grid.Column="2" Style="{StaticResource CnDeckCardStyle}" MinWidth="200">
+                <StackPanel Spacing="2">
+                    <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,2">
+                        <FontIcon Glyph="&#xE9D9;" Style="{StaticResource CnDeckCaptionGlyphStyle}"
+                                  AutomationProperties.AccessibilityView="Raw" />
+                        <TextBlock Text="RESULT" Style="{StaticResource CnDeckCaptionStyle}" />
+                    </StackPanel>
+
+                    <!--
+                        The number Apply acts on, not the number of files that COULD change.
+                        Those differ the moment somebody unticks a row, and the old summary
+                        headline reported the second one - so unticking eighty rows left the
+                        top of the window saying 96 while the button said 12.
+                    -->
+                    <TextBlock Text="{x:Bind Workbench.ResultHeadline, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               TextTrimming="CharacterEllipsis" />
+
+                    <!--
+                        The counts ARE the filters. Both stay independent - either, neither
+                        or both - exactly as the two checkboxes below them are.
+
+                        "need a look" is counted from FilesWithProblems, the union. Blocked
+                        and suspicious are separate tallies that double-count a file which
+                        is both, so labelling this from either of them would promise four
+                        rows and produce nine.
+                    -->
+                    <ToggleButton Style="{StaticResource CnDeckFilterToggleStyle}" Margin="0,2,0,0"
+                                  IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind Workbench.CanFilterChanging, Mode=OneWay}"
+                                  AutomationProperties.Name="Show only the files that will change"
+                                  ToolTipService.ToolTip="Show only the files this run will actually change.">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{x:Bind Workbench.ChangingFilterLabel, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                            <FontIcon Grid.Column="1" Glyph="&#xE71C;" FontSize="10" Margin="8,0,0,0"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                        </Grid>
+                    </ToggleButton>
+
+                    <ToggleButton Style="{StaticResource CnDeckFilterToggleStyle}"
+                                  IsChecked="{x:Bind Workbench.ShowOnlyProblems, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind Workbench.CanFilterProblems, Mode=OneWay}"
+                                  AutomationProperties.Name="Show only the files that need a look"
+                                  ToolTipService.ToolTip="Show only files that cannot be changed, or whose result looks wrong and is worth checking before you apply.">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="{x:Bind Workbench.ProblemsFilterLabel, Mode=OneWay}"
+                                       Style="{StaticResource CaptionTextBlockStyle}" />
+                            <FontIcon Grid.Column="1" Glyph="&#xE71C;" FontSize="10" Margin="8,0,0,0"
+                                      AutomationProperties.AccessibilityView="Raw" />
+                        </Grid>
+                    </ToggleButton>
+                </StackPanel>
+            </Border>
+        </Grid>
+        </ContentControl>
+
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,320">
 
             <Grid Grid.Column="0" RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="16,0,8,0">
 
@@ -115,8 +374,16 @@
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:SummaryLine">
                                     <Grid ColumnDefinitions="110,*,Auto">
+                                        <!--
+                                            The field name in the accent, because it is the
+                                            column the eye scans down when checking a run -
+                                            and because a window this grey needs the
+                                            structure of its most-read block to be visible
+                                            without reading it.
+                                        -->
                                         <TextBlock Grid.Column="0" Text="{x:Bind FieldName}"
-                                                   Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" />
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource CnAccentBrush}" />
                                         <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
                                                    Style="{StaticResource CaptionTextBlockStyle}" />
                                         <TextBlock Grid.Column="2" Text="{x:Bind SuspiciousDetail}"
@@ -154,29 +421,6 @@
                 </Border>
 
                 <StackPanel Grid.Row="1" Spacing="6">
-                    <!--
-                        What the last drop did, offered back rather than assumed. A drop
-                        adds, because gathering is almost always the intent, and both
-                        alternatives sit right here while the bar is up. No dialog on an
-                        action people repeat.
-                    -->
-                    <InfoBar IsOpen="{x:Bind Workbench.HasActionNotice, Mode=OneWay}"
-                             Message="{x:Bind Workbench.ActionNotice, Mode=OneWay}"
-                             Severity="Success" IsClosable="True" CloseButtonClick="OnDismissActionNotice">
-                        <!-- ActionButton takes a single button, so both alternatives live
-                             in the content area where they can sit side by side. -->
-                        <InfoBar.Content>
-                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
-                                <!-- Only when the drop landed on top of something. Replacing
-                                     an empty list with what was just dropped is the same
-                                     list, so the button would offer to do nothing. -->
-                                <Button Content="Replace list instead"
-                                        Visibility="{x:Bind Workbench.CanReplaceWithDrop, Mode=OneWay}"
-                                        Command="{x:Bind Workbench.ReplaceWithDropCommand}" />
-                                <Button Content="Undo" Command="{x:Bind Workbench.UndoLastActionCommand}" />
-                            </StackPanel>
-                        </InfoBar.Content>
-                    </InfoBar>
 
                     <!--
                         The metadata half is unavailable. Shown rather than hidden: hiding
@@ -210,100 +454,222 @@
                 </StackPanel>
 
                 <!--
-                    Clear is separated and right-aligned. It was sitting between the sort
-                    and the filters, where a destructive action has no business being: the
-                    controls beside it only change what you SEE, and it throws the list away.
+                    The list header: the controls that belong to the list, attached to it.
+
+                    This replaces a single toolbar row that held eleven controls covering
+                    six unrelated kinds of action, and was the widest thing in the window -
+                    it is what kept the minimum width where it was and why the file pane had
+                    to be so wide. Sorting, filtering and selecting are not commands; they
+                    are view controls for the pane directly underneath them, and they were
+                    in a toolbar only because there was a toolbar.
+
+                    Add folder, Clear list and Start over went to the deck's SOURCE segment.
+                    History and About left in the previous commit. Export preview (CSV) came
+                    the other way, out of the footer and into the overflow here, because it
+                    exports the preview of THIS list.
                 -->
-                <Grid Grid.Row="2" Margin="0,0,0,8" ColumnDefinitions="Auto,*,Auto">
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8">
-                        <Button Content="Add folder..." Click="OnAddFolder"
-                                Height="{StaticResource CnChromeButtonHeight}" />
-                        <ComboBox SelectionChanged="OnSortChanged" MinWidth="180" SelectedIndex="0"
-                                  ToolTipService.ToolTip="Sort by biggest change to bring the most-moved dates to the top. It is the quickest way to spot one that looks wrong.">
-                            <ComboBoxItem Content="Sort: name" Tag="Name" />
-                            <ComboBoxItem Content="Sort: biggest change" Tag="BiggestChange" />
-                            <ComboBoxItem Content="Sort: resulting date" Tag="ResultingDate" />
-                            <ComboBoxItem Content="Sort: status" Tag="Status" />
-                        </ComboBox>
+                <Grid Grid.Row="2" Margin="0,0,0,4" RowDefinitions="Auto,Auto">
+
+                    <Grid Grid.Row="0" Margin="8,0,8,6" ColumnSpacing="8"
+                          ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+
                         <!--
-                            Narrows the RUN, not just the view - a folder off a camera holds
-                            JPEG, PNG and raw together and wanting to touch one of those is
-                            ordinary. The Apply button and the confirmation both say so,
-                            because a filter that quietly changes what a destructive button
-                            does is how somebody ends up surprised.
+                            A funnel, not a magnifier. A magnifier in a list header means
+                            "narrow what I see" to everybody who has ever used a computer,
+                            and this control narrows what gets WRITTEN.
                         -->
-                        <TextBox Text="{x:Bind Workbench.TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 PlaceholderText="All files" MinWidth="150"
+                        <FontIcon Grid.Column="0" Glyph="&#xE71C;" FontSize="12"
+                                  Foreground="{ThemeResource CnAccentBrush}"
+                                  AutomationProperties.AccessibilityView="Raw"
+                                  VerticalAlignment="Center" />
+
+                        <TextBox Grid.Column="1" MinWidth="140"
+                                 Text="{x:Bind Workbench.TypeFilter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 PlaceholderText="All files"
+                                 AutomationProperties.Name="Limit the run to these file types"
                                  ToolTipService.ToolTip="Limit the run with the same wildcards Explorer uses: *.png, mountain*.jpg, IMG_????.CR2, or several separated by semicolons. Files that do not match are hidden AND left alone." />
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8"
+                                    VerticalAlignment="Center">
+
+                            <!--
+                                Said here as well as on the Apply button. The button is the
+                                last line of defence; this is the place it was typed, and a
+                                filter that scopes a destructive action should say what it
+                                is costing where it was set.
+                            -->
+                            <Border Style="{StaticResource CnChipStyle}"
+                                    Visibility="{x:Bind Workbench.HasTypeFilter, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="2">
+                                    <TextBlock Text="{x:Bind Workbench.TypeFilterChipLabel, Mode=OneWay}"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                    <Button Style="{StaticResource CnChipCloseStyle}" Content="&#xE711;"
+                                            FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                            Command="{x:Bind Workbench.ClearTypeFilterCommand}"
+                                            AutomationProperties.Name="Clear the type filter"
+                                            ToolTipService.ToolTip="Put every file back in the run." />
+                                </StackPanel>
+                            </Border>
+
+                            <!--
+                                Two of the four sorts have no column of their own, so when
+                                one of them is in force it is stated here instead. The
+                                alternative - parking the caret on the nearest header, or
+                                renaming that header to match - would leave a header
+                                describing something other than the column beneath it.
+                            -->
+                            <Border Style="{StaticResource CnChipStyle}"
+                                    Visibility="{x:Bind Workbench.IsSortOffColumn, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="2">
+                                    <TextBlock Text="{x:Bind Workbench.SortChipLabel, Mode=OneWay}"
+                                               VerticalAlignment="Center"
+                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                    <Button Style="{StaticResource CnChipCloseStyle}" Content="&#xE711;"
+                                            FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                            Command="{x:Bind Workbench.SortByNameCommand}"
+                                            AutomationProperties.Name="Sort by name again"
+                                            ToolTipService.ToolTip="Back to sorting by file name." />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
                         <!--
-                            "Select none" rather than "Clear all" on purpose: there is
-                            already a Clear on this bar that REMOVES the files, and two
-                            similarly named buttons - one emptying the list, one only
-                            unticking it - is exactly the confusion this app keeps trying
-                            to avoid.
+                            Two verbs, never one tri-state checkbox, and each carries its
+                            own scope as a number.
 
                             Select all covers what is SHOWN; Select none covers everything
-                            loaded. Both err the same way, so neither can leave a file
-                            ticked that you never laid eyes on.
+                            loaded, including whatever a filter is hiding. Both err the same
+                            way, so neither can leave a file ticked that nobody laid eyes
+                            on - but a checkbox in a list header means the rows below it to
+                            everyone alive, so unticking one with a filter on would silently
+                            clear hundreds of files that are not on screen. The counts in
+                            the labels are what make the difference visible before the click
+                            rather than after it.
                         -->
-                        <Button Content="Select all" Command="{x:Bind Workbench.SelectAllShownCommand}"
-                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Tick every file currently shown. Anything a filter is hiding is left alone." />
-                        <Button Content="Select none" Command="{x:Bind Workbench.SelectNoneCommand}"
-                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Untick every file, including any a filter is hiding. Nothing is removed from the list." />
+                        <DropDownButton Grid.Column="3" Content="Select"
+                                        Height="{StaticResource CnFormRowHeight}"
+                                        IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="Bottom">
+                                    <MenuFlyoutItem Text="{x:Bind Workbench.SelectAllLabel, Mode=OneWay}"
+                                                    Command="{x:Bind Workbench.SelectAllShownCommand}"
+                                                    ToolTipService.ToolTip="Tick every file currently shown. Anything a filter is hiding is left alone.">
+                                        <MenuFlyoutItem.KeyboardAccelerators>
+                                            <KeyboardAccelerator Modifiers="Control" Key="A" />
+                                        </MenuFlyoutItem.KeyboardAccelerators>
+                                    </MenuFlyoutItem>
+                                    <MenuFlyoutItem Text="{x:Bind Workbench.SelectNoneLabel, Mode=OneWay}"
+                                                    Command="{x:Bind Workbench.SelectNoneCommand}"
+                                                    ToolTipService.ToolTip="Untick every file, including any a filter is hiding. Nothing is removed from the list.">
+                                        <MenuFlyoutItem.KeyboardAccelerators>
+                                            <KeyboardAccelerator Modifiers="Control,Shift" Key="A" />
+                                        </MenuFlyoutItem.KeyboardAccelerators>
+                                    </MenuFlyoutItem>
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
 
-                        <CheckBox Content="Only changing"
-                                  IsChecked="{x:Bind Workbench.ShowOnlyChanging, Mode=TwoWay}"
-                                  ToolTipService.ToolTip="Hide files that are already correct, so the list shows only what this run would actually alter." />
-                        <CheckBox Content="Only problems"
-                                  IsChecked="{x:Bind Workbench.ShowOnlyProblems, Mode=TwoWay}"
-                                  ToolTipService.ToolTip="Show only files that cannot be changed, or whose result looks wrong and is worth checking before you apply." />
-                    </StackPanel>
+                        <Button Grid.Column="4" Content="&#xE712;"
+                                FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                Height="{StaticResource CnFormRowHeight}"
+                                AutomationProperties.Name="More list actions"
+                                ToolTipService.ToolTip="Export the preview, and the way back from a filter that is hiding everything.">
+                            <Button.Flyout>
+                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <!--
+                                        The two sorts with no column of their own. They used
+                                        to hang off the File header, which meant that header
+                                        carried a sort caret AND a dropdown chevron - two
+                                        arrows side by side on one small label, each meaning
+                                        something different. A column header's job is to
+                                        sort its own column on a click; an unusual order is
+                                        a list action and belongs with the other ones.
+                                    -->
+                                    <MenuFlyoutItem Text="Sort by biggest change" Click="OnSortByBiggestChange"
+                                                    ToolTipService.ToolTip="Brings the most-moved dates to the top. It is the quickest way to spot one that looks wrong." />
+                                    <MenuFlyoutItem Text="Sort by resulting date" Click="OnSortByResultingDate" />
+                                    <MenuFlyoutItem Text="Reverse the order"
+                                                    Command="{x:Bind Workbench.ReverseSortCommand}"
+                                                    ToolTipService.ToolTip="The File and Status headers reverse on a second click; these two have no header to click." />
+
+                                    <MenuFlyoutSeparator />
+
+                                    <MenuFlyoutItem Text="Show all files"
+                                                    Command="{x:Bind Workbench.ShowAllFilesCommand}"
+                                                    IsEnabled="{x:Bind Workbench.IsAnyFilterOn, Mode=OneWay}"
+                                                    ToolTipService.ToolTip="Clears the type filter and both view filters, whichever of them is narrowing the list." />
+                                    <MenuFlyoutItem Text="Export preview (CSV)…" Click="OnExportPreview" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                    </Grid>
 
                     <!--
-                        Both disabled when they would do nothing, rather than hidden:
-                        a control that appears and vanishes as the list fills and empties
-                        is harder to find than one that is simply greyed.
+                        The column labels.
+
+                        THREE labels, because there are three columns. The file name and
+                        what-changes share one column, stacked - the row is two lines - so
+                        there is no "what changes" column to put a header over, and drawing
+                        one would be a header describing a column that does not exist.
+
+                        Both labels are plain buttons: click to sort, click again to
+                        reverse. Nothing hangs a menu off them. The File label briefly did,
+                        and carried a sort caret and a dropdown chevron at the same time -
+                        two arrows on one small label, each meaning something different. The
+                        orders with no column live under the ⋯ button with the other list
+                        actions, and announce themselves in a chip when one is in force.
+
+                        The widths here are literal numbers and they are duplicated in the
+                        row DataTemplate below. They cannot be shared: ColumnDefinition.Width
+                        is a GridLength, XAML will not run a type converter on the result of
+                        a markup extension, and a GridLength cannot be declared as a resource
+                        in the first place. SharedSizeGroup is WPF only. So: 32 / 46 / * /
+                        120 here, and the same four in the template - change one, change the
+                        other.
                     -->
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8">
-                        <Button Content="Clear list" Command="{x:Bind Workbench.ClearListCommand}"
-                                IsEnabled="{x:Bind Workbench.HasAnyFiles, Mode=OneWay}"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Remove every file from the list. Your options are kept, and nothing on disk changes." />
-                        <Button Content="Start over" Command="{x:Bind Workbench.StartOverCommand}"
-                                IsEnabled="{x:Bind Workbench.CanStartOver, Mode=OneWay}"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Back to the opening question: no files, no filters, and no choice made yet. Nothing on disk changes." />
+                    <Border Grid.Row="1" Margin="8,0,8,0" Padding="0,0,0,4"
+                            BorderThickness="0,0,0,1"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <Grid ColumnDefinitions="32,46,*,120">
 
-                        <!--
-                            Always enabled, even with nothing applied yet. A greyed-out
-                            History teaches people the app has no undo; an empty one that
-                            says so teaches them it does, and that they have not used it.
-                        -->
-                        <Button Content="History" Click="OnOpenHistory"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Every run Chronora has applied, and the way back. Undo works days later, not just straight after." />
+                            <!--
+                                The caret is the sort state and the label is the column. The
+                                label never changes to name a different quantity: a header
+                                that renames itself is a header that lies about what is
+                                under it.
+                            -->
+                            <Button Grid.Column="2" Style="{StaticResource CnColumnHeaderStyle}"
+                                    Click="OnSortByName"
+                                    AutomationProperties.Name="File, and how the list is sorted"
+                                    ToolTipService.ToolTip="Sort by file name. Click again to reverse it. The other two orders are under the ⋯ button.">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="File" />
+                                    <TextBlock Text="{x:Bind Workbench.FileHeaderCaret, Mode=OneWay}"
+                                               Foreground="{ThemeResource CnAccentBrush}" />
+                                </StackPanel>
+                            </Button>
 
-                        <!--
-                            Version, where the data and logs live, and a manual update
-                            check. Small, but the folder buttons inside it are the only
-                            thing standing between somebody and pasting %LOCALAPPDATA%
-                            into Explorer when a log is what would explain their problem.
-                        -->
-                        <!--
-                            Spelled out. This was an info glyph and the first person to
-                            look for About could not find it - which is the whole job of
-                            the control, and a tooltip only helps somebody already
-                            hovering over the thing they could not see.
-                        -->
-                        <Button Content="About" Click="OnOpenAbout"
-                                Height="{StaticResource CnChromeButtonHeight}"
-                                ToolTipService.ToolTip="Version, where Chronora keeps your data and logs, the Send to menu, and a check for updates." />
-                    </StackPanel>
+                            <!--
+                                12 to the left, matching the row template's status margin,
+                                so the label sits over the text it names rather than 12px
+                                to the left of all of it.
+                            -->
+                            <Button Grid.Column="3" Margin="12,0,0,0"
+                                    Style="{StaticResource CnColumnHeaderStyle}"
+                                    Click="OnSortByStatus"
+                                    AutomationProperties.Name="Status, and how the list is sorted"
+                                    ToolTipService.ToolTip="Sort by status to bring anything blocked or questionable to the top.">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="Status" />
+                                    <TextBlock Text="{x:Bind Workbench.StatusHeaderCaret, Mode=OneWay}"
+                                               Foreground="{ThemeResource CnAccentBrush}" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
                 </Grid>
+
 
                 <!--
                     Uniform two-line rows. The milestone 1 spike settled the rest: no lazy
@@ -312,7 +678,7 @@
                     layout only estimates extent for non-uniform items, and the scrollbar
                     drifts under the cursor when it has to guess.
                 -->
-                <ListView x:Name="FileList" Grid.Row="3"
+                <ListView x:Name="FileList" Grid.Row="3" Padding="0"
                           ItemsSource="{x:Bind Workbench.Rows, Mode=OneWay}"
                           SelectedItem="{x:Bind Workbench.SelectedRow, Mode=TwoWay}"
                           SelectionMode="Single"
@@ -332,7 +698,16 @@
                     </ListView.ItemsPanel>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="vm:PlanRowViewModel">
-                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" RowDefinitions="Auto,Auto" VerticalAlignment="Center">
+                            <!--
+                                32 / 46 / * / 120, and the same four numbers are in the
+                                column-header Grid above the list. They are literals in both
+                                places because they cannot be shared: ColumnDefinition.Width
+                                is a GridLength, XAML does not run type converters on the
+                                result of a markup extension, and a GridLength cannot be
+                                declared as a resource at all. SharedSizeGroup is WPF only.
+                                Change one, change the other.
+                            -->
+                            <Grid ColumnDefinitions="32,46,*,120" RowDefinitions="Auto,Auto" VerticalAlignment="Center">
                                 <CheckBox Grid.RowSpan="2" Grid.Column="0" MinWidth="32"
                                           IsChecked="{x:Bind IsIncluded, Mode=TwoWay}" />
 
@@ -379,7 +754,8 @@
                             IsHitTestVisible="False"
                             Visibility="{x:Bind Workbench.IsListEmpty, Mode=OneWay}">
                     <FontIcon Glyph="&#xE8DE;" FontSize="36" HorizontalAlignment="Center"
-                              Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                              AutomationProperties.AccessibilityView="Raw"
+                              Foreground="{ThemeResource CnAccentBrush}" />
                     <TextBlock Text="Drop files and/or folders here to begin"
                                Style="{StaticResource SubtitleTextBlockStyle}"
                                HorizontalAlignment="Center" TextWrapping="Wrap"
@@ -395,20 +771,92 @@
                     files here when they have already dropped them would be nonsense, and a
                     blank list with no explanation looks like the app lost them.
                 -->
+                <!--
+                    Hit-testable, unlike the empty state above it, because it now carries a
+                    button and IsHitTestVisible="False" on a parent cannot be opted out of
+                    by a child. That is safe here in a way it would not be for the drop
+                    invitation: DragOver and Drop are routed events, so they still reach
+                    RootGrid, and nothing in this panel sets AllowDrop to claim them.
+                -->
                 <StackPanel Grid.Row="3" Spacing="10"
                             HorizontalAlignment="Center" VerticalAlignment="Center"
-                            IsHitTestVisible="False"
                             Visibility="{x:Bind Workbench.IsFilteredToNothing, Mode=OneWay}">
                     <FontIcon Glyph="&#xE71C;" FontSize="32" HorizontalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw"
                               Foreground="{ThemeResource SystemFillColorCautionBrush}" />
                     <TextBlock Text="{x:Bind Workbench.FilteredToNothingNote, Mode=OneWay}"
                                Style="{StaticResource SubtitleTextBlockStyle}"
                                HorizontalAlignment="Center" TextWrapping="Wrap"
                                TextAlignment="Center" MaxWidth="420" />
-                    <TextBlock Text="Clear the filter box to see them again."
-                               Style="{StaticResource BodyTextBlockStyle}" Opacity="0.6"
-                               HorizontalAlignment="Center" />
+                    <!--
+                        A button, not an instruction. The instruction used to read "Clear
+                        the filter box to see them again", which is only right when the type
+                        filter is the cause - and the commonest cause is not. Apply rescans
+                        on success, so finishing a run with "only files that will change" on
+                        empties the list, and the app pointed at an empty box while looking
+                        like it had lost every file it had just written correctly.
+
+                        One button rather than three, because somebody looking at an empty
+                        list does not know which filter emptied it. That IS the problem.
+                    -->
+                    <Button Content="Show all files" HorizontalAlignment="Center"
+                            Command="{x:Bind Workbench.ShowAllFilesCommand}"
+                            Height="{StaticResource CnChromeButtonHeight}"
+                            ToolTipService.ToolTip="Clears the type filter and both view filters, whichever of them is hiding the list." />
                 </StackPanel>
+
+                <!--
+                    What the last action did, and the way back from it.
+
+                    This was a fourth InfoBar in the stack above the list, which meant
+                    clearing a list moved the entire window down by forty pixels to tell you
+                    so, and left the bar there until it was dismissed. A banner that reflows
+                    the window reads as though something went wrong; this is a thing that
+                    went RIGHT and is merely reversible.
+
+                    So: floating, over the bottom of the list, out of the layout entirely,
+                    and it takes itself away after a few seconds. The two InfoBars left
+                    upstairs describe conditions that are still true and stay put, which is
+                    what that shape is for.
+
+                    Hovering holds it open - reaching for Undo and having it vanish under
+                    the pointer would be worse than never offering it.
+                -->
+                <Border x:Name="ActionToast" Grid.Row="3"
+                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                        Margin="16" Padding="14,8" CornerRadius="8" BorderThickness="1"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        PointerEntered="OnToastPointerEntered" PointerExited="OnToastPointerExited"
+                        Visibility="{x:Bind Workbench.HasActionNotice, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE73E;" FontSize="14" VerticalAlignment="Center"
+                                  Foreground="{ThemeResource CnAccentBrush}"
+                                  AutomationProperties.AccessibilityView="Raw" />
+
+                        <TextBlock Text="{x:Bind Workbench.ActionNotice, Mode=OneWay}"
+                                   VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="360" />
+
+                        <!--
+                            Only when the drop landed on top of something. Replacing an empty
+                            list with what was just dropped is the same list, so the button
+                            would offer to do nothing.
+                        -->
+                        <Button Content="Replace list instead"
+                                Visibility="{x:Bind Workbench.CanReplaceWithDrop, Mode=OneWay}"
+                                Command="{x:Bind Workbench.ReplaceWithDropCommand}"
+                                Height="{StaticResource CnFormRowHeight}" />
+
+                        <Button Content="Undo" Command="{x:Bind Workbench.UndoLastActionCommand}"
+                                Height="{StaticResource CnFormRowHeight}" />
+
+                        <Button Content="&#xE711;" FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                                Style="{StaticResource CnChipCloseStyle}"
+                                Click="OnDismissActionNotice"
+                                AutomationProperties.Name="Dismiss"
+                                VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
 
                 <!--
                     Nothing is hidden: the full field-by-field breakdown is one selection
@@ -674,12 +1122,19 @@
             </ScrollViewer>
         </Grid>
 
-        <Border Grid.Row="2" Padding="16,8" BorderThickness="0,1,0,0"
+        <Border Grid.Row="3" Padding="16,8" BorderThickness="0,1,0,0"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto">
+                <!--
+                    IsBusy, not IsApplying. Reading the disk is the other long operation and
+                    for a recursive drop it is the longer one: IsScanning was set on both
+                    scan paths and bound to nothing at all, so "Read 45,000 files…" counted
+                    up with no spinner and no way out, while FileScanner had been taking a
+                    cancellation token the whole time.
+                -->
                 <ProgressRing Grid.Column="0" Width="16" Height="16" Margin="0,0,8,0"
-                              IsActive="{x:Bind Workbench.IsApplying, Mode=OneWay}"
-                              Visibility="{x:Bind Workbench.IsApplying, Mode=OneWay}" />
+                              IsActive="{x:Bind Workbench.IsBusy, Mode=OneWay}"
+                              Visibility="{x:Bind Workbench.IsBusy, Mode=OneWay}" />
 
                 <TextBlock Grid.Column="1" VerticalAlignment="Center"
                            Text="{x:Bind Workbench.ScanStatus, Mode=OneWay}"
@@ -688,26 +1143,41 @@
 
                 <Button Grid.Column="2" Content="Cancel" Margin="0,0,8,0"
                         Command="{x:Bind Workbench.CancelRunCommand}"
-                        Visibility="{x:Bind Workbench.IsApplying, Mode=OneWay}"
+                        Visibility="{x:Bind Workbench.IsBusy, Mode=OneWay}"
                         Height="{StaticResource CnChromeButtonHeight}" />
+
+                <!--
+                    History sits beside Undo last run because they are one feature at two
+                    depths: Undo is the run you just regretted, History is the one from
+                    Tuesday. They used to be at opposite ends of the window, History filed
+                    with About as though it were app trivia rather than the way back.
+
+                    Always enabled, even with nothing applied yet. A greyed-out History
+                    teaches people the app has no undo; an empty one that says so teaches
+                    them it does, and that they have not used it - which is why the window
+                    it opens has an empty state of its own.
+                -->
+                <Button Grid.Column="3" Content="History" Margin="0,0,8,0"
+                        Click="OnOpenHistory"
+                        Height="{StaticResource CnChromeButtonHeight}"
+                        ToolTipService.ToolTip="Every run Chronora has applied, and the way back. Undo works days later, not just straight after." />
 
                 <!-- Undo sits beside Apply rather than in a menu, because the moment someone
                      wants it is the moment straight after the run they regret. -->
-                <Button Grid.Column="3" Content="Undo last run" Margin="0,0,8,0"
+                <Button Grid.Column="4" Content="Undo last run" Margin="0,0,8,0"
                         Command="{x:Bind Workbench.UndoLastCommand}"
                         IsEnabled="{x:Bind Workbench.CanUndo, Mode=OneWay}"
                         Height="{StaticResource CnChromeButtonHeight}" />
 
                 <!--
-                    This replaced a "Dry run" button. A dry run sitting beside a live
-                    preview quietly tells the user the thing they have been looking at might
-                    not be real; an export is the same reassurance and is actually useful.
+                    Export preview (CSV) used to sit here. It still exists and still says
+                    the same thing - it replaced a "Dry run" button, because a dry run
+                    beside a live preview quietly tells the user that the thing they have
+                    been looking at might not be real - but it exports the preview of the
+                    LIST, so it now lives in the list's own overflow. Moving it is what made
+                    room for History without crowding Apply.
                 -->
-                <Button Grid.Column="4" Content="Export preview (CSV)" Margin="0,0,8,0"
-                        Click="OnExportPreview"
-                        Height="{StaticResource CnChromeButtonHeight}" />
-
-                <Button Grid.Column="5" Style="{StaticResource AccentButtonStyle}"
+                <Button Grid.Column="6" Style="{StaticResource AccentButtonStyle}"
                         Content="{x:Bind Workbench.Summary.ApplyLabel, Mode=OneWay}"
                         Click="OnApply"
                         MinWidth="{StaticResource CnCommandButtonMinWidth}"

@@ -47,9 +47,12 @@ internal sealed class TempFolder : IDisposable
                 Directory.Delete(this.Path, recursive: true);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // A leftover temp folder is not worth failing a test over.
+            // A leftover temp folder is not worth failing a test over - which was the
+            // stated intent, and IOException alone did not deliver it: a junction left in
+            // the tree comes back as UnauthorizedAccessException and took a passing test
+            // down with it during cleanup.
         }
     }
 }

@@ -28,8 +28,15 @@ public sealed partial class MainWindow : Window
     // Freely resizable because the primary content is a file listing: more screen means
     // more rows, which is the biggest usability lever in a bulk tool. The minimum only
     // stops the three regions collapsing into nonsense.
-    private const int MinimumWidth = 980;
-    private const int MinimumHeight = 640;
+    //
+    // In EFFECTIVE pixels, and that distinction is the whole reason these are doubles now.
+    // AppWindow.Size, Resize and MoveAndResize are all in RAW pixels, while the options
+    // pane's 320 and every measurement in the XAML is in effective ones. The old constant
+    // was 980 raw, which at 150% scaling - where most laptops sit - permitted a 653-epx
+    // layout: about 200 epx of file list once the pane and the divider had taken theirs.
+    // The clamp has meant something different on every monitor since it was written.
+    private const double MinimumWidthDips = 820;
+    private const double MinimumHeightDips = 640;
 
     private readonly SettingsStore _settings;
 
@@ -55,7 +62,32 @@ public sealed partial class MainWindow : Window
         this.Title = "Chronora";
         this.SystemBackdrop = new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt };
         this.ExtendsContentIntoTitleBar = true;
+
+        // Still the whole Grid, even though it now contains a button. A hit-testable child
+        // of the drag region is excluded from dragging by the framework, which is what
+        // makes About clickable without any InputNonClientPointerSource.SetRegionRects
+        // work - the same behaviour that forces IsHitTestVisible="False" onto the logo.
         this.SetTitleBar(this.AppTitleBar);
+
+        // Tall caption buttons, because the bar is 48px. The default 32px buttons leave a
+        // 16px strip below them that looks like title bar and is not: it drags, but the
+        // button above it is where the pointer expects to land.
+        this.AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+
+        // The caption buttons are laid out by the system and their width is not known yet.
+        // AppWindow.TitleBar.RightInset reads ZERO in the constructor, and XamlRoot - which
+        // is where the scaling comes from - is null here too. Both exist by Loaded.
+        this.RootGrid.Loaded += (_, _) =>
+        {
+            this.UpdateTitleBarInset();
+
+            // RasterizationScale changes when the window is dragged to a monitor at a
+            // different scaling, and no AppWindow event reports that on its own.
+            if (this.RootGrid.XamlRoot is { } root)
+            {
+                root.Changed += (_, _) => this.UpdateTitleBarInset();
+            }
+        };
 
         this.RestorePlacement();
         this.AppWindow.Changed += this.OnAppWindowChanged;
@@ -86,6 +118,25 @@ public sealed partial class MainWindow : Window
             new RightTappedEventHandler(this.OnRowRightTapped),
             handledEventsToo: true);
 
+        // A click gives the row the same focus rectangle the arrow keys do. Windows hides
+        // focus visuals for pointer input by design, which is right for a button and wrong
+        // for a list you work down a row at a time: the selection shading alone is a few
+        // percent of brightness apart from an unselected row, and in dark mode that is very
+        // nearly nothing. Asking for Keyboard focus is what draws the border.
+        this.FileList.AddHandler(
+            UIElement.TappedEvent,
+            new TappedEventHandler(this.OnRowTapped),
+            handledEventsToo: true);
+
+        // Space ticks and unticks the selected row, which is what a list of checkboxes is
+        // expected to do and is the difference between working this list from the keyboard
+        // and not. handledEventsToo for the usual reason: the ListViewItem claims the key
+        // for its own selection handling on the way past.
+        this.FileList.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(this.OnFileListKeyDown),
+            handledEventsToo: true);
+
         // Registered as well, not instead, and only for Shift+F10 and the menu key.
         // ContextRequested DOES fire on a right-click - an earlier reading of the log
         // said it never did, and that was wrong. It arrives about a millisecond after
@@ -102,9 +153,17 @@ public sealed partial class MainWindow : Window
         // stays alive while ANY window is open. Left alone, closing Chronora with History
         // open leaves an orphaned window and a running process behind - the app looks like
         // it did not shut down, because it did not.
+        // One subscription rather than a timer started at each of the dozen places that
+        // raise a notice - see OnWorkbenchPropertyChanged.
+        this.Workbench.PropertyChanged += this.OnWorkbenchPropertyChanged;
+
         this.Closed += (_, _) =>
         {
             this.SavePlacement();
+
+            this.Workbench.PropertyChanged -= this.OnWorkbenchPropertyChanged;
+            this._toastTimer?.Stop();
+            this._toastTimer = null;
 
             this._history?.Close();
             this._history = null;
@@ -146,6 +205,188 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Keeps the About button clear of the minimize/maximize/close buttons.
+    ///
+    /// RightInset is in RAW pixels; a XAML margin is in effective pixels. Using it straight
+    /// looks right at 100% and parks About underneath the close button at 150%, which is
+    /// where most laptops sit. The title bar's own right padding already accounts for part
+    /// of the gap, so only the remainder belongs in the margin.
+    /// </summary>
+    /// <summary>
+    /// Raw pixels per effective pixel, for this window, on the monitor it is on now.
+    ///
+    /// XamlRoot is the right answer and is null until the content is loaded, which is
+    /// exactly when RestorePlacement needs it. GetDpiForWindow works from the moment the
+    /// HWND exists and follows the window across monitors, so it is the fallback rather
+    /// than a guess of 1.0 - at 150% a guess is wrong by half the window.
+    /// </summary>
+    private double Scale
+    {
+        get
+        {
+            if (this.RootGrid?.XamlRoot?.RasterizationScale is > 0 and double fromXaml)
+            {
+                return fromXaml;
+            }
+
+            uint dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+            return dpi == 0 ? 1.0 : dpi / 96.0;
+        }
+    }
+
+    private int MinimumWidthPixels => (int)Math.Ceiling(MinimumWidthDips * this.Scale);
+
+    private int MinimumHeightPixels => (int)Math.Ceiling(MinimumHeightDips * this.Scale);
+
+    // DllImport rather than LibraryImport, for the same reason as the shell32 declaration
+    // further down: the generator LibraryImport uses emits unsafe code, and this project
+    // does not compile with /unsafe. One integer in, one out - there is nothing to marshal.
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(nint hwnd);
+
+    private void UpdateTitleBarInset()
+    {
+        double captionWidth = this.AppWindow.TitleBar.RightInset / this.Scale;
+        double alreadyInset = this.AppTitleBar.Padding.Right;
+
+        this.TitleBarAbout.Margin = new Thickness(0, 0, Math.Max(0, captionWidth - alreadyInset), 0);
+    }
+
+    // Separate handlers rather than one that reads a Tag, because a Tag that has to parse
+    // back into an enum is a string typo waiting to be a silent no-op.
+    //
+    // The two column labels TOGGLE; the menu items SELECT. That difference is the point: a
+    // header click meaning "this column, or the other way round if it already is" is what
+    // every file list does, while a menu item that reversed the list because you picked the
+    // option already in force would hand you the opposite of what you asked for. The menu
+    // has its own Reverse for the two orders that have no header to click.
+    private void OnSortByName(object sender, RoutedEventArgs e) =>
+        this.Workbench.ToggleSort(SortChoice.Name);
+
+    private void OnSortByBiggestChange(object sender, RoutedEventArgs e) =>
+        this.Workbench.ChooseSort(SortChoice.BiggestChange);
+
+    private void OnSortByResultingDate(object sender, RoutedEventArgs e) =>
+        this.Workbench.ChooseSort(SortChoice.ResultingDate);
+
+    private void OnSortByStatus(object sender, RoutedEventArgs e) =>
+        this.Workbench.ToggleSort(SortChoice.Status);
+
+    /// <summary>
+    /// Re-reads the folders with the scan settings as they now stand, and puts the flyout
+    /// away.
+    ///
+    /// Dismissed BEFORE the scan rather than after it. A scan of a large tree is the case
+    /// this button exists for, and leaving the flyout sitting over the window for the
+    /// duration would hide the status line and the Cancel button - the two things somebody
+    /// re-reading a big folder is most likely to want.
+    ///
+    /// async void, so it catches everything: an escaping exception here is rethrown on the
+    /// UI thread during layout and takes the process with it.
+    /// </summary>
+    private async void OnRescanWithOptions(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            this.ScanOptionsFlyout.Hide();
+
+            await this.Workbench.RescanWithOptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Could not re-read the folders with the new scan options.");
+        }
+    }
+
+    /// <summary>
+    /// Gives a clicked row the focus rectangle, the one the arrow keys produce.
+    ///
+    /// Not marked handled, so selection, double-click and the row menu all carry on
+    /// exactly as before - this only changes which focus state the row ends up in, and
+    /// therefore whether the border is drawn.
+    /// </summary>
+    private void OnRowTapped(object sender, TappedRoutedEventArgs e)
+    {
+        // A click on the tick box belongs to the tick box. Pulling focus up to the row
+        // would take the border off the control the pointer actually hit.
+        if (e.OriginalSource is CheckBox)
+        {
+            return;
+        }
+
+        _ = FindContainer(e.OriginalSource)?.Focus(FocusState.Keyboard);
+    }
+
+    private static bool IsControlDown() =>
+        Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    private static bool IsShiftDown() =>
+        Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+
+    /// <summary>
+    /// Space ticks or unticks the selected row.
+    ///
+    /// The checkbox is what decides whether a file is in the run, so a list that can be
+    /// walked with the arrow keys and not ticked with the space bar is only half usable
+    /// from the keyboard.
+    /// </summary>
+    private void OnFileListKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // Ctrl+A and Ctrl+Shift+A, handled here rather than left to the accelerators on the
+        // Select menu's items. Those give the menu its shortcut captions, which is worth
+        // having, but an accelerator on a MenuFlyoutItem is only reliable while the flyout
+        // is open - and a shortcut you have to open a menu to use is not a shortcut. Both
+        // commands are idempotent, so if the accelerator does fire as well, running twice
+        // lands in the same place.
+        //
+        // Scoped to the list on purpose: Ctrl+A while typing in the filter box should
+        // select the text, which is what it will now do.
+        if (e.Key == Windows.System.VirtualKey.A && IsControlDown())
+        {
+            if (IsShiftDown())
+            {
+                this.Workbench.SelectNone();
+            }
+            else
+            {
+                this.Workbench.SelectAllShown();
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key != Windows.System.VirtualKey.Space)
+        {
+            return;
+        }
+
+        // The row's own checkbox already does this when it holds focus. Acting here as
+        // well would toggle twice and land back where it started, which looks like the key
+        // doing nothing at all.
+        if (e.OriginalSource is CheckBox)
+        {
+            return;
+        }
+
+        if (this.Workbench.SelectedRow is not { } row)
+        {
+            return;
+        }
+
+        // The view model is subscribed to every row, so ticking one is enough on its own
+        // to move the summary and the Apply count - no refresh call belongs here.
+        row.IsIncluded = !row.IsIncluded;
+
+        e.Handled = true;
+    }
+
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
         if (!args.DidSizeChange && !args.DidPositionChange)
@@ -155,8 +396,11 @@ public sealed partial class MainWindow : Window
 
         if (args.DidSizeChange)
         {
-            int width = Math.Max(sender.Size.Width, MinimumWidth);
-            int height = Math.Max(sender.Size.Height, MinimumHeight);
+            // Recomputed every time rather than cached, because a window dragged to a
+            // monitor at a different scaling needs a different number of raw pixels to hold
+            // the same layout.
+            int width = Math.Max(sender.Size.Width, this.MinimumWidthPixels);
+            int height = Math.Max(sender.Size.Height, this.MinimumHeightPixels);
 
             if (width != sender.Size.Width || height != sender.Size.Height)
             {
@@ -189,9 +433,12 @@ public sealed partial class MainWindow : Window
 
         var fallback = new SizeInt32(1360, 880);
 
+        // Saved bounds are raw pixels, so they are compared against the raw minimum. Left
+        // against the effective one, a window saved on a 100% monitor would be rejected as
+        // too small when reopened on a 150% one and silently thrown away.
         if (saved is { WindowX: { } x, WindowY: { } y, WindowWidth: { } w, WindowHeight: { } h }
-            && w >= MinimumWidth
-            && h >= MinimumHeight
+            && w >= this.MinimumWidthPixels
+            && h >= this.MinimumHeightPixels
             && DisplayArea.GetFromRect(new RectInt32(x, y, w, h), DisplayAreaFallback.None) is not null)
         {
             this.AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
@@ -250,7 +497,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await this.Workbench.AddFolderAsync(folder.Path, ScanFilter.Default);
+        // The same builder every other entry point uses, so Add folder cannot quietly
+        // disagree with what a drop of the same folder would do.
+        await this.Workbench.AddFolderAsync(folder.Path, this.Workbench.BuildScanFilter());
     }
 
     /// <summary>
@@ -318,7 +567,75 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnDismissActionNotice(InfoBar sender, object args) => this.Workbench.DismissActionNotice();
+    /// <summary>
+    /// How long the action toast stays up on its own.
+    ///
+    /// Long enough to read a sentence and reach for Undo, short enough that it is gone
+    /// before it becomes furniture. Hovering it stops the clock, so the only way to lose
+    /// the button is to not be looking.
+    /// </summary>
+    private static readonly TimeSpan ToastLifetime = TimeSpan.FromSeconds(8);
+
+    private DispatcherTimer? _toastTimer;
+
+    private void OnDismissActionNotice(object sender, RoutedEventArgs e) =>
+        this.Workbench.DismissActionNotice();
+
+    /// <summary>
+    /// Restarts the toast's clock whenever a new notice arrives.
+    ///
+    /// Driven from the view model's own PropertyChanged rather than from each of the dozen
+    /// places that set a notice, because the next person to add one will not remember to
+    /// start a timer and the toast would sit there for ever.
+    /// </summary>
+    private void OnWorkbenchPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(WorkbenchViewModel.ActionNotice))
+        {
+            return;
+        }
+
+        this._toastTimer?.Stop();
+
+        if (!this.Workbench.HasActionNotice)
+        {
+            return;
+        }
+
+        this._toastTimer ??= CreateToastTimer();
+        this._toastTimer.Start();
+    }
+
+    private DispatcherTimer CreateToastTimer()
+    {
+        var timer = new DispatcherTimer { Interval = ToastLifetime };
+
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+
+            // Pointer is over it, so somebody is reading it or about to press Undo.
+            // Checked at the tick rather than cancelled on enter, so the clock restarts
+            // cleanly when the pointer leaves.
+            if (this._toastHovered)
+            {
+                timer.Start();
+                return;
+            }
+
+            this.Workbench.DismissActionNotice();
+        };
+
+        return timer;
+    }
+
+    private bool _toastHovered;
+
+    private void OnToastPointerEntered(object sender, PointerRoutedEventArgs e) =>
+        this._toastHovered = true;
+
+    private void OnToastPointerExited(object sender, PointerRoutedEventArgs e) =>
+        this._toastHovered = false;
 
     private void OnDismissNudge(InfoBar sender, object args) => this.Workbench.DismissNudge();
 
@@ -1367,16 +1684,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void OnSortChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (this.Workbench is not null
-            && sender is ComboBox { SelectedItem: ComboBoxItem { Tag: string tag } }
-            && Enum.TryParse(tag, out SortChoice choice))
-        {
-            this.Workbench.Sort = choice;
-        }
-    }
-
     /// <summary>
     /// Apply, behind a confirmation.
     ///
@@ -1466,7 +1773,11 @@ public sealed partial class MainWindow : Window
         {
             _ = body.AppendLine();
             _ = body.AppendLine(CultureInfo.CurrentCulture,
-                $"⚠ {summary.FilesSuspicious:N0} results look wrong. Sort by biggest change to see them first.");
+                // Names a control that is on screen. This said "Sort by biggest change"
+                // when that was an item in a ComboBox on the toolbar; the ComboBox is gone
+                // and the wording has to follow it, or the one instruction in the dialog
+                // that guards the destructive action points at nothing.
+                $"⚠ {summary.FilesSuspicious:N0} results look wrong. Sort by biggest change, under the File column header, to see them first.");
         }
 
         _ = body.AppendLine();
