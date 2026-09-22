@@ -96,10 +96,6 @@
                 <Setter Property="CornerRadius" Value="4" />
             </Style>
 
-            <!-- The same label, for the one header that also carries the sorts with no column. -->
-            <Style x:Key="CnColumnHeaderDropDownStyle" TargetType="DropDownButton"
-                   BasedOn="{StaticResource CnColumnHeaderStyle}" />
-
             <!--
                 A chip: a piece of state that is in force, saying so, with the way to
                 dismiss it attached. Used for the two things that silently change what the

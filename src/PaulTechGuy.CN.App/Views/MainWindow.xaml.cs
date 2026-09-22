@@ -240,12 +240,13 @@ public sealed partial class MainWindow : Window
     // Separate handlers rather than one that reads a Tag, because a Tag that has to parse
     // back into an enum is a string typo waiting to be a silent no-op.
     //
-    // The three menu items SELECT; the Status column label TOGGLES. That difference is the
-    // point: a header click meaning "this column, or the other way round if it already is"
-    // is what every file list does, while a menu item that reversed the list because you
-    // picked the option already in force would hand you the opposite of what you asked for.
+    // The two column labels TOGGLE; the menu items SELECT. That difference is the point: a
+    // header click meaning "this column, or the other way round if it already is" is what
+    // every file list does, while a menu item that reversed the list because you picked the
+    // option already in force would hand you the opposite of what you asked for. The menu
+    // has its own Reverse for the two orders that have no header to click.
     private void OnSortByName(object sender, RoutedEventArgs e) =>
-        this.Workbench.ChooseSort(SortChoice.Name);
+        this.Workbench.ToggleSort(SortChoice.Name);
 
     private void OnSortByBiggestChange(object sender, RoutedEventArgs e) =>
         this.Workbench.ChooseSort(SortChoice.BiggestChange);
@@ -255,6 +256,32 @@ public sealed partial class MainWindow : Window
 
     private void OnSortByStatus(object sender, RoutedEventArgs e) =>
         this.Workbench.ToggleSort(SortChoice.Status);
+
+    /// <summary>
+    /// Re-reads the folders with the scan settings as they now stand, and puts the flyout
+    /// away.
+    ///
+    /// Dismissed BEFORE the scan rather than after it. A scan of a large tree is the case
+    /// this button exists for, and leaving the flyout sitting over the window for the
+    /// duration would hide the status line and the Cancel button - the two things somebody
+    /// re-reading a big folder is most likely to want.
+    ///
+    /// async void, so it catches everything: an escaping exception here is rethrown on the
+    /// UI thread during layout and takes the process with it.
+    /// </summary>
+    private async void OnRescanWithOptions(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            this.ScanOptionsFlyout.Hide();
+
+            await this.Workbench.RescanWithOptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Could not re-read the folders with the new scan options.");
+        }
+    }
 
     private void OnEditRule(object sender, RoutedEventArgs e) =>
         this.IntentChoice.Focus(FocusState.Programmatic);

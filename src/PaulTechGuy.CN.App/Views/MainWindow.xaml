@@ -173,7 +173,7 @@
                                     AutomationProperties.Name="How folders are read"
                                     ToolTipService.ToolTip="Applies to drops, Add folder, Send To and the command line alike.">
                         <DropDownButton.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedLeft">
+                            <Flyout x:Name="ScanOptionsFlyout" Placement="BottomEdgeAlignedLeft">
                                 <StackPanel Spacing="8" MinWidth="260">
                                     <TextBlock Text="When Chronora reads a folder"
                                                Style="{StaticResource BodyStrongTextBlockStyle}" />
@@ -198,7 +198,7 @@
                                     -->
                                     <Button Content="Read the folders again"
                                             HorizontalAlignment="Stretch"
-                                            Command="{x:Bind Workbench.RescanWithOptionsCommand}"
+                                            Click="OnRescanWithOptions"
                                             IsEnabled="{x:Bind Workbench.CanRescanWithOptions, Mode=OneWay}"
                                             ToolTipService.ToolTip="Applies these settings to the folders already in the list. Files added one at a time are not re-read." />
                                 </StackPanel>
@@ -579,11 +579,28 @@
                                 ToolTipService.ToolTip="Export the preview, and the way back from a filter that is hiding everything.">
                             <Button.Flyout>
                                 <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                    <!--
+                                        The two sorts with no column of their own. They used
+                                        to hang off the File header, which meant that header
+                                        carried a sort caret AND a dropdown chevron - two
+                                        arrows side by side on one small label, each meaning
+                                        something different. A column header's job is to
+                                        sort its own column on a click; an unusual order is
+                                        a list action and belongs with the other ones.
+                                    -->
+                                    <MenuFlyoutItem Text="Sort by biggest change" Click="OnSortByBiggestChange"
+                                                    ToolTipService.ToolTip="Brings the most-moved dates to the top. It is the quickest way to spot one that looks wrong." />
+                                    <MenuFlyoutItem Text="Sort by resulting date" Click="OnSortByResultingDate" />
+                                    <MenuFlyoutItem Text="Reverse the order"
+                                                    Command="{x:Bind Workbench.ReverseSortCommand}"
+                                                    ToolTipService.ToolTip="The File and Status headers reverse on a second click; these two have no header to click." />
+
+                                    <MenuFlyoutSeparator />
+
                                     <MenuFlyoutItem Text="Show all files"
                                                     Command="{x:Bind Workbench.ShowAllFilesCommand}"
                                                     IsEnabled="{x:Bind Workbench.IsAnyFilterOn, Mode=OneWay}"
                                                     ToolTipService.ToolTip="Clears the type filter and both view filters, whichever of them is narrowing the list." />
-                                    <MenuFlyoutSeparator />
                                     <MenuFlyoutItem Text="Export preview (CSV)…" Click="OnExportPreview" />
                                 </MenuFlyout>
                             </Button.Flyout>
@@ -597,6 +614,13 @@
                         what-changes share one column, stacked - the row is two lines - so
                         there is no "what changes" column to put a header over, and drawing
                         one would be a header describing a column that does not exist.
+
+                        Both labels are plain buttons: click to sort, click again to
+                        reverse. Nothing hangs a menu off them. The File label briefly did,
+                        and carried a sort caret and a dropdown chevron at the same time -
+                        two arrows on one small label, each meaning something different. The
+                        orders with no column live under the ⋯ button with the other list
+                        actions, and announce themselves in a chip when one is in force.
 
                         The widths here are literal numbers and they are duplicated in the
                         row DataTemplate below. They cannot be shared: ColumnDefinition.Width
@@ -617,37 +641,15 @@
                                 that renames itself is a header that lies about what is
                                 under it.
                             -->
-                            <DropDownButton Grid.Column="2" Style="{StaticResource CnColumnHeaderDropDownStyle}"
-                                            AutomationProperties.Name="File, and how the list is sorted"
-                                            ToolTipService.ToolTip="Sort by biggest change to bring the most-moved dates to the top. It is the quickest way to spot one that looks wrong.">
+                            <Button Grid.Column="2" Style="{StaticResource CnColumnHeaderStyle}"
+                                    Click="OnSortByName"
+                                    AutomationProperties.Name="File, and how the list is sorted"
+                                    ToolTipService.ToolTip="Sort by file name. Click again to reverse it. The other two orders are under the ⋯ button.">
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <TextBlock Text="File" />
                                     <TextBlock Text="{x:Bind Workbench.FileHeaderCaret, Mode=OneWay}" />
                                 </StackPanel>
-                                <DropDownButton.Flyout>
-                                    <!--
-                                        Anchored to the label's left edge rather than
-                                        centred on it, which is where a menu belongs and
-                                        what the rest of Windows does.
-                                    -->
-                                    <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                                        <MenuFlyoutItem Text="Sort by name" Click="OnSortByName" />
-                                        <MenuFlyoutItem Text="Sort by biggest change" Click="OnSortByBiggestChange" />
-                                        <MenuFlyoutItem Text="Sort by resulting date" Click="OnSortByResultingDate" />
-
-                                        <MenuFlyoutSeparator />
-
-                                        <!--
-                                            The Status label reverses on a second click, the
-                                            way a column header always has. This header is a
-                                            menu, so it has no second click to give and the
-                                            verb has to be written down.
-                                        -->
-                                        <MenuFlyoutItem Text="Reverse the order"
-                                                        Command="{x:Bind Workbench.ReverseSortCommand}" />
-                                    </MenuFlyout>
-                                </DropDownButton.Flyout>
-                            </DropDownButton>
+                            </Button>
 
                             <!--
                                 12 to the left, matching the row template's status margin,
