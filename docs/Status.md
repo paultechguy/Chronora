@@ -1,7 +1,11 @@
 # Where Chronora is
 
 Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-513 tests passing, 1 skipped.
+521 tests passing, 1 skipped.
+
+**The suite is intermittently red and it is not the code.** `Presentation.Tests` fails about
+one run in four, a different test each time, from two unrelated pre-existing causes — see
+`Todo.md` item 2. A red run there is worth re-running before believing it.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror

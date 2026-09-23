@@ -1,7 +1,7 @@
 # What Chronora owes
 
-Last updated 2026-09-23. Branch `dev`. Three items, all known and all deferred on purpose —
-none of them is a surprise waiting to be discovered.
+Last updated 2026-09-23. Branch `dev`. Two items. One of them — the flaky suite — **is** a
+surprise that was discovered, and it is bigger than it was written up as.
 
 `Status.md` says where the project *is* and what needs a human to look at it. This says what
 is left to *do*. When an item lands, delete it from here and, if it needs testing, add it to
@@ -12,26 +12,7 @@ order, but they are independent — take whichever suits the session.
 
 ---
 
-## 1. Two engineering smells in the row plumbing
-
-Cheap to fix and cheapest while the code is fresh. Both were found by the review of the
-chrome refactor and neither was in its scope.
-
-**`TrackRow` never unsubscribes.** Every row's `PropertyChanged` is hooked to call
-`RefreshSummary`, and `_allRows.Clear()` happens in five places without ever detaching them.
-A leak today; a correctness hazard the moment a cleared row's `IsIncluded` can still fire.
-
-**`SelectAllShown` is N × O(N).** Every `IsIncluded` change triggers a full `RefreshSummary`,
-which walks all of `_allRows` **and** calls `BuildRecipe()` — and `SelectAllShown` sets
-`IsIncluded` in a loop. Survivable only because nobody has clicked it on 50,000 files.
-
-**Done looks like:** rows detach when they leave the list, and the two selection commands
-suppress the per-row storm and refresh once at the end. The codebase already uses
-`_applyingIntent` / `_applyingTemplate` flags for exactly this shape of problem.
-
----
-
-## 2. High contrast has never been looked at
+## 1. High contrast has never been looked at
 
 **What.** The chrome refactor added a command deck, chips, column headers, a floating toast
 and accent-coloured focus visuals. None of it has been seen in a high contrast theme.
@@ -48,11 +29,21 @@ region and a button in it.
 
 ---
 
-## 3. A flaky test — cause found 2026-09-23, fix not yet made
+## 2. A flaky suite — two separate causes, both found 2026-09-23
 
-**What.** A test in `PaulTechGuy.CN.Presentation.Tests` fails inside `WorkbenchFixture`'s
-constructor with a `SafeHandle.DangerousAddRef` crash in `sqlite3_changes`, under
-`JournalSchema.ApplyPragmas`. It passes on every rerun, alone and across the full solution.
+**This item was "a flaky test". It is not.** `PaulTechGuy.CN.Presentation.Tests` has **two
+unrelated intermittent failures**, and between them they put the assembly red roughly one
+run in four. Neither ever reproduces in isolation. Measured across ~15 full runs on
+2026-09-23, including five at a commit with no local changes, so neither is anything a
+recent change introduced.
+
+---
+
+### 2a. A SQLite handle race in the fixture constructor
+
+**What.** A test fails inside `WorkbenchFixture`'s constructor with a
+`SafeHandle.DangerousAddRef` crash in `sqlite3_changes`, under `JournalSchema.ApplyPragmas`.
+It passes on every rerun, alone and across the full solution.
 
 **Three sightings**, all on full-solution runs and never on the project alone: once before
 2026-09-22 in `WorkbenchNotificationTests`, and twice on 2026-09-23 — the second of which
@@ -96,6 +87,42 @@ Dropping the call is the smaller change and removes the race rather than hiding 
 collection approach keeps the pool clearing but costs the assembly its parallelism, which is
 currently about a second. **Worth deciding rather than guessing at** — it is a choice between
 a slower suite and a slightly leakier temp directory.
+
+---
+
+### 2b. Tests race the recompute debounce
+
+**Found 2026-09-23** while checking whether the row-plumbing change had broken anything. It
+had not; this is what was failing.
+
+**What.** A *different* test fails each run with an ordinary assertion failure — a stale
+value, not a crash. Three seen, all in tests that set an option and then assert:
+
+- `RunNoticeTests.A_run_report_survives_the_rescan_that_follows_it` — footer still read
+  `Writing 2 of 2…` instead of the rescan's sentence.
+- `TypeFilterTests.A_bare_extension_works_as_well_as_a_wildcard(typed: "  png  ")`
+- `ExplorerPatternTests.Explorer_style_patterns_select_what_they_should(pattern: "beach*")`
+
+The last of those failed at `a1465c0` with **no local changes**, which is how this was
+separated from the work in flight.
+
+**The cause.** `QueueRecompute` (`WorkbenchViewModel.cs`, around line 3570) is a real
+timer-based debounce: `Task.Delay(RecomputeDebounce)` and then a dispatcher post. It runs in
+tests exactly as it runs in the app. A test that changes an option and asserts immediately
+is racing that timer — it passes when the machine is idle and fails when six test classes
+are running at once. It also means a debounce queued by one step can land *during* a later
+one and overwrite what it just set up.
+
+**Not a product bug.** The debounce is right for the app; it is the tests that assume it is
+not there.
+
+**Done looks like:** the fixture can settle the debounce deterministically. Options, roughly
+in order of how much they change: give `WorkbenchFixture` a way to flush it (await the
+pending recompute, or drive `RecomputeDebounce` to zero for tests, the way
+`ExifToolInstaller.StallTimeout` is settable); or have the affected tests call `Recompute()`
+explicitly instead of relying on the queue. **Worth checking first whether any test is
+relying on the debounce deliberately** — one that tests the debouncing itself would need
+the opposite treatment.
 
 ---
 
