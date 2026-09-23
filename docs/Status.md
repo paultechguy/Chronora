@@ -1,7 +1,7 @@
 # Where Chronora is
 
 Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-509 tests passing, 1 skipped.
+513 tests passing, 1 skipped.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -214,9 +214,35 @@ Apply something, anything, and read the top of the list.
   would spend the colour that should mean "look at this".
 - **The floating action toast is unchanged** and still handles drops and Start over. Check
   the two do not collide visually when a drop notice and a run report are both up.
-- **Still unmigrated**, and therefore still losable: `Copied the path to x.jpg`, `Could not
-  open x.jpg`, template confirmations and about 45 others still go to the footer. That is
-  the remaining half of `Todo.md` item 1, not an oversight.
+### 9. Everything else left the footer too — landed 2026-09-23
+
+The second half of the same item. **52 assignment sites are now 17, and all 17 are
+progress**: reading, writing, undoing, cancelled, and two clears.
+
+- **~24 confirmations moved to the toast, quietly.** `Copied the path to x.jpg`, `Opened
+  x.jpg`, `Using "template"`, `Saved "X"`, per-row by-hand dates, `Nothing to apply.`
+  **The toast only shows its Undo button when there is something to undo now.** The
+  original rule — banner for undoable things, bottom bar for everything else — was written
+  because an Undo button on every option change was *reported* as overkill. That is still
+  right, so the confirmations take the same card for the same few seconds with no button.
+- **~11 errors moved to the notice region and now persist.** `Could not open x.jpg`,
+  `Could not read {folder}`, a template import that failed. These were the worst of it:
+  the app's failure messages were going to a progress meter that the next scan overwrote.
+- **Errors outrank a run report**, which outranks the two conditions. Both are events and
+  a failure that has just happened has not been read, while a report may have been.
+
+**What to actually look at.** This is the change most likely to feel wrong rather than be
+wrong, and the specific risk is **toast frequency** — it now fires on gestures that were
+previously silent-ish. Work normally for a few minutes: copy a path, open a file, switch
+templates, set a by-hand date. If it feels like it is popping up constantly, that is the
+finding, and the answer is to drop some of these messages rather than to move them again.
+
+Also worth one look each:
+- **The Undo button appears and disappears** between a drop (present) and a copy-path
+  (absent). It should never appear on something that cannot be undone.
+- **Provoke an error** — right-click a row and Open on a file you have deleted underneath
+  the app. The red bar should stay until dismissed, and a scan should not clear it.
+- **Start over** should clear the run report and any error along with the list.
 
 ---
 

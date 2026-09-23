@@ -1,6 +1,6 @@
 # What Chronora owes
 
-Last updated 2026-09-23. Branch `dev`. Four items, all known and all deferred on purpose —
+Last updated 2026-09-23. Branch `dev`. Three items, all known and all deferred on purpose —
 none of them is a surprise waiting to be discovered.
 
 `Status.md` says where the project *is* and what needs a human to look at it. This says what
@@ -12,45 +12,7 @@ order, but they are independent — take whichever suits the session.
 
 ---
 
-## 1. The footer still carries ~49 messages that are not progress
-
-**Half done 2026-09-23.** The run report and the notice region landed; the migration of
-everything else did not. What follows is only the remainder.
-
-**What landed.** `ScanStatus` is now `ProgressStatus` — 63 references, a pure rename, and
-most of why the sites accumulated: "the scan's status" reads like "the app's status line",
-so writing a toast or a run report to it looked correct at every call site. The two
-`InfoBar`s above the list became one ranked region with a queued count, and a run report
-now goes there, outranking both conditions, carrying **Undo last run** and **History**.
-
-**The count was wrong, and low.** It was not "roughly thirty-six in `WorkbenchViewModel`" —
-that missed the 14 in `MainWindow.xaml.cs`. **52 sites**, of which 3 have moved.
-
-**The bug was worse than this item said.** It read "a run that partly failed can say so and
-be gone before it is read". Measured: `ApplyAsync` writes the report and calls
-`RescanAsync()` on the *next line*, which overwrites the footer twice more inside the same
-await chain. The report was destroyed on every run, by the app itself, before the UI drew
-it. Nobody had ever seen one. That half is fixed.
-
-**What is left**, all of it still writing to `ProgressStatus`:
-- **~24 incidental confirmations** → the floating toast. "Copied the path to x.jpg",
-  "Opened x.jpg", template save/delete/copy, per-row overrides. The toast needs a mode with
-  no Undo button first: everything it shows today is reversible and these are not.
-- **~8 errors** → the notice region. "Could not open x.jpg: …" is the one kind that must
-  persist, and it is currently the most losable thing in the app.
-- **~6 refusals** ("Nothing to apply.", "There is nothing to undo.") — arguably fine where
-  they are, since they answer a click that just happened and nothing was changed. **Worth a
-  decision rather than a sweep.**
-- **2 `string.Empty` clears** — follow whatever the above decides.
-
-**Careful of:** `NoticeRoutingTests` encodes a deliberate, tested split — option changes go
-quietly to the footer, list actions with a real Undo get the toast. Three of its assertions
-read `ProgressStatus` for exactly the messages the migration would move, so they have to
-move with them rather than be made to pass.
-
----
-
-## 2. Two engineering smells in the row plumbing
+## 1. Two engineering smells in the row plumbing
 
 Cheap to fix and cheapest while the code is fresh. Both were found by the review of the
 chrome refactor and neither was in its scope.
@@ -69,7 +31,7 @@ suppress the per-row storm and refresh once at the end. The codebase already use
 
 ---
 
-## 3. High contrast has never been looked at
+## 2. High contrast has never been looked at
 
 **What.** The chrome refactor added a command deck, chips, column headers, a floating toast
 and accent-coloured focus visuals. None of it has been seen in a high contrast theme.
@@ -86,7 +48,7 @@ region and a button in it.
 
 ---
 
-## 4. A flaky test — cause found 2026-09-23, fix not yet made
+## 3. A flaky test — cause found 2026-09-23, fix not yet made
 
 **What.** A test in `PaulTechGuy.CN.Presentation.Tests` fails inside `WorkbenchFixture`'s
 constructor with a `SafeHandle.DangerousAddRef` crash in `sqlite3_changes`, under
