@@ -7,6 +7,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -644,8 +645,26 @@ public sealed partial class MainWindow : Window
     /// once the user has asked for something that needs ExifTool - so the question is
     /// never put to somebody who has not shown they want the answer.
     /// </summary>
-    private async void OnSetUpExifTool(object sender, RoutedEventArgs e) =>
-        _ = await ExifToolConsent.ShowAsync(this.Content.XamlRoot, this.Workbench);
+    private async void OnSetUpExifTool(object sender, RoutedEventArgs e)
+    {
+        // async void, so it catches everything. An escaping exception is rethrown on the UI
+        // thread during layout and takes the process with it.
+        //
+        // This was a bare expression body until the consent flow gained a Cancel button.
+        // That button awaits a download, which is a live exception path where there was
+        // none before: OperationCanceledException is handled inside the flow, but a
+        // genuinely unexpected throw from the installer now has somewhere to come out, and
+        // it comes out here.
+        try
+        {
+            _ = await ExifToolConsent.ShowAsync(this.Content.XamlRoot, this.Workbench);
+        }
+        catch (Exception ex)
+        {
+            App.Services.GetService<ILogger<MainWindow>>()?.LogError(ex, "The ExifTool setup pane failed.");
+            this.Workbench.ScanStatus = "ExifTool could not be set up. The log has the details.";
+        }
+    }
 
     /// <summary>
     /// Opens History, or brings the open one forward.

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Globalization;
 using System.IO.Compression;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -29,6 +30,19 @@ public sealed class ExifToolInstaller(HttpClient http, ILogger<ExifToolInstaller
     private readonly ILogger<ExifToolInstaller> _logger = logger ?? NullLogger<ExifToolInstaller>.Instance;
 
     /// <summary>
+    /// How long the download may sit with no bytes arriving before it is abandoned.
+    ///
+    /// A stall clock, not a speed limit. ExifTool is a large file and a slow link is not a
+    /// fault, so every chunk that arrives pushes this back — only a connection that has
+    /// stopped saying anything at all runs it down. An overall cap on the whole download
+    /// cannot tell a stalled transfer from a slow one, which is why this is not one.
+    ///
+    /// Settable so a test can prove the behaviour in milliseconds rather than by waiting a
+    /// minute, the same bargain <see cref="ExifToolManifestSource.LocalDirectory"/> makes.
+    /// </summary>
+    public TimeSpan StallTimeout { get; set; } = TimeSpan.FromSeconds(60);
+
+    /// <summary>
     /// Downloads, verifies and installs. Nothing is moved into place until the hash
     /// matches, so a failed or tampered download leaves the previous state untouched.
     /// </summary>
@@ -51,6 +65,24 @@ public sealed class ExifToolInstaller(HttpClient http, ILogger<ExifToolInstaller
             try
             {
                 await this.DownloadAsync(manifest, archive, progress, cancellationToken).ConfigureAwait(false);
+            }
+            // This filter has to come first. TaskCanceledException derives from
+            // OperationCanceledException, so the general catch below would otherwise
+            // swallow a cancellation and report it as a network fault — telling somebody
+            // who has just pressed Cancel themselves that their proxy might be to blame.
+            // Stopping is an answer, not a failure, and it leaves here as one.
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                this._logger.LogInformation("The ExifTool download was cancelled.");
+                throw;
+            }
+            catch (TimeoutException ex)
+            {
+                this._logger.LogWarning(ex, "The ExifTool download from {Url} stalled.", manifest.Url);
+
+                return InstallResult.Failed(
+                    $"The download from {manifest.Url} stopped sending data and was abandoned. {ex.Message} "
+                    + "You can try again, or install ExifTool yourself and point Chronora at it instead.");
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
             {
@@ -125,30 +157,58 @@ public sealed class ExifToolInstaller(HttpClient http, ILogger<ExifToolInstaller
         IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response = await this._http
-            .GetAsync(manifest.Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        // A second token, linked to the user's so Cancel still reaches every read, but with
+        // a clock on it that the arrival of data keeps pushing back. Which of the two fired
+        // is recovered below by asking the user's token, since by the time the exception
+        // arrives the linked one says only that somebody cancelled.
+        using var stall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        stall.CancelAfter(this.StallTimeout);
 
-        _ = response.EnsureSuccessStatusCode();
-
-        long? total = response.Content.Headers.ContentLength ?? (manifest.SizeBytes > 0 ? manifest.SizeBytes : null);
-
-        await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        await using FileStream target = File.Create(destination);
-
-        byte[] buffer = new byte[81920];
-        long written = 0;
-        int read;
-
-        while ((read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        try
         {
-            await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-            written += read;
+            // The clock covers the headers too. A host that accepts the connection and then
+            // never answers is the same hang as one that stops mid-body, and it is the one
+            // that used to leave the progress pane up for as long as HttpClient allowed.
+            using HttpResponseMessage response = await this._http
+                .GetAsync(manifest.Url, HttpCompletionOption.ResponseHeadersRead, stall.Token)
+                .ConfigureAwait(false);
 
-            if (total is > 0)
+            _ = response.EnsureSuccessStatusCode();
+
+            long? total = response.Content.Headers.ContentLength ?? (manifest.SizeBytes > 0 ? manifest.SizeBytes : null);
+
+            await using Stream source = await response.Content.ReadAsStreamAsync(stall.Token).ConfigureAwait(false);
+            await using FileStream target = File.Create(destination);
+
+            byte[] buffer = new byte[81920];
+            long written = 0;
+            int read;
+
+            while ((read = await source.ReadAsync(buffer, stall.Token).ConfigureAwait(false)) > 0)
             {
-                progress?.Report(100.0 * written / total.Value);
+                await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                written += read;
+
+                // Any progress buys another full window, which is what keeps this a stall
+                // clock rather than a time limit on a large file over a thin link.
+                stall.CancelAfter(this.StallTimeout);
+
+                if (total is > 0)
+                {
+                    progress?.Report(100.0 * written / total.Value);
+                }
             }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The user's token is quiet, so it was the stall clock. Reported as its own
+            // kind rather than as a cancellation, because the caller has to tell the two
+            // apart and an OperationCanceledException from here would read as "the user
+            // stopped it" when nobody did.
+            throw new TimeoutException(
+                string.Create(
+                    CultureInfo.CurrentCulture,
+                    $"No data arrived for {this.StallTimeout.TotalSeconds:N0} seconds."));
         }
     }
 

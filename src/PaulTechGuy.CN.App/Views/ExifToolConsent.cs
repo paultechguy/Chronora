@@ -36,9 +36,15 @@ internal static class ExifToolConsent
         // Loops so "Check again" can re-probe and rebuild. The probe runs when the pane is
         // built, so without this it cannot see an ExifTool installed WHILE the pane is
         // open - which is exactly what happens when someone follows the winget advice.
+        //
+        // A cancelled download now goes round the same way, which is why the loop carries a
+        // notice: the pane it comes back to is otherwise identical to the one just left,
+        // and a pane that looks untouched reads as the Cancel having failed.
+        string? notice = null;
+
         while (true)
         {
-            EngineStatus? result = await ShowOnceAsync(root, workbench).ConfigureAwait(true);
+            (EngineStatus? result, notice) = await ShowOnceAsync(root, workbench, notice).ConfigureAwait(true);
 
             if (result is { } status)
             {
@@ -47,8 +53,21 @@ internal static class ExifToolConsent
         }
     }
 
-    /// <summary>One pass. Returns null when the user asked to look again.</summary>
-    private static async Task<EngineStatus?> ShowOnceAsync(XamlRoot root, WorkbenchViewModel workbench)
+    /// <summary>
+    /// One pass.
+    /// </summary>
+    /// <param name="notice">
+    /// A line to show above the options, carried over from the pass that asked to go round
+    /// again. Null on the first pass and after "Check again", which needs no explanation.
+    /// </param>
+    /// <returns>
+    /// The settled status, or null to go round again — paired with the notice the next pass
+    /// should carry.
+    /// </returns>
+    private static async Task<(EngineStatus? Status, string? Notice)> ShowOnceAsync(
+        XamlRoot root,
+        WorkbenchViewModel workbench,
+        string? notice)
     {
         // Probed before the pane is built, so someone who already has ExifTool is offered
         // their own copy rather than a download they do not need.
@@ -56,6 +75,23 @@ internal static class ExifToolConsent
         ExifToolManifest? offer = await workbench.GetExifToolOfferAsync().ConfigureAwait(true);
 
         var body = new StackPanel { Spacing = 8, MinWidth = 460 };
+
+        // Above the intro rather than below it: on this pass the user has already read what
+        // ExifTool is, and what they want to know is what became of the download they
+        // stopped. "Nothing was installed" is the half worth saying - a part-finished
+        // download is the thing people worry about having left behind.
+        if (notice is not null)
+        {
+            body.Children.Add(new InfoBar
+            {
+                IsOpen = true,
+                IsClosable = false,
+                Severity = InfoBarSeverity.Informational,
+                Title = notice,
+                Message = "Nothing was installed.",
+                Margin = new Thickness(0, 0, 0, 4),
+            });
+        }
 
         body.Children.Add(new TextBlock
         {
@@ -175,20 +211,35 @@ internal static class ExifToolConsent
 
         _ = await dialog.ShowAsync();
 
-        return chosen switch
+        switch (chosen)
         {
             // Declining is a real answer. Every file-date feature keeps working, so there
             // is nothing to say beyond letting them get on with it.
-            null => workbench.EngineStatus,
+            case null:
+                return (workbench.EngineStatus, null);
 
-            // Null means "go round again": re-probe and rebuild, so an ExifTool installed
-            // while this pane was open is found rather than missed.
-            "recheck" => null,
+            // A null status means "go round again": re-probe and rebuild, so an ExifTool
+            // installed while this pane was open is found rather than missed. No notice —
+            // the user asked for another look and is about to get one.
+            case "recheck":
+                return (null, null);
 
-            "existing" => await workbench.UseExistingExifToolAsync(existing[0].ExecutablePath).ConfigureAwait(true),
-            "browse" => await BrowseAsync(root, workbench).ConfigureAwait(true),
-            _ => await InstallAsync(root, workbench).ConfigureAwait(true),
-        };
+            case "existing":
+                return (await workbench.UseExistingExifToolAsync(existing[0].ExecutablePath).ConfigureAwait(true), null);
+
+            case "browse":
+                return (await BrowseAsync(root, workbench).ConfigureAwait(true), null);
+
+            default:
+                // Null here means the download was cancelled, which lands back on this pane
+                // rather than closing the flow: they chose one of three ways in and changed
+                // their mind about that one, not about all of them.
+                EngineStatus? installed = await InstallAsync(root, workbench).ConfigureAwait(true);
+
+                return installed is { } settled
+                    ? (settled, null)
+                    : (null, "The download was stopped");
+        }
     }
 
     /// <summary>
@@ -267,17 +318,34 @@ internal static class ExifToolConsent
         return status;
     }
 
-    private static async Task<EngineStatus> InstallAsync(XamlRoot root, WorkbenchViewModel workbench)
+    /// <summary>
+    /// Downloads and installs, with a way out.
+    ///
+    /// This pane used to hold a TextBlock, a ProgressBar and no buttons at all, which made
+    /// it the one modal in the app with no way to dismiss it. It is also the first thing a
+    /// new user meets: they have asked for photo dates, been told a helper is needed and
+    /// said yes. A dead modal at that moment is the worst first impression available.
+    /// </summary>
+    /// <returns>The resulting status, or null when the user stopped the download.</returns>
+    private static async Task<EngineStatus?> InstallAsync(XamlRoot root, WorkbenchViewModel workbench)
     {
         var bar = new ProgressBar { Minimum = 0, Maximum = 100, Width = 380 };
         var text = new TextBlock { Text = "Downloading…" };
+
+        using var cancel = new CancellationTokenSource();
 
         var progressDialog = new ContentDialog
         {
             XamlRoot = root,
             Title = "Installing ExifTool",
             Content = new StackPanel { Spacing = 12, Children = { text, bar } },
+
+            // The close button, which Esc also invokes. The token was threaded the whole
+            // way down to the read loop long before anything created one to pass.
+            CloseButtonText = "Cancel",
         };
+
+        progressDialog.CloseButtonClick += (_, _) => cancel.Cancel();
 
         var progress = new Progress<double>(p =>
         {
@@ -285,14 +353,31 @@ internal static class ExifToolConsent
             text.Text = string.Create(CultureInfo.CurrentCulture, $"Downloading… {p:N0}%");
         });
 
-        Task<EngineStatus> install = workbench.InstallExifToolAsync(progress);
+        Task<EngineStatus> install = workbench.InstallExifToolAsync(progress, cancel.Token);
 
         // Shown and dismissed around the work rather than blocking on it, so the progress
         // is visible without the dialog owning the operation.
         _ = progressDialog.ShowAsync();
 
-        EngineStatus status = await install.ConfigureAwait(true);
-        progressDialog.Hide();
+        EngineStatus status;
+
+        try
+        {
+            status = await install.ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            // In a finally, not on the line after the await. Hide() used to sit outside any
+            // guard, so anything thrown by the install left this pane on screen for good -
+            // the same dead modal the Cancel button exists to prevent, reached by the one
+            // door a Cancel button cannot cover. Hiding an already-hidden dialog is a no-op,
+            // so the cancel path costs nothing for passing through here.
+            progressDialog.Hide();
+        }
 
         if (!status.Available)
         {

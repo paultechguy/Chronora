@@ -1,7 +1,7 @@
 # Where Chronora is
 
 Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-500 tests passing, 1 skipped.
+503 tests passing, 1 skipped.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -172,6 +172,25 @@ Drop a folder with a few thousand files in it and watch the footer.
 - **Over 25,000 files the toast adds a second sentence** saying the list is large and
   everything will be slower until it is trimmed. Nothing is capped or dropped. This one is
   hard to see without a genuinely huge folder and is pinned by a test instead.
+
+### 7. The ExifTool download can be stopped — landed 2026-09-23
+
+Needs an actual download, so: **Set up ExifTool**, choose **Download a private copy**.
+
+- **The progress pane has a Cancel button.** It had a TextBlock, a ProgressBar and no
+  buttons at all — the one modal in the app with no way out, met by a new user at the worst
+  possible moment. Esc works too.
+- **Cancel lands back on the consent pane**, not out in the main window, with a line reading
+  **The download was stopped / Nothing was installed** above the three options. Worth
+  checking the line is gone again if you then press **Check again**.
+- **Cancelling is not reported as a network failure.** It used to come back through the
+  catch that says "on a managed network this is often a proxy or a policy", which tells
+  somebody who just pressed Cancel to go and argue with their IT department.
+- **A stalled download gives up after 60 seconds of no bytes** and says so in its own words.
+  The clock resets on every chunk, so a slow link is not affected — only a connection that
+  has gone silent. Hard to provoke by hand; pinned by a test that runs it at 200ms.
+- **Unseen and worth one look:** what the pane looks like mid-download at a small window
+  size, since it now has a button row it did not have.
 
 ---
 
