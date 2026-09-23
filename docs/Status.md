@@ -1,7 +1,7 @@
 # Where Chronora is
 
 Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-503 tests passing, 1 skipped.
+509 tests passing, 1 skipped.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -191,6 +191,32 @@ Needs an actual download, so: **Set up ExifTool**, choose **Download a private c
   has gone silent. Hard to provoke by hand; pinned by a test that runs it at 200ms.
 - **Unseen and worth one look:** what the pane looks like mid-download at a small window
   size, since it now has a button row it did not have.
+
+### 8. The notice region, and a run report you can actually read — landed 2026-09-23
+
+**This is the most visible change of the three and the one most worth a deliberate look.**
+Apply something, anything, and read the top of the list.
+
+- **A finished run now says what it did, and it stays said.** Until today it did not: the
+  report was written to the footer and `RescanAsync()` — called on the next line of
+  `ApplyAsync` — overwrote it twice before the window was drawn. Measured, not inferred.
+  A run that half failed used to report `Read 2 files from C:\Photos.`
+- **The two `InfoBar`s above the list are now one region showing one notice**, ranked, with
+  **`N more notices`** underneath when others are open. The run report outranks both
+  standing conditions.
+- **Worth deliberately provoking the queue:** choose photo dates with no ExifTool (raises
+  the warning), then apply something. The run report should take the region and the count
+  should read `1 more notice`. Dismiss it and the ExifTool warning should come back.
+- **The report carries Undo last run and History.** Undo should be greyed on a report from
+  a run that cannot be undone.
+- **A clean run is Informational (blue), a run with failures is Warning (yellow).** No green:
+  a success bar for something the user asked for and expected is congratulation, and it
+  would spend the colour that should mean "look at this".
+- **The floating action toast is unchanged** and still handles drops and Start over. Check
+  the two do not collide visually when a drop notice and a run report are both up.
+- **Still unmigrated**, and therefore still losable: `Copied the path to x.jpg`, `Could not
+  open x.jpg`, template confirmations and about 45 others still go to the footer. That is
+  the remaining half of `Todo.md` item 1, not an oversight.
 
 ---
 

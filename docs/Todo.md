@@ -12,28 +12,41 @@ order, but they are independent — take whichever suits the session.
 
 ---
 
-## 1. `ScanStatus` carries about thirty-six unrelated messages
+## 1. The footer still carries ~49 messages that are not progress
 
-**What.** One `TextBlock` in the footer is the channel for a transient toast ("Copied the
-path to x.jpg"), a mode statement ("Using 'template'"), a progress meter ("Read 45,000
-files…") and a run report ("Done. 0 changed, 5 failed… ExifTool is not available") — roughly
-thirty-six assignment sites in `WorkbenchViewModel`.
+**Half done 2026-09-23.** The run report and the notice region landed; the migration of
+everything else did not. What follows is only the remainder.
 
-**Why it matters.** The 2026-09-22 fix that made failure reasons visible put the app's most
-important sentence into a channel where the next mouse gesture overwrites it. A run that
-partly failed can say so and be gone before it is read.
+**What landed.** `ScanStatus` is now `ProgressStatus` — 63 references, a pure rename, and
+most of why the sites accumulated: "the scan's status" reads like "the app's status line",
+so writing a toast or a run report to it looked correct at every call site. The two
+`InfoBar`s above the list became one ranked region with a queued count, and a run report
+now goes there, outranking both conditions, carrying **Undo last run** and **History**.
 
-**Why it is still here.** Untangling it touches every one of those sites and wants the
-notice region settled first — see the note below.
+**The count was wrong, and low.** It was not "roughly thirty-six in `WorkbenchViewModel`" —
+that missed the 14 in `MainWindow.xaml.cs`. **52 sites**, of which 3 have moved.
 
-**Done looks like:** progress stays in the footer; a run outcome becomes a notice that
-persists until dismissed, with a link to History; incidental confirmations become the toast
-that already exists.
+**The bug was worse than this item said.** It read "a run that partly failed can say so and
+be gone before it is read". Measured: `ApplyAsync` writes the report and calls
+`RescanAsync()` on the *next line*, which overwrites the footer twice more inside the same
+await chain. The report was destroyed on every run, by the app itself, before the UI drew
+it. Nobody had ever seen one. That half is fixed.
 
-**Related, decide together:** two `InfoBar`s still stack above the list (ExifTool missing,
-intent nudge) and both can be open at once. The action notice already left that stack and
-became a floating toast on 2026-09-22. Whether the remaining two become one notice region is
-the same decision as where a run outcome goes.
+**What is left**, all of it still writing to `ProgressStatus`:
+- **~24 incidental confirmations** → the floating toast. "Copied the path to x.jpg",
+  "Opened x.jpg", template save/delete/copy, per-row overrides. The toast needs a mode with
+  no Undo button first: everything it shows today is reversible and these are not.
+- **~8 errors** → the notice region. "Could not open x.jpg: …" is the one kind that must
+  persist, and it is currently the most losable thing in the app.
+- **~6 refusals** ("Nothing to apply.", "There is nothing to undo.") — arguably fine where
+  they are, since they answer a click that just happened and nothing was changed. **Worth a
+  decision rather than a sweep.**
+- **2 `string.Empty` clears** — follow whatever the above decides.
+
+**Careful of:** `NoticeRoutingTests` encodes a deliberate, tested split — option changes go
+quietly to the footer, list actions with a real Undo get the toast. Three of its assertions
+read `ProgressStatus` for exactly the messages the migration would move, so they have to
+move with them rather than be made to pass.
 
 ---
 
