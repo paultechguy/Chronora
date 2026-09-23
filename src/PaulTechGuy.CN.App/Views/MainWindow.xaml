@@ -689,6 +689,16 @@
                             <Setter Property="MinHeight" Value="54" />
                             <Setter Property="Padding" Value="8,0" />
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+
+                            <!--
+                                On the container rather than on anything inside it, because
+                                the gesture it describes belongs to the whole row: a
+                                double-click anywhere opens the file. It sat on the
+                                thumbnail first, which put the sentence on the 36 pixels
+                                that look most like a picture and nowhere near the other
+                                nine hundred that answer the same double-click.
+                            -->
+                            <Setter Property="ToolTipService.ToolTip" Value="Double-click to view" />
                         </Style>
                     </ListView.ItemContainerStyle>
                     <ListView.ItemsPanel>
@@ -720,8 +730,7 @@
                                 -->
                                 <Border Grid.RowSpan="2" Grid.Column="1" Width="36" Height="36"
                                         Margin="0,0,10,0" CornerRadius="3"
-                                        Background="{ThemeResource ControlAltFillColorSecondaryBrush}"
-                                        ToolTipService.ToolTip="Double-click to view">
+                                        Background="{ThemeResource ControlAltFillColorSecondaryBrush}">
                                     <Image x:Name="RowThumbnail" Stretch="Uniform" />
                                 </Border>
 
