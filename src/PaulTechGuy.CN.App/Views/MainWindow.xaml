@@ -4,7 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:PaulTechGuy.CN.Presentation"
     xmlns:domain="using:PaulTechGuy.CN.Domain"
-    xmlns:local="using:PaulTechGuy.CN.App">
+    xmlns:local="using:PaulTechGuy.CN.App"
+    xmlns:views="using:PaulTechGuy.CN.App.Views">
 
     <!--
         The whole window accepts a drop, not just the file list. When the list is empty
@@ -420,7 +421,54 @@
                     </StackPanel>
                 </Border>
 
+                <!--
+                    The notice region: one notice at a time, ranked, with a count of what is
+                    waiting behind it.
+
+                    These used to be two InfoBars that could both be open at once, and a run
+                    report had nowhere to go at all - it was written to the footer, which the
+                    rescan after every apply overwrote before the UI ever drew it.
+
+                    Ranked rather than stacked, and the run report outranks both conditions.
+                    The two conditions describe things that are still true and will still be
+                    true in a minute. A run report describes something that has just happened
+                    and will never be said again, so it cannot be the one that queues.
+
+                    Each bar keeps its own action buttons rather than the region taking a
+                    generic button model: the three actions have nothing in common, and a
+                    shared one would have to reach commands through a template selector to
+                    say what three lines of markup say here.
+                -->
                 <StackPanel Grid.Row="1" Spacing="6">
+
+                    <!--
+                        What the run just did. The only one of the three that reports an
+                        event, which is why it wins, and why it is the only one that has to
+                        be dismissed rather than becoming untrue on its own.
+                    -->
+                    <InfoBar IsOpen="{x:Bind Workbench.ShowsRunNotice, Mode=OneWay}"
+                             Message="{x:Bind Workbench.RunNotice, Mode=OneWay}"
+                             Title="Run finished"
+                             Severity="{x:Bind views:RunNoticeVisual.SeverityFor(Workbench.RunNoticeIsBad), Mode=OneWay}"
+                             IsClosable="True" CloseButtonClick="OnDismissRunNotice">
+                        <!--
+                            Content, not ActionButton: that property takes a single
+                            ButtonBase and there are two ways back from a run. Both live in
+                            the footer as well, which is a different part of the window from
+                            where the outcome is announced - and the moment somebody reads
+                            "5 failed" is the moment they want them under their hand.
+                        -->
+                        <InfoBar.Content>
+                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                        Margin="0,8,0,12">
+                                <Button Content="Undo last run"
+                                        Command="{x:Bind Workbench.UndoLastCommand}"
+                                        Height="{StaticResource CnChromeButtonHeight}" />
+                                <Button Content="History" Click="OnOpenHistory"
+                                        Height="{StaticResource CnChromeButtonHeight}" />
+                            </StackPanel>
+                        </InfoBar.Content>
+                    </InfoBar>
 
                     <!--
                         The metadata half is unavailable. Shown rather than hidden: hiding
@@ -428,7 +476,7 @@
                         the user has already asked for something that needs it. One
                         affordance, which opens the consent pane.
                     -->
-                    <InfoBar IsOpen="{x:Bind Workbench.NeedsExifTool, Mode=OneWay}"
+                    <InfoBar IsOpen="{x:Bind Workbench.ShowsExifToolNotice, Mode=OneWay}"
                              Message="{x:Bind Workbench.EngineDetail, Mode=OneWay}"
                              Title="Photo dates need a free helper"
                              Severity="Warning" IsClosable="False">
@@ -443,7 +491,7 @@
                         staying quiet would withhold the answer, while changing the choice
                         unasked would overrule a deliberate decision.
                     -->
-                    <InfoBar IsOpen="{x:Bind Workbench.HasIntentNudge, Mode=OneWay}"
+                    <InfoBar IsOpen="{x:Bind Workbench.ShowsIntentNudge, Mode=OneWay}"
                              Message="{x:Bind Workbench.IntentNudge, Mode=OneWay}"
                              Severity="Informational" IsClosable="True" CloseButtonClick="OnDismissNudge">
                         <InfoBar.ActionButton>
@@ -451,6 +499,17 @@
                                     Command="{x:Bind Workbench.AcceptNudgeCommand}" />
                         </InfoBar.ActionButton>
                     </InfoBar>
+
+                    <!--
+                        What is open but not on screen. Without it, one region with something
+                        queued behind it is indistinguishable from one region with nothing
+                        else to say - and the hidden one is often the ExifTool warning that
+                        explains why the run above it just failed.
+                    -->
+                    <TextBlock Text="{x:Bind Workbench.QueuedNoticeLabel, Mode=OneWay}"
+                               Visibility="{x:Bind Workbench.HasQueuedNotices, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Opacity="0.75" Margin="12,0,0,0" />
                 </StackPanel>
 
                 <!--

@@ -468,6 +468,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.NeedsExifTool));
         this.OnPropertyChanged(nameof(this.EngineDetail));
 
+        // And the region that ranks NeedsExifTool against the other two, for the same
+        // reason and by the same rule as the comment above.
+        this.NotifyNoticeRegion();
+
         // Depends on the intent as well as the list, so choosing an intent has to raise
         // it. Without this the Start over button stayed disabled after picking an intent -
         // precisely the moment someone who picked the wrong one wants it. Found by the
@@ -1424,7 +1428,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string? IntentNudge { get; set; }
 
-    partial void OnIntentNudgeChanged(string? value) => this.OnPropertyChanged(nameof(this.HasIntentNudge));
+    partial void OnIntentNudgeChanged(string? value)
+    {
+        this.OnPropertyChanged(nameof(this.HasIntentNudge));
+        this.NotifyNoticeRegion();
+    }
 
     public bool HasIntentNudge => this.IntentNudge is not null;
 
@@ -1435,6 +1443,97 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         WorkIntent.PhotoDates => "Switch to photo dates",
         _ => "Switch",
     };
+
+    // ---- The notice region ---------------------------------------------------------------
+
+    /// <summary>
+    /// What a finished run did, kept until it is read.
+    ///
+    /// This is the message the whole item was about. It used to go to the footer, and the
+    /// line after the one that wrote it is <c>await this.RescanAsync()</c> — which re-enters
+    /// AddFolderAsync and overwrites the footer twice more before control ever returns to
+    /// the UI. Measured 2026-09-23: the trail is
+    ///
+    ///   Writing 2 of 2… → Done. 2 changed, 0 failed, 0 skipped. → Reading C:\… → Read 2 files from C:\…
+    ///
+    /// So it was not that a run report COULD be lost before it was read. It was destroyed
+    /// every single time, by the app itself, in the same await chain — a run that half
+    /// failed reported "Read 2 files from C:\Photos." Nobody has ever seen one of these.
+    /// </summary>
+    [ObservableProperty]
+    public partial string? RunNotice { get; set; }
+
+    partial void OnRunNoticeChanged(string? value) => this.NotifyNoticeRegion();
+
+    /// <summary>True when the run being reported had failures, which colours the notice.</summary>
+    [ObservableProperty]
+    public partial bool RunNoticeIsBad { get; set; }
+
+    /// <summary>Clears the run report. The only thing that does, besides the next run.</summary>
+    [RelayCommand]
+    public void DismissRunNotice()
+    {
+        this.RunNotice = null;
+        this.RunNoticeIsBad = false;
+    }
+
+    /// <summary>
+    /// One region, one notice, highest priority first — and the run report outranks both
+    /// standing conditions.
+    ///
+    /// That order is the whole reason this is ranked rather than stacked. The two
+    /// conditions describe things that are still true and will still be true in a minute;
+    /// a run report describes something that has just happened and will never be said
+    /// again. Ranked the other way, the message that a run half failed would queue behind
+    /// a warning the user has already read and decided to live with.
+    /// </summary>
+    public bool ShowsRunNotice => this.RunNotice is not null;
+
+    public bool ShowsExifToolNotice => !this.ShowsRunNotice && this.NeedsExifTool;
+
+    public bool ShowsIntentNudge => !this.ShowsRunNotice && !this.NeedsExifTool && this.HasIntentNudge;
+
+    /// <summary>
+    /// How many notices are open but not on screen.
+    ///
+    /// Shown as a count rather than left silent because one region that hides the rest is
+    /// otherwise indistinguishable from one region with nothing else to say - and the
+    /// hidden one can be the ExifTool warning that explains why the run just failed.
+    /// </summary>
+    public int QueuedNoticeCount
+    {
+        get
+        {
+            int open = (this.RunNotice is not null ? 1 : 0)
+                + (this.NeedsExifTool ? 1 : 0)
+                + (this.HasIntentNudge ? 1 : 0);
+
+            return Math.Max(0, open - 1);
+        }
+    }
+
+    public bool HasQueuedNotices => this.QueuedNoticeCount > 0;
+
+    public string QueuedNoticeLabel => this.QueuedNoticeCount == 1
+        ? "1 more notice"
+        : string.Create(CultureInfo.CurrentCulture, $"{this.QueuedNoticeCount:N0} more notices");
+
+    /// <summary>
+    /// Every derived member of the region, announced together.
+    ///
+    /// They are all computed from the same three sources, so anything that moves one moves
+    /// most of the others. Raising them one at a time is how a region like this ends up
+    /// showing a notice it has already been told to hide.
+    /// </summary>
+    private void NotifyNoticeRegion()
+    {
+        this.OnPropertyChanged(nameof(this.ShowsRunNotice));
+        this.OnPropertyChanged(nameof(this.ShowsExifToolNotice));
+        this.OnPropertyChanged(nameof(this.ShowsIntentNudge));
+        this.OnPropertyChanged(nameof(this.QueuedNoticeCount));
+        this.OnPropertyChanged(nameof(this.HasQueuedNotices));
+        this.OnPropertyChanged(nameof(this.QueuedNoticeLabel));
+    }
 
     private WorkIntent _nudgeTarget = WorkIntent.None;
     private List<PlanRowViewModel> _rowsBeforeDrop = [];
@@ -2886,6 +2985,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._run?.Dispose();
         this._run = new CancellationTokenSource();
 
+        // Last run's report, cleared as this one starts. A notice that persists until it is
+        // dismissed has to be retired by the thing that makes it untrue, or the counts from
+        // the previous run sit over the top of this one while it writes.
+        this.DismissRunNotice();
+
         this.IsApplying = true;
         this.ApplyProgressPercent = 0;
 
@@ -2914,7 +3018,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             // back.
             this._lastRunThisSession = outcome.RunId;
 
-            this.ProgressStatus = DescribeOutcome(outcome);
+            // To the notice region, not the footer. The very next line is the reason: the
+            // rescan re-enters AddFolderAsync, which writes to the footer twice more before
+            // control returns to the UI, so a run report written there was destroyed by
+            // this method every time it ran. It was never a message that COULD be missed.
+            this.RunNotice = DescribeOutcome(outcome);
+            this.RunNoticeIsBad = outcome.Failed > 0;
 
             // The files on disk have moved on, so the snapshot the preview was built from
             // is now stale. Re-reading is the honest thing to do rather than leaving the
@@ -2998,6 +3107,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// <summary>Puts one run back. Force overrides the drift check, and is never the default.</summary>
     public async Task RevertAsync(long runId, bool force)
     {
+        this.DismissRunNotice();
         this.IsApplying = true;
 
         var progress = new Progress<ApplyProgress>(p =>
@@ -3019,11 +3129,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             ApplyOutcome outcome = await this._apply.RevertAsync(runId, header, force, progress, CancellationToken.None);
 
-            this.ProgressStatus = outcome.Failed == 0
+            // An undo is a run and its report is a run report, with the same rescan
+            // underneath it destroying the same sentence.
+            this.RunNotice = outcome.Failed == 0
                 ? string.Create(CultureInfo.CurrentCulture, $"Undone. {outcome.Written:N0} files put back.")
                 : string.Create(
                     CultureInfo.CurrentCulture,
                     $"Undone. {outcome.Written:N0} put back, {outcome.Failed:N0} left alone because they changed since.");
+
+            this.RunNoticeIsBad = outcome.Failed > 0;
 
             await this.RescanAsync();
         }

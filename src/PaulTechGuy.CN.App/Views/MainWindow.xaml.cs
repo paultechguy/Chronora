@@ -641,6 +641,13 @@ public sealed partial class MainWindow : Window
     private void OnDismissNudge(InfoBar sender, object args) => this.Workbench.DismissNudge();
 
     /// <summary>
+    /// The run report is the one notice in the region that has to be dismissed by hand.
+    /// The other two stop being true on their own; this one describes something that
+    /// happened and stays true for ever, so only the reader can retire it.
+    /// </summary>
+    private void OnDismissRunNotice(InfoBar sender, object args) => this.Workbench.DismissRunNotice();
+
+    /// <summary>
     /// Opens the consent pane. Only ever reached from this button, which appears only
     /// once the user has asked for something that needs ExifTool - so the question is
     /// never put to somebody who has not shown they want the answer.
