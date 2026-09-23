@@ -578,7 +578,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // The bottom bar, not the banner. Choosing a template is an option change, and a
         // highlighted bar with an Undo button on every option change is noise that teaches
         // people to stop reading the one place the app says something urgent.
-        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”.");
+        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”."));
         this.NotifyTemplateState();
         this.QueueRecompute();
     }
@@ -622,7 +622,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ReloadTemplates();
         this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == template.Id) ?? template;
-        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”.");
+        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”."));
         this.NotifyTemplateState();
 
         return null;
@@ -640,7 +640,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ReloadTemplates();
 
         this.ActiveTemplate = null;
-        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”.");
+        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”."));
         this.NotifyTemplateState();
         this.QueueRecompute();
     }
@@ -667,7 +667,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ReloadTemplates();
         this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == copy.Id) ?? copy;
-        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”.");
+        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”."));
         this.NotifyTemplateState();
 
         return null;
@@ -717,11 +717,17 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // A banner offering to undo a list action is stale the moment somebody moves on to
+        // A toast offering to undo a list action is stale the moment somebody moves on to
         // configuring the run: carrying on IS accepting the list. That it never went away
         // on its own is the other half of why the banner looked like it was reacting to
         // every option change.
-        this.ActionNotice = null;
+        //
+        // DismissActionNotice, not `ActionNotice = null`. Nulling the text left
+        // _undoLastAction holding the drop's way back - invisible while the only thing
+        // watching was the toast's visibility, and a lie the moment the Undo BUTTON
+        // started asking whether there was anything to undo. The full dismissal is what
+        // this line always meant.
+        this.DismissActionNotice();
 
         if (this.ActiveTemplate is not { } template)
         {
@@ -733,9 +739,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // Said, but quietly. It still has to be said - dropping the template can change what
         // Apply does in ways the controls cannot show - but it follows an ordinary option
         // change, and a banner on every one of those is the overkill reported.
-        this.ProgressStatus = string.Create(
+        this.Confirm(string.Create(
             CultureInfo.CurrentCulture,
-            $"Stopped using “{template.Name}” because you changed the options.");
+            $"Stopped using “{template.Name}” because you changed the options."));
 
         this.NotifyTemplateState();
     }
@@ -1224,7 +1230,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             // The file dates are already on screen and still correct, so this costs the
             // photo dates rather than the whole scan.
             this._logger.LogWarning(ex, "Could not read photo dates.");
-            this.ProgressStatus = "The file dates were read, but the photo dates could not be.";
+            this.ReportProblem("The file dates were read, but the photo dates could not be.");
         }
         finally
         {
@@ -1299,7 +1305,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             this._logger.LogError(ex, "Could not scan {Folder}.", folder);
-            this.ProgressStatus = $"Could not read {folder}: {ex.Message}";
+            this.ReportProblem($"Could not read {folder}: {ex.Message}");
         }
         finally
         {
@@ -1402,12 +1408,67 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string? ActionNotice { get; set; }
 
-    partial void OnActionNoticeChanged(string? value) => this.OnPropertyChanged(nameof(this.HasActionNotice));
+    partial void OnActionNoticeChanged(string? value)
+    {
+        this.OnPropertyChanged(nameof(this.HasActionNotice));
+
+        // Raised from here rather than from each assignment to _undoLastAction, because
+        // every one of those is immediately followed by setting this. A button whose
+        // visibility is only refreshed at some of the sites that change it is how the
+        // toast would end up offering to undo the previous action.
+        this.OnPropertyChanged(nameof(this.NoticeHasUndo));
+    }
 
     public bool HasActionNotice => this.ActionNotice is not null;
 
     /// <summary>How to put back whatever the notice is describing.</summary>
     private Action? _undoLastAction;
+
+    /// <summary>
+    /// Whether the toast shows its Undo button.
+    ///
+    /// The toast was built for one thing — something happened and you can take it back —
+    /// and using it for ordinary option changes was reported as overkill, correctly: an
+    /// Undo button on everything teaches people to stop reading the one place the app says
+    /// something reversible just happened.
+    ///
+    /// The confirmations that used to go to the footer have nowhere else to be now that the
+    /// footer is a progress meter, so the toast takes them QUIETLY: same card, same few
+    /// seconds, no Undo. The complaint was about the button, not the card.
+    /// </summary>
+    public bool NoticeHasUndo => this._undoLastAction is not null;
+
+    /// <summary>
+    /// Confirms something that just happened and cannot be taken back.
+    ///
+    /// The home for the two dozen sentences that used to be written to the footer, where
+    /// the next scan erased them. Deliberately not a way to raise the Undo toast: anything
+    /// reversible sets <see cref="_undoLastAction"/> as well, and this clears it so a stale
+    /// Undo from an earlier action cannot end up attached to this sentence.
+    /// </summary>
+    public void Confirm(string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+
+        this._undoLastAction = null;
+        this.CanReplaceWithDrop = false;
+        this.ActionNotice = message;
+    }
+
+    /// <summary>
+    /// Says what happened and how to take it back, in that order.
+    ///
+    /// The order is the reason this exists. Every site did it the other way round — notice
+    /// first, undo second — which was harmless while nothing watched, and stopped being
+    /// harmless the moment the Undo button's visibility started depending on the field:
+    /// setting the notice raises it, so it would have been evaluated against the PREVIOUS
+    /// action's undo every time.
+    /// </summary>
+    private void AnnounceUndoable(string message, Action undo)
+    {
+        this._undoLastAction = undo;
+        this.ActionNotice = message;
+    }
 
     /// <summary>
     /// Whether "replace the list instead" means anything.
@@ -1487,11 +1548,40 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// again. Ranked the other way, the message that a run half failed would queue behind
     /// a warning the user has already read and decided to live with.
     /// </summary>
-    public bool ShowsRunNotice => this.RunNotice is not null;
+    /// <summary>
+    /// Something went wrong just now, and it is not a run's own business.
+    ///
+    /// "Could not open x.jpg" used to go to the footer, which is a progress meter that the
+    /// next scan overwrites - so the app's error messages were the most losable thing in
+    /// it. They rank above a run report because both are events and this one is newer:
+    /// a report is a summary that may already have been read, and a failure that has just
+    /// happened has not been.
+    /// </summary>
+    [ObservableProperty]
+    public partial string? ProblemNotice { get; set; }
 
-    public bool ShowsExifToolNotice => !this.ShowsRunNotice && this.NeedsExifTool;
+    partial void OnProblemNoticeChanged(string? value) => this.NotifyNoticeRegion();
 
-    public bool ShowsIntentNudge => !this.ShowsRunNotice && !this.NeedsExifTool && this.HasIntentNudge;
+    /// <summary>Says that something failed, somewhere it will still be there to read.</summary>
+    public void ReportProblem(string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+
+        this.ProblemNotice = message;
+    }
+
+    [RelayCommand]
+    public void DismissProblemNotice() => this.ProblemNotice = null;
+
+    public bool ShowsProblemNotice => this.ProblemNotice is not null;
+
+    public bool ShowsRunNotice => this.ProblemNotice is null && this.RunNotice is not null;
+
+    public bool ShowsExifToolNotice =>
+        this.ProblemNotice is null && this.RunNotice is null && this.NeedsExifTool;
+
+    public bool ShowsIntentNudge =>
+        this.ProblemNotice is null && this.RunNotice is null && !this.NeedsExifTool && this.HasIntentNudge;
 
     /// <summary>
     /// How many notices are open but not on screen.
@@ -1504,7 +1594,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         get
         {
-            int open = (this.RunNotice is not null ? 1 : 0)
+            int open = (this.ProblemNotice is not null ? 1 : 0)
+                + (this.RunNotice is not null ? 1 : 0)
                 + (this.NeedsExifTool ? 1 : 0)
                 + (this.HasIntentNudge ? 1 : 0);
 
@@ -1527,6 +1618,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private void NotifyNoticeRegion()
     {
+        this.OnPropertyChanged(nameof(this.ShowsProblemNotice));
         this.OnPropertyChanged(nameof(this.ShowsRunNotice));
         this.OnPropertyChanged(nameof(this.ShowsExifToolNotice));
         this.OnPropertyChanged(nameof(this.ShowsIntentNudge));
@@ -1657,23 +1749,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 CultureInfo.CurrentCulture,
                 $"Added {this._rowsFromDrop.Count:N0} file{(this._rowsFromDrop.Count == 1 ? string.Empty : "s")} from {what}.");
 
-            this.ActionNotice = DescribeDrop(summary, this._rowsFromDrop.Count);
-
-
-
-            this._undoLastAction = () =>
-
-
-            {
-
-
-                this._allRows.Clear();
-
-
-                this._allRows.AddRange(before);
-
-
-            };
+            this.AnnounceUndoable(
+                DescribeDrop(summary, this._rowsFromDrop.Count),
+                () =>
+                {
+                    this._allRows.Clear();
+                    this._allRows.AddRange(before);
+                });
 
             // The short form, not the notice. The footer trims to a single line and the
             // notice can now carry a second sentence, which would be the half that got cut.
@@ -1696,7 +1778,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             this._logger.LogError(ex, "Could not read the dropped items.");
-            this.ProgressStatus = $"Could not read what was dropped: {ex.Message}";
+            this.ReportProblem($"Could not read what was dropped: {ex.Message}");
         }
         finally
         {
@@ -1840,9 +1922,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         await this.RescanAsync().ConfigureAwait(true);
 
-        this.ProgressStatus = string.Create(
+        this.Confirm(string.Create(
             CultureInfo.CurrentCulture,
-            $"Read the folders again: {this.ScanSettingLabel[12..]}.");
+            $"Read the folders again: {this.ScanSettingLabel[12..]}."));
     }
 
     // ---- Clearing and starting over ----------------------------------------------------
@@ -2013,6 +2095,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._looseFiles.Clear();
         this.SelectedRow = null;
         this.ProgressStatus = string.Empty;
+
+        // The run report and any problem went with the list they described. A report of a
+        // run over files that are no longer listed is not a report, it is a leftover.
+        this.DismissRunNotice();
+        this.DismissProblemNotice();
         this.DismissNudge();
 
         this._applyingIntent = true;
@@ -2047,7 +2134,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.NotifyTemplateState();
         this.Recompute();
 
-        this.ActionNotice = "Started over.";
+        // The undo first, the sentence second. Setting the notice is what raises the Undo
+        // button's visibility, so the other order evaluates it against the previous action.
         this._undoLastAction = () =>
         {
             this._allRows.AddRange(rows);
@@ -2079,6 +2167,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.NotifyIntentDerived();
             this.NotifyTemplateState();
         };
+
+        this.ActionNotice = "Started over.";
     }
 
     /// <summary>Takes the suggestion the nudge offered.</summary>
@@ -2159,19 +2249,24 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._looseFiles.Clear();
         this.SelectedRow = null;
         this.ProgressStatus = string.Empty;
+
+        // The run report and any problem went with the list they described. A report of a
+        // run over files that are no longer listed is not a report, it is a leftover.
+        this.DismissRunNotice();
+        this.DismissProblemNotice();
         this.DismissNudge();
         this.Recompute();
 
-        this.ActionNotice = string.Create(
-            CultureInfo.CurrentCulture,
-            $"Cleared {rows.Count:N0} file{(rows.Count == 1 ? string.Empty : "s")}.");
-
-        this._undoLastAction = () =>
-        {
-            this._allRows.AddRange(rows);
-            this._roots.AddRange(roots);
-            this._looseFiles.AddRange(loose);
-        };
+        this.AnnounceUndoable(
+            string.Create(
+                CultureInfo.CurrentCulture,
+                $"Cleared {rows.Count:N0} file{(rows.Count == 1 ? string.Empty : "s")}."),
+            () =>
+            {
+                this._allRows.AddRange(rows);
+                this._roots.AddRange(roots);
+                this._looseFiles.AddRange(loose);
+            });
     }
 
     // ---- One row at a time -------------------------------------------------------------
@@ -2201,7 +2296,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.SelectedRow = null;
         }
 
-        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Removed {row.Name} from the list.");
+        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"Removed {row.Name} from the list."));
         this.Reproject();
         this.OnPropertyChanged(nameof(this.CanStartOver));
     }
@@ -2216,7 +2311,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             other.IsIncluded = ReferenceEquals(other, row);
         }
 
-        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"The run now covers {row.Name} only.");
+        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"The run now covers {row.Name} only."));
         this.RefreshSummary();
     }
 
@@ -2231,7 +2326,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         if (BestDate(row) is not { } value)
         {
-            this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"{row.Name} has no date to copy.");
+            this.Confirm(string.Create(CultureInfo.CurrentCulture, $"{row.Name} has no date to copy."));
             return false;
         }
 
@@ -2241,9 +2336,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.AbsoluteDate = local.Date;
         this.AbsoluteTime = local.TimeOfDay;
 
-        this.ProgressStatus = string.Create(
+        this.Confirm(string.Create(
             CultureInfo.CurrentCulture,
-            $"The run will use {local:yyyy-MM-dd HH:mm}, taken from {row.Name}.");
+            $"The run will use {local:yyyy-MM-dd HH:mm}, taken from {row.Name}."));
 
         return true;
     }
@@ -2306,7 +2401,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.CustomPatternTokens = tokens;
         this.Source = SourceChoice.FromFileName;
 
-        this.ProgressStatus = "Using the pattern you built from the file name.";
+        this.Confirm("Using the pattern you built from the file name.");
 
         this.Recompute();
     }
@@ -2315,7 +2410,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public void ForgetFilenamePattern()
     {
         this.CustomPatternTokens = null;
-        this.ProgressStatus = "Back to the file name patterns Chronora knows.";
+        this.Confirm("Back to the file name patterns Chronora knows.");
 
         this.Recompute();
     }
@@ -2546,9 +2641,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         row.ManualDate = value;
         row.ManualTargets = targets;
 
-        this.ProgressStatus = value is { } set
+        this.Confirm(value is { } set
             ? string.Create(CultureInfo.CurrentCulture, $"{row.Name} is set to {set:yyyy-MM-dd HH:mm} by hand.")
-            : string.Create(CultureInfo.CurrentCulture, $"{row.Name} follows the run again.");
+            : string.Create(CultureInfo.CurrentCulture, $"{row.Name} follows the run again."));
 
         this.Recompute();
     }
@@ -2596,18 +2691,18 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.Recompute();
 
-        this.ActionNotice = string.Create(
-            CultureInfo.CurrentCulture,
-            $"Removed {had.Count:N0} by-hand date{(had.Count == 1 ? string.Empty : "s")}.");
-
-        this._undoLastAction = () =>
-        {
-            foreach ((PlanRowViewModel row, DateTimeOffset? date, IReadOnlySet<DateField>? targets) in had)
+        this.AnnounceUndoable(
+            string.Create(
+                CultureInfo.CurrentCulture,
+                $"Removed {had.Count:N0} by-hand date{(had.Count == 1 ? string.Empty : "s")}."),
+            () =>
             {
-                row.ManualDate = date;
-                row.ManualTargets = targets;
-            }
-        };
+                foreach ((PlanRowViewModel row, DateTimeOffset? date, IReadOnlySet<DateField>? targets) in had)
+                {
+                    row.ManualDate = date;
+                    row.ManualTargets = targets;
+                }
+            });
     }
 
     /// <summary>Ticks or unticks one row, and keeps the Apply count with it.</summary>
@@ -2977,7 +3072,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         if (plans.Count == 0)
         {
-            this.ProgressStatus = "Nothing to apply.";
+            this.Confirm("Nothing to apply.");
             return;
         }
 
@@ -3097,7 +3192,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         if (last is null)
         {
-            this.ProgressStatus = "There is nothing to undo. Older runs are in History.";
+            this.Confirm("There is nothing to undo. Older runs are in History.");
             return;
         }
 
@@ -3202,11 +3297,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         int removed = this._journal.ClearAll();
         this.RefreshHistory();
 
-        this.ProgressStatus = removed == 0
+        this.Confirm(removed == 0
             ? "History was already empty."
             : string.Create(
                 CultureInfo.CurrentCulture,
-                $"History cleared. {removed:N0} run{(removed == 1 ? string.Empty : "s")} deleted; nothing on disk changed.");
+                $"History cleared. {removed:N0} run{(removed == 1 ? string.Empty : "s")} deleted; nothing on disk changed."));
 
         return removed;
     }

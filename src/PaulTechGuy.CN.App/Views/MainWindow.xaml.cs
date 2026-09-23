@@ -647,6 +647,8 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void OnDismissRunNotice(InfoBar sender, object args) => this.Workbench.DismissRunNotice();
 
+    private void OnDismissProblemNotice(InfoBar sender, object args) => this.Workbench.DismissProblemNotice();
+
     /// <summary>
     /// Opens the consent pane. Only ever reached from this button, which appears only
     /// once the user has asked for something that needs ExifTool - so the question is
@@ -669,7 +671,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             App.Services.GetService<ILogger<MainWindow>>()?.LogError(ex, "The ExifTool setup pane failed.");
-            this.Workbench.ProgressStatus = "ExifTool could not be set up. The log has the details.";
+            this.Workbench.ReportProblem("ExifTool could not be set up. The log has the details.");
         }
     }
 
@@ -725,7 +727,7 @@ public sealed partial class MainWindow : Window
 
         if (row is null)
         {
-            this.Workbench.ProgressStatus = "Add some files first, then Chronora can learn from one of their names.";
+            this.Workbench.Confirm("Add some files first, then Chronora can learn from one of their names.");
             return;
         }
 
@@ -1132,7 +1134,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            this.Workbench.ProgressStatus = $"Could not show {row.Name} in File Explorer: {ex.Message}";
+            this.Workbench.ReportProblem($"Could not show {row.Name} in File Explorer: {ex.Message}");
         }
     }
 
@@ -1147,7 +1149,7 @@ public sealed partial class MainWindow : Window
         package.SetText(row.File.FullPath);
         Clipboard.SetContent(package);
 
-        this.Workbench.ProgressStatus = $"Copied the path to {row.Name}.";
+        this.Workbench.Confirm($"Copied the path to {row.Name}.");
     }
 
     /// <summary>
@@ -1180,7 +1182,7 @@ public sealed partial class MainWindow : Window
 
         if (!ShellExecuteEx(ref info))
         {
-            this.Workbench.ProgressStatus = $"Could not open properties for {row.Name}.";
+            this.Workbench.ReportProblem($"Could not open properties for {row.Name}.");
         }
     }
 
@@ -1221,11 +1223,11 @@ public sealed partial class MainWindow : Window
             // the only reason anybody makes one.
             File.Copy(path, copy, overwrite: false);
 
-            this.Workbench.ProgressStatus = $"Copied to {Path.GetFileName(copy)}.";
+            this.Workbench.Confirm($"Copied to {Path.GetFileName(copy)}.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            this.Workbench.ProgressStatus = $"Could not copy {row.Name}: {ex.Message}";
+            this.Workbench.ReportProblem($"Could not copy {row.Name}: {ex.Message}");
         }
     }
 
@@ -1421,7 +1423,7 @@ public sealed partial class MainWindow : Window
         {
             // Nothing ticked means nothing to write, and saying so beats recording an
             // override that silently does nothing and then shows "by hand" on the row.
-            this.Workbench.ProgressStatus = $"{row.Name} was left alone - no fields were ticked.";
+            this.Workbench.Confirm($"{row.Name} was left alone - no fields were ticked.");
             return;
         }
 
@@ -1464,11 +1466,11 @@ public sealed partial class MainWindow : Window
                 UseShellExecute = true,
             });
 
-            this.Workbench.ProgressStatus = $"Opened {row.Name}.";
+            this.Workbench.Confirm($"Opened {row.Name}.");
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or FileNotFoundException)
         {
-            this.Workbench.ProgressStatus = $"Could not open {row.Name}: {ex.Message}";
+            this.Workbench.ReportProblem($"Could not open {row.Name}: {ex.Message}");
         }
     }
 
@@ -1539,7 +1541,7 @@ public sealed partial class MainWindow : Window
             using var opening = System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(row.File.FullPath) { UseShellExecute = true });
 
-            this.Workbench.ProgressStatus = $"Opened {row.Name}.";
+            this.Workbench.Confirm($"Opened {row.Name}.");
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
                                       or System.IO.FileNotFoundException)
@@ -1547,7 +1549,7 @@ public sealed partial class MainWindow : Window
             // No association, the file has gone, or the shell refused it. Said in the status
             // bar rather than swallowed: a double-click that does nothing at all reads as
             // the app being broken.
-            this.Workbench.ProgressStatus = $"Could not open {row.Name}: {ex.Message}";
+            this.Workbench.ReportProblem($"Could not open {row.Name}: {ex.Message}");
         }
     }
 
@@ -1640,9 +1642,18 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        this.Workbench.ProgressStatus = this.Workbench.ExportActiveTemplate(file.Path)
-            ? $"Saved “{template.Name}” to {file.Name}."
-            : $"Could not write {file.Name}.";
+        // Two different kinds of message, so two different homes. As one ternary into one
+        // property, a failed export was announced in the same breath and the same place as
+        // a successful one - and that place was the progress meter, which the next scan
+        // wipes. A write that did not happen has to still be there to read.
+        if (this.Workbench.ExportActiveTemplate(file.Path))
+        {
+            this.Workbench.Confirm($"Saved “{template.Name}” to {file.Name}.");
+        }
+        else
+        {
+            this.Workbench.ReportProblem($"Could not write {file.Name}.");
+        }
     }
 
     private async void OnImportTemplate(object sender, RoutedEventArgs e)
@@ -1662,7 +1673,16 @@ public sealed partial class MainWindow : Window
         // problem instead of trusting the file.
         string? problem = this.Workbench.ImportTemplate(file.Path);
 
-        this.Workbench.ProgressStatus = problem ?? $"Imported “{this.Workbench.ActiveTemplate?.Name}”.";
+        // Same split as the export above: a stranger's file that would not load is the one
+        // message in this method that has to survive being read slowly.
+        if (problem is not null)
+        {
+            this.Workbench.ReportProblem(problem);
+        }
+        else
+        {
+            this.Workbench.Confirm($"Imported “{this.Workbench.ActiveTemplate?.Name}”.");
+        }
     }
 
     /// <summary>

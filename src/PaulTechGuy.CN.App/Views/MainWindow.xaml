@@ -442,6 +442,23 @@
                 <StackPanel Grid.Row="1" Spacing="6">
 
                     <!--
+                        Something went wrong just now.
+
+                        Top of the ranking, above even a run report, because both are events
+                        and this is the newer one: a report is a summary that may already
+                        have been read, and a failure that has just happened has not been.
+
+                        These used to go to the footer, which made the app's error messages
+                        the most losable thing in it - "Could not open x.jpg" lasted until
+                        the next scan wrote a number over it.
+                    -->
+                    <InfoBar IsOpen="{x:Bind Workbench.ShowsProblemNotice, Mode=OneWay}"
+                             Message="{x:Bind Workbench.ProblemNotice, Mode=OneWay}"
+                             Title="That did not work"
+                             Severity="Error"
+                             IsClosable="True" CloseButtonClick="OnDismissProblemNotice" />
+
+                    <!--
                         What the run just did. The only one of the three that reports an
                         event, which is why it wins, and why it is the only one that has to
                         be dismissed rather than becoming untrue on its own.
@@ -916,7 +933,18 @@
                                 Command="{x:Bind Workbench.ReplaceWithDropCommand}"
                                 Height="{StaticResource CnFormRowHeight}" />
 
+                        <!--
+                            Only when there is something to take back.
+
+                            The toast now also carries the two dozen confirmations that used
+                            to go to the footer, and most of them are not reversible -
+                            "Copied the path to x.jpg" has nothing to undo. An Undo button on
+                            every one of those is the overkill that was reported when this
+                            was a banner: a button on everything teaches people to stop
+                            reading the one place the app says something reversible happened.
+                        -->
                         <Button Content="Undo" Command="{x:Bind Workbench.UndoLastActionCommand}"
+                                Visibility="{x:Bind Workbench.NoticeHasUndo, Mode=OneWay}"
                                 Height="{StaticResource CnFormRowHeight}" />
 
                         <Button Content="&#xE711;" FontFamily="{ThemeResource SymbolThemeFontFamily}"

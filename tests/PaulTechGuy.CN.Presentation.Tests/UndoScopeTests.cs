@@ -76,6 +76,10 @@ public class UndoScopeTests
 
         await fixture.ViewModel.UndoLastAsync();
 
-        fixture.ViewModel.ProgressStatus.ShouldContain("History");
+        // The toast, not the footer. A refusal answers a click that just happened, and the
+        // footer is a progress meter now - the next scan writes a file count over it.
+        fixture.ViewModel.ActionNotice.ShouldNotBeNull();
+        fixture.ViewModel.ActionNotice!.ShouldContain("History");
+        fixture.ViewModel.NoticeHasUndo.ShouldBeFalse("there was nothing to undo, so nothing to offer back");
     }
 }
