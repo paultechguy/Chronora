@@ -225,11 +225,23 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.NotifyDeck();
     }
 
+    /// <summary>
+    /// What the long operation in flight is doing, on the one line in the footer.
+    ///
+    /// It was called ScanStatus, and the name is most of why fifty-two assignment sites
+    /// accumulated on it: "the scan's status" reads like "the app's status line", so
+    /// routing a toast, a mode statement or a run report here looked correct at every
+    /// individual call site. It is not a status line. It is a progress meter, it is
+    /// overwritten constantly and by design, and **nothing written here survives**.
+    ///
+    /// Anything that has to be read rather than glanced at belongs somewhere that keeps
+    /// it, such as <see cref="ActionNotice"/> for an event with a way back.
+    /// </summary>
     [ObservableProperty]
-    public partial string ScanStatus { get; set; } = string.Empty;
+    public partial string ProgressStatus { get; set; } = string.Empty;
 
     // The deck's headline quotes this while a run is in flight, so it has to move with it.
-    partial void OnScanStatusChanged(string value)
+    partial void OnProgressStatusChanged(string value)
     {
         if (this.IsApplying)
         {
@@ -562,7 +574,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // The bottom bar, not the banner. Choosing a template is an option change, and a
         // highlighted bar with an Undo button on every option change is noise that teaches
         // people to stop reading the one place the app says something urgent.
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”.");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Using “{template.Name}”.");
         this.NotifyTemplateState();
         this.QueueRecompute();
     }
@@ -606,7 +618,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ReloadTemplates();
         this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == template.Id) ?? template;
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”.");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Saved “{template.Name}”.");
         this.NotifyTemplateState();
 
         return null;
@@ -624,7 +636,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ReloadTemplates();
 
         this.ActiveTemplate = null;
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”.");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Deleted “{template.Name}”.");
         this.NotifyTemplateState();
         this.QueueRecompute();
     }
@@ -651,7 +663,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ReloadTemplates();
         this.ActiveTemplate = this.Templates.FirstOrDefault(t => t.Id == copy.Id) ?? copy;
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”.");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Copied to “{copy.Name}”.");
         this.NotifyTemplateState();
 
         return null;
@@ -717,7 +729,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // Said, but quietly. It still has to be said - dropping the template can change what
         // Apply does in ways the controls cannot show - but it follows an ordinary option
         // change, and a banner on every one of those is the overkill reported.
-        this.ScanStatus = string.Create(
+        this.ProgressStatus = string.Create(
             CultureInfo.CurrentCulture,
             $"Stopped using “{template.Name}” because you changed the options.");
 
@@ -1174,11 +1186,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
 
         this.IsReadingMetadata = true;
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Reading photo dates from {candidates.Count:N0} files…");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Reading photo dates from {candidates.Count:N0} files…");
 
         try
         {
-            var progress = new Progress<int>(done => this.ScanStatus = string.Create(
+            var progress = new Progress<int>(done => this.ProgressStatus = string.Create(
                 CultureInfo.CurrentCulture, $"Read photo dates from {done:N0} of {candidates.Count:N0} files…"));
 
             IReadOnlyDictionary<string, FileMetadata> read = await this._metadata
@@ -1193,7 +1205,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 }
             }
 
-            this.ScanStatus = string.Create(
+            this.ProgressStatus = string.Create(
                 CultureInfo.CurrentCulture, $"Read photo dates from {read.Count:N0} of {candidates.Count:N0} files.");
 
             // The snapshot changed, so every plan built against the old one is stale.
@@ -1201,14 +1213,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
-            this.ScanStatus = "Cancelled.";
+            this.ProgressStatus = "Cancelled.";
         }
         catch (Exception ex) when (ex is IOException or InvalidOperationException)
         {
             // The file dates are already on screen and still correct, so this costs the
             // photo dates rather than the whole scan.
             this._logger.LogWarning(ex, "Could not read photo dates.");
-            this.ScanStatus = "The file dates were read, but the photo dates could not be.";
+            this.ProgressStatus = "The file dates were read, but the photo dates could not be.";
         }
         finally
         {
@@ -1251,7 +1263,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._listScanFilter = filter;
 
         this.IsScanning = true;
-        this.ScanStatus = $"Reading {folder}…";
+        this.ProgressStatus = $"Reading {folder}…";
 
         try
         {
@@ -1266,24 +1278,24 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 // shows progress instead of an empty window.
                 if (added % ScanProgressBatch == 0)
                 {
-                    this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files…");
+                    this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files…");
                     this.Recompute();
                 }
             }
 
-            this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files from {folder}.");
+            this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files from {folder}.");
             this.Recompute();
 
             await this.ReadMetadataAsync(token).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
-            this.ScanStatus = "Scan cancelled.";
+            this.ProgressStatus = "Scan cancelled.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             this._logger.LogError(ex, "Could not scan {Folder}.", folder);
-            this.ScanStatus = $"Could not read {folder}: {ex.Message}";
+            this.ProgressStatus = $"Could not read {folder}: {ex.Message}";
         }
         finally
         {
@@ -1487,7 +1499,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         bool ownsScan = this.BeginScan(cancellationToken, out CancellationToken token);
 
         this.IsScanning = true;
-        this.ScanStatus = "Reading dropped items…";
+        this.ProgressStatus = "Reading dropped items…";
 
         try
         {
@@ -1513,7 +1525,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 // missing guard rail.
                 if (added % ScanProgressBatch == 0)
                 {
-                    this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files…");
+                    this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files…");
                     this.Recompute();
                 }
             }
@@ -1567,7 +1579,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             // The short form, not the notice. The footer trims to a single line and the
             // notice can now carry a second sentence, which would be the half that got cut.
             // The toast is where the longer one has room to be read.
-            this.ScanStatus = summary;
+            this.ProgressStatus = summary;
             this.Recompute();
             this.CheckIntentAgainstContent();
 
@@ -1580,12 +1592,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
-            this.ScanStatus = "Cancelled.";
+            this.ProgressStatus = "Cancelled.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             this._logger.LogError(ex, "Could not read the dropped items.");
-            this.ScanStatus = $"Could not read what was dropped: {ex.Message}";
+            this.ProgressStatus = $"Could not read what was dropped: {ex.Message}";
         }
         finally
         {
@@ -1729,7 +1741,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         await this.RescanAsync().ConfigureAwait(true);
 
-        this.ScanStatus = string.Create(
+        this.ProgressStatus = string.Create(
             CultureInfo.CurrentCulture,
             $"Read the folders again: {this.ScanSettingLabel[12..]}.");
     }
@@ -1901,7 +1913,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._roots.Clear();
         this._looseFiles.Clear();
         this.SelectedRow = null;
-        this.ScanStatus = string.Empty;
+        this.ProgressStatus = string.Empty;
         this.DismissNudge();
 
         this._applyingIntent = true;
@@ -2047,7 +2059,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this._roots.Clear();
         this._looseFiles.Clear();
         this.SelectedRow = null;
-        this.ScanStatus = string.Empty;
+        this.ProgressStatus = string.Empty;
         this.DismissNudge();
         this.Recompute();
 
@@ -2090,7 +2102,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.SelectedRow = null;
         }
 
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Removed {row.Name} from the list.");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Removed {row.Name} from the list.");
         this.Reproject();
         this.OnPropertyChanged(nameof(this.CanStartOver));
     }
@@ -2105,7 +2117,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             other.IsIncluded = ReferenceEquals(other, row);
         }
 
-        this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"The run now covers {row.Name} only.");
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"The run now covers {row.Name} only.");
         this.RefreshSummary();
     }
 
@@ -2120,7 +2132,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         if (BestDate(row) is not { } value)
         {
-            this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"{row.Name} has no date to copy.");
+            this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"{row.Name} has no date to copy.");
             return false;
         }
 
@@ -2130,7 +2142,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.AbsoluteDate = local.Date;
         this.AbsoluteTime = local.TimeOfDay;
 
-        this.ScanStatus = string.Create(
+        this.ProgressStatus = string.Create(
             CultureInfo.CurrentCulture,
             $"The run will use {local:yyyy-MM-dd HH:mm}, taken from {row.Name}.");
 
@@ -2195,7 +2207,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.CustomPatternTokens = tokens;
         this.Source = SourceChoice.FromFileName;
 
-        this.ScanStatus = "Using the pattern you built from the file name.";
+        this.ProgressStatus = "Using the pattern you built from the file name.";
 
         this.Recompute();
     }
@@ -2204,7 +2216,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public void ForgetFilenamePattern()
     {
         this.CustomPatternTokens = null;
-        this.ScanStatus = "Back to the file name patterns Chronora knows.";
+        this.ProgressStatus = "Back to the file name patterns Chronora knows.";
 
         this.Recompute();
     }
@@ -2435,7 +2447,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         row.ManualDate = value;
         row.ManualTargets = targets;
 
-        this.ScanStatus = value is { } set
+        this.ProgressStatus = value is { } set
             ? string.Create(CultureInfo.CurrentCulture, $"{row.Name} is set to {set:yyyy-MM-dd HH:mm} by hand.")
             : string.Create(CultureInfo.CurrentCulture, $"{row.Name} follows the run again.");
 
@@ -2699,7 +2711,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         {
             if (this.IsApplying)
             {
-                return this.ScanStatus;
+                return this.ProgressStatus;
             }
 
             if (this.Summary.FilesTotal == 0)
@@ -2866,7 +2878,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         if (plans.Count == 0)
         {
-            this.ScanStatus = "Nothing to apply.";
+            this.ProgressStatus = "Nothing to apply.";
             return;
         }
 
@@ -2880,7 +2892,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         var progress = new Progress<ApplyProgress>(p =>
         {
             this.ApplyProgressPercent = p.Total == 0 ? 0 : 100.0 * p.Done / p.Total;
-            this.ScanStatus = string.Create(
+            this.ProgressStatus = string.Create(
                 CultureInfo.CurrentCulture,
                 $"Writing {p.Done:N0} of {p.Total:N0}… {p.Written:N0} changed, {p.Failed:N0} failed");
         });
@@ -2902,7 +2914,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             // back.
             this._lastRunThisSession = outcome.RunId;
 
-            this.ScanStatus = DescribeOutcome(outcome);
+            this.ProgressStatus = DescribeOutcome(outcome);
 
             // The files on disk have moved on, so the snapshot the preview was built from
             // is now stale. Re-reading is the honest thing to do rather than leaving the
@@ -2911,7 +2923,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
-            this.ScanStatus = "Cancelled.";
+            this.ProgressStatus = "Cancelled.";
         }
         finally
         {
@@ -2976,7 +2988,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         if (last is null)
         {
-            this.ScanStatus = "There is nothing to undo. Older runs are in History.";
+            this.ProgressStatus = "There is nothing to undo. Older runs are in History.";
             return;
         }
 
@@ -2991,7 +3003,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         var progress = new Progress<ApplyProgress>(p =>
         {
             this.ApplyProgressPercent = p.Total == 0 ? 0 : 100.0 * p.Done / p.Total;
-            this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Undoing {p.Done:N0} of {p.Total:N0}…");
+            this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Undoing {p.Done:N0} of {p.Total:N0}…");
         });
 
         try
@@ -3007,7 +3019,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             ApplyOutcome outcome = await this._apply.RevertAsync(runId, header, force, progress, CancellationToken.None);
 
-            this.ScanStatus = outcome.Failed == 0
+            this.ProgressStatus = outcome.Failed == 0
                 ? string.Create(CultureInfo.CurrentCulture, $"Undone. {outcome.Written:N0} files put back.")
                 : string.Create(
                     CultureInfo.CurrentCulture,
@@ -3076,7 +3088,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         int removed = this._journal.ClearAll();
         this.RefreshHistory();
 
-        this.ScanStatus = removed == 0
+        this.ProgressStatus = removed == 0
             ? "History was already empty."
             : string.Create(
                 CultureInfo.CurrentCulture,

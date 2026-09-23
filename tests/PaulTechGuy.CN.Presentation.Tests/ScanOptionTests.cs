@@ -228,9 +228,9 @@ public class ScanOptionTests
 
         fixture.ViewModel.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(WorkbenchViewModel.ScanStatus))
+            if (e.PropertyName == nameof(WorkbenchViewModel.ProgressStatus))
             {
-                said.Add(fixture.ViewModel.ScanStatus);
+                said.Add(fixture.ViewModel.ProgressStatus);
             }
         };
 
@@ -242,7 +242,7 @@ public class ScanOptionTests
 
         // And the footer keeps the short sentence, not the notice, which can be longer
         // than one trimmed line.
-        fixture.ViewModel.ScanStatus.ShouldBe("Added 500 files from big.");
+        fixture.ViewModel.ProgressStatus.ShouldBe("Added 500 files from big.");
     }
 
     /// <summary>

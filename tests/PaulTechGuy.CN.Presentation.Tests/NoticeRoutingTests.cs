@@ -28,7 +28,7 @@ public class NoticeRoutingTests
         fixture.ViewModel.UseTemplate(fixture.ViewModel.Templates[0]);
 
         fixture.ViewModel.ActionNotice.ShouldBeNull("choosing a template is an option change");
-        fixture.ViewModel.ScanStatus.ShouldContain(fixture.ViewModel.Templates[0].Name);
+        fixture.ViewModel.ProgressStatus.ShouldContain(fixture.ViewModel.Templates[0].Name);
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class NoticeRoutingTests
 
         // Still SAID: dropping the template can change what Apply does in ways the
         // controls cannot show. Just said quietly.
-        fixture.ViewModel.ScanStatus.ShouldContain("Stopped using");
+        fixture.ViewModel.ProgressStatus.ShouldContain("Stopped using");
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class NoticeRoutingTests
         fixture.ViewModel.SaveCurrentAsTemplate("My fix").ShouldBeNull();
 
         fixture.ViewModel.ActionNotice.ShouldBeNull();
-        fixture.ViewModel.ScanStatus.ShouldContain("My fix");
+        fixture.ViewModel.ProgressStatus.ShouldContain("My fix");
     }
 
     /// <summary>A real list action still gets the banner, because it has a real Undo.</summary>

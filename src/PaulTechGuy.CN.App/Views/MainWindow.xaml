@@ -1147,7 +1147,7 @@
                               Visibility="{x:Bind Workbench.IsBusy, Mode=OneWay}" />
 
                 <TextBlock Grid.Column="1" VerticalAlignment="Center"
-                           Text="{x:Bind Workbench.ScanStatus, Mode=OneWay}"
+                           Text="{x:Bind Workbench.ProgressStatus, Mode=OneWay}"
                            TextTrimming="CharacterEllipsis"
                            Style="{StaticResource CaptionTextBlockStyle}" />
 

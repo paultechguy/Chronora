@@ -662,7 +662,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             App.Services.GetService<ILogger<MainWindow>>()?.LogError(ex, "The ExifTool setup pane failed.");
-            this.Workbench.ScanStatus = "ExifTool could not be set up. The log has the details.";
+            this.Workbench.ProgressStatus = "ExifTool could not be set up. The log has the details.";
         }
     }
 
@@ -718,7 +718,7 @@ public sealed partial class MainWindow : Window
 
         if (row is null)
         {
-            this.Workbench.ScanStatus = "Add some files first, then Chronora can learn from one of their names.";
+            this.Workbench.ProgressStatus = "Add some files first, then Chronora can learn from one of their names.";
             return;
         }
 
@@ -1125,7 +1125,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            this.Workbench.ScanStatus = $"Could not show {row.Name} in File Explorer: {ex.Message}";
+            this.Workbench.ProgressStatus = $"Could not show {row.Name} in File Explorer: {ex.Message}";
         }
     }
 
@@ -1140,7 +1140,7 @@ public sealed partial class MainWindow : Window
         package.SetText(row.File.FullPath);
         Clipboard.SetContent(package);
 
-        this.Workbench.ScanStatus = $"Copied the path to {row.Name}.";
+        this.Workbench.ProgressStatus = $"Copied the path to {row.Name}.";
     }
 
     /// <summary>
@@ -1173,7 +1173,7 @@ public sealed partial class MainWindow : Window
 
         if (!ShellExecuteEx(ref info))
         {
-            this.Workbench.ScanStatus = $"Could not open properties for {row.Name}.";
+            this.Workbench.ProgressStatus = $"Could not open properties for {row.Name}.";
         }
     }
 
@@ -1214,11 +1214,11 @@ public sealed partial class MainWindow : Window
             // the only reason anybody makes one.
             File.Copy(path, copy, overwrite: false);
 
-            this.Workbench.ScanStatus = $"Copied to {Path.GetFileName(copy)}.";
+            this.Workbench.ProgressStatus = $"Copied to {Path.GetFileName(copy)}.";
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
-            this.Workbench.ScanStatus = $"Could not copy {row.Name}: {ex.Message}";
+            this.Workbench.ProgressStatus = $"Could not copy {row.Name}: {ex.Message}";
         }
     }
 
@@ -1414,7 +1414,7 @@ public sealed partial class MainWindow : Window
         {
             // Nothing ticked means nothing to write, and saying so beats recording an
             // override that silently does nothing and then shows "by hand" on the row.
-            this.Workbench.ScanStatus = $"{row.Name} was left alone - no fields were ticked.";
+            this.Workbench.ProgressStatus = $"{row.Name} was left alone - no fields were ticked.";
             return;
         }
 
@@ -1457,11 +1457,11 @@ public sealed partial class MainWindow : Window
                 UseShellExecute = true,
             });
 
-            this.Workbench.ScanStatus = $"Opened {row.Name}.";
+            this.Workbench.ProgressStatus = $"Opened {row.Name}.";
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or FileNotFoundException)
         {
-            this.Workbench.ScanStatus = $"Could not open {row.Name}: {ex.Message}";
+            this.Workbench.ProgressStatus = $"Could not open {row.Name}: {ex.Message}";
         }
     }
 
@@ -1532,7 +1532,7 @@ public sealed partial class MainWindow : Window
             using var opening = System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(row.File.FullPath) { UseShellExecute = true });
 
-            this.Workbench.ScanStatus = $"Opened {row.Name}.";
+            this.Workbench.ProgressStatus = $"Opened {row.Name}.";
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
                                       or System.IO.FileNotFoundException)
@@ -1540,7 +1540,7 @@ public sealed partial class MainWindow : Window
             // No association, the file has gone, or the shell refused it. Said in the status
             // bar rather than swallowed: a double-click that does nothing at all reads as
             // the app being broken.
-            this.Workbench.ScanStatus = $"Could not open {row.Name}: {ex.Message}";
+            this.Workbench.ProgressStatus = $"Could not open {row.Name}: {ex.Message}";
         }
     }
 
@@ -1633,7 +1633,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        this.Workbench.ScanStatus = this.Workbench.ExportActiveTemplate(file.Path)
+        this.Workbench.ProgressStatus = this.Workbench.ExportActiveTemplate(file.Path)
             ? $"Saved “{template.Name}” to {file.Name}."
             : $"Could not write {file.Name}.";
     }
@@ -1655,7 +1655,7 @@ public sealed partial class MainWindow : Window
         // problem instead of trusting the file.
         string? problem = this.Workbench.ImportTemplate(file.Path);
 
-        this.Workbench.ScanStatus = problem ?? $"Imported “{this.Workbench.ActiveTemplate?.Name}”.";
+        this.Workbench.ProgressStatus = problem ?? $"Imported “{this.Workbench.ActiveTemplate?.Name}”.";
     }
 
     /// <summary>

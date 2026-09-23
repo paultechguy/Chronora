@@ -76,6 +76,6 @@ public class UndoScopeTests
 
         await fixture.ViewModel.UndoLastAsync();
 
-        fixture.ViewModel.ScanStatus.ShouldContain("History");
+        fixture.ViewModel.ProgressStatus.ShouldContain("History");
     }
 }
