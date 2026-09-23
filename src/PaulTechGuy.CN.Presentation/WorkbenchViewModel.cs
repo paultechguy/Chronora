@@ -1264,7 +1264,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
                 // The grid fills as the scan runs rather than after it, so a big folder
                 // shows progress instead of an empty window.
-                if (added % 500 == 0)
+                if (added % ScanProgressBatch == 0)
                 {
                     this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files…");
                     this.Recompute();
@@ -1429,6 +1429,42 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     private List<PlanRowViewModel> _rowsFromDrop = [];
 
     /// <summary>
+    /// How often a running scan says where it has got to.
+    ///
+    /// Shared by both scan paths deliberately. They disagreed — the folder path reported
+    /// and the drop path did not — and the only reason that survived unnoticed is that the
+    /// number lived inside one of them as a literal, where nothing pointed at its absence
+    /// in the other.
+    /// </summary>
+    private const int ScanProgressBatch = 500;
+
+    /// <summary>
+    /// When a list is large enough to say so out loud.
+    ///
+    /// Past any ordinary folder and half the 50,000 the preview is built to hold, so it
+    /// speaks up for the tree somebody did not mean to drop and stays quiet for the rest.
+    ///
+    /// It is a REMARK, not a limit. Nothing is capped, truncated or refused at this number.
+    /// A cap that silently dropped files would be worse than no cap, and a modal mid-drop
+    /// would interrupt the one gesture in the app that is already reversible: a drop writes
+    /// nothing, Apply confirms with its own counts and defaults to Cancel, and Undo is a
+    /// button on the very notice this sentence is appended to.
+    /// </summary>
+    private const int LargeList = 25_000;
+
+    /// <summary>
+    /// The notice a drop leaves behind, with a word about the size when there is one worth
+    /// saying. Split out from the drop itself so the wording can be tested without putting
+    /// twenty-five thousand files on a disk to see it.
+    /// </summary>
+    internal static string DescribeDrop(string summary, int added) =>
+        added < LargeList
+            ? summary
+            : string.Create(
+                CultureInfo.CurrentCulture,
+                $"{summary} That is a large list, and everything will be slower until it is trimmed.");
+
+    /// <summary>
     /// Adds whatever was dropped: folders, individual files, or a mix of both.
     ///
     /// It ADDS rather than replaces, because someone dragging a second folder is almost
@@ -1458,11 +1494,28 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             ScanFilter filter = this.BuildScanFilter();
             this._listScanFilter = filter;
 
+            int added = 0;
+
             await foreach (ScannedFile file in this._scanner.ScanPathsAsync(paths, filter, token))
             {
                 PlanRowViewModel row = this.TrackRow(new PlanRowViewModel(file));
                 this._allRows.Add(row);
                 this._rowsFromDrop.Add(row);
+                added++;
+
+                // The drop is the gesture that needed this most and was the one without it.
+                // AddFolderAsync has counted up every 500 files since it was written; this
+                // loop ran to completion in silence, so dropping a deep tree left "Reading
+                // dropped items…" and an empty grid on screen for the whole scan. The
+                // spinner and the Cancel beside it were both live the entire time and both
+                // looked like decoration, because nothing visible was moving. That is what
+                // made a big drop feel like a hang — not the size of it, and not any
+                // missing guard rail.
+                if (added % ScanProgressBatch == 0)
+                {
+                    this.ScanStatus = string.Create(CultureInfo.CurrentCulture, $"Read {added:N0} files…");
+                    this.Recompute();
+                }
             }
 
             foreach (string path in paths.Where(Directory.Exists))
@@ -1489,9 +1542,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
 
 
-            this.ActionNotice = string.Create(
+            string summary = string.Create(
                 CultureInfo.CurrentCulture,
                 $"Added {this._rowsFromDrop.Count:N0} file{(this._rowsFromDrop.Count == 1 ? string.Empty : "s")} from {what}.");
+
+            this.ActionNotice = DescribeDrop(summary, this._rowsFromDrop.Count);
 
 
 
@@ -1509,7 +1564,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             };
 
-            this.ScanStatus = this.ActionNotice;
+            // The short form, not the notice. The footer trims to a single line and the
+            // notice can now carry a second sentence, which would be the half that got cut.
+            // The toast is where the longer one has room to be read.
+            this.ScanStatus = summary;
             this.Recompute();
             this.CheckIntentAgainstContent();
 

@@ -1,7 +1,7 @@
 # Where Chronora is
 
-Last updated 2026-09-22. Branch `dev`, no remote. Build clean at `-warnaserror`,
-496 tests passing.
+Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
+500 tests passing, 1 skipped.
 
 ```
 dotnet build PaulTechGuy.CN.slnx -warnaserror
@@ -155,6 +155,24 @@ its existing time of day.
   actually in the folder. The entire footprint either way is one file, `Chronora.lnk`, in
   the per-user Send To folder — no registry, no installer step.
 
+### 6. A big drop counts up — landed 2026-09-23
+
+Drop a folder with a few thousand files in it and watch the footer.
+
+- **The count moves.** It should read `Read 500 files…`, `Read 1,000 files…` and so on, and
+  the grid should fill underneath it as it goes. Until today a *drop* did none of this —
+  only **Add folder** did — so the footer said `Reading dropped items…` over an empty grid
+  for the whole scan. Both paths now share one constant.
+- **Cancel works, and now visibly refers to something.** It was always bound; there was
+  simply nothing moving beside it to make it look meaningful. Press it mid-scan: the rows
+  already read should stay.
+- **The footer keeps the short sentence** when the drop finishes — `Added N files from X.` —
+  while the toast carries the longer wording. The footer trims to one line, so anything
+  past the first sentence is the half that gets cut.
+- **Over 25,000 files the toast adds a second sentence** saying the list is large and
+  everything will be slower until it is trimmed. Nothing is capped or dropped. This one is
+  hard to see without a genuinely huge folder and is pinned by a test instead.
+
 ---
 
 ## Open, unresolved
@@ -166,9 +184,23 @@ its existing time of day.
   Junction traversal is stopped. Hidden/system and folders-as-items both default off, which
   are changes of behaviour and are listed in section 0 for a look.
 
-  **Still open, and still product decisions:** whether a drop that expands to thousands of
-  files should confirm first, and whether there should be a depth limit or a file cap. There
-  is neither today. Dropping a folder remains the most destructive gesture in the app.
+  **Settled 2026-09-23: no confirmation, no depth limit, no file cap.** A drop is safe to
+  let run, and the reason it did not feel safe was that it did not say what it was doing.
+
+  The premise this was carrying — that dropping a folder is the most destructive gesture in
+  the app — does not survive reading the code. A drop writes nothing. `ApplyAsync` is gated
+  by a `ContentDialog` that states the counts, defaults to **Cancel** and says the run can
+  be undone; the drop itself is additive, cancellable and has **Undo** on its own notice. A
+  pre-drop confirmation would have guarded the reversible half of the gesture while the
+  irreversible half was already guarded twice.
+
+  A depth limit would guard nothing either: the unbounded case was the junction loop, and
+  `FileScanner.ShouldRecursePredicate` has stopped that since 2026-09-22. Real trees are
+  bounded by the filesystem. A cap was rejected on its own terms — silently truncating a
+  list would be worse than any size of list.
+
+  What the drop actually lacked was progress, and it lacked it *only* on the drop path. See
+  section 6. 25,000 files now earns a remark on the notice; it is not a limit.
 - **An installer test failed once and never reproduced** in 4+ runs. Still unexplained.
 - **The QuickTime local-time camera case is unverified.** Pixel writes UTC, so the other
   branch of the per-file inference has never been exercised against a real file.

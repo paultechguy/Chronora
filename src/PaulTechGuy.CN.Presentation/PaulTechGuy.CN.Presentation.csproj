@@ -4,6 +4,12 @@
     <RootNamespace>PaulTechGuy.CN.Presentation</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Same bargain as Metadata makes: the drop notice's wording is implementation detail
+         and is also the part worth pinning, because seeing it for real needs 25,000 files.
+         Opening it to the tests keeps the public surface honest rather than widening it. -->
+    <InternalsVisibleTo Include="PaulTechGuy.CN.Presentation.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\PaulTechGuy.CN.Abstractions\PaulTechGuy.CN.Abstractions.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.Domain\PaulTechGuy.CN.Domain.csproj" />
     <ProjectReference Include="..\PaulTechGuy.CN.FileSystem\PaulTechGuy.CN.FileSystem.csproj" />

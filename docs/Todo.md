@@ -1,6 +1,6 @@
 # What Chronora owes
 
-Last updated 2026-09-22. Branch `dev`. Six items, all known and all deferred on purpose —
+Last updated 2026-09-23. Branch `dev`. Five items, all known and all deferred on purpose —
 none of them is a surprise waiting to be discovered.
 
 `Status.md` says where the project *is* and what needs a human to look at it. This says what
@@ -12,32 +12,7 @@ order, but they are independent — take whichever suits the session.
 
 ---
 
-## 1. A large drop has no brake
-
-**What.** Dropping a folder expands it with no confirmation, no depth limit and no file cap.
-Recursion is a checkbox now and the scan can be cancelled, but nothing warns before a drop
-turns into forty thousand rows.
-
-**Why it is still here.** This is the part of the folder-processing question that was always
-a product decision rather than a bug. The bugs around it — junction traversal, hidden files,
-subfolders becoming rows — were fixed on 2026-09-22. This was deliberately not bundled with
-them, because the answer is a judgement about what people mean by dropping a folder.
-
-**Still the most destructive gesture in the app.**
-
-**Decisions needed before any code:**
-- Does a drop that resolves to more than N files confirm first, or just report afterwards?
-  There is already an undo notice on every add, which may be enough.
-- Is there a depth limit, and is it a setting or a constant?
-- A file cap at all? A cap that silently truncates would be worse than no cap.
-
-**Done looks like:** dropping a deep tree either states what it is about to do before doing
-it, or is demonstrably safe to let run. Either way the answer is written down in
-`Status.md`.
-
----
-
-## 2. The ExifTool download has no Cancel
+## 1. The ExifTool download has no Cancel
 
 **What.** `ExifToolConsent.cs` (around the install progress pane) shows a `ContentDialog`
 holding a `TextBlock` and a `ProgressBar` and **no buttons at all**. A stalled or very slow
@@ -57,7 +32,7 @@ other half.
 
 ---
 
-## 3. `ScanStatus` carries about thirty-six unrelated messages
+## 2. `ScanStatus` carries about thirty-six unrelated messages
 
 **What.** One `TextBlock` in the footer is the channel for a transient toast ("Copied the
 path to x.jpg"), a mode statement ("Using 'template'"), a progress meter ("Read 45,000
@@ -82,7 +57,7 @@ the same decision as where a run outcome goes.
 
 ---
 
-## 4. Two engineering smells in the row plumbing
+## 3. Two engineering smells in the row plumbing
 
 Cheap to fix and cheapest while the code is fresh. Both were found by the review of the
 chrome refactor and neither was in its scope.
@@ -101,7 +76,7 @@ suppress the per-row storm and refresh once at the end. The codebase already use
 
 ---
 
-## 5. High contrast has never been looked at
+## 4. High contrast has never been looked at
 
 **What.** The chrome refactor added a command deck, chips, column headers, a floating toast
 and accent-coloured focus visuals. None of it has been seen in a high contrast theme.
@@ -118,7 +93,7 @@ region and a button in it.
 
 ---
 
-## 6. A flaky test
+## 5. A flaky test
 
 **What.** `WorkbenchNotificationTests` failed once inside `WorkbenchFixture`'s constructor
 with a `SafeHandle.DangerousAddRef` crash in `sqlite3_changes`, under
@@ -127,8 +102,16 @@ with a `SafeHandle.DangerousAddRef` crash in `sqlite3_changes`, under
 **Reading.** A SQLitePCL native handle race during parallel fixture construction, not
 anything the refactor touched.
 
-**Why it is still here.** One occurrence is not a pattern, and chasing it on one sighting
-would be guesswork.
+**Second sighting, 2026-09-23.** A full-solution run reported one failure in
+`PaulTechGuy.CN.Presentation.Tests` — 154 of 155 — and the same project passed 155/155
+immediately afterwards on its own and on four consecutive full runs after that. The test
+name was lost: the run was piped through `tail` and only the per-assembly summary survived.
+That is the same signature and almost certainly the same thing, but it is not proof, and the
+lesson is the cheap one — **capture the whole log, not the tail, on any run that might be
+the one that catches this.**
+
+**Why it is still here.** Two sightings, neither with a stack trace in hand. Chasing it on
+that would still be guesswork.
 
 **Done looks like:** either it recurs and there is enough evidence to fix it, or it is
 written off. Worth watching if CI goes red in `PaulTechGuy.CN.Presentation.Tests` for no

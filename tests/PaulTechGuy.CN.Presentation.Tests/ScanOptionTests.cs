@@ -201,6 +201,69 @@ public class ScanOptionTests
         }
     }
 
+    /// <summary>
+    /// A drop of any size says where it has got to.
+    ///
+    /// The folder path did this from the day it was written and the drop path never did,
+    /// which is the whole of what made a big drop feel like a hang: the spinner and the
+    /// Cancel button were live the entire time, with nothing moving beside them to show it.
+    /// Exactly one batch's worth of files, because the point is that the first report
+    /// happens at all, not how many follow.
+    /// </summary>
+    [Fact]
+    public async Task A_drop_reports_progress_while_it_reads()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        string tree = Path.Combine(fixture.Files, "big");
+        _ = Directory.CreateDirectory(tree);
+
+        for (int i = 0; i < 500; i++)
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(tree, $"{i:D4}.txt"), "x", TestContext.Current.CancellationToken);
+        }
+
+        List<string> said = [];
+
+        fixture.ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(WorkbenchViewModel.ScanStatus))
+            {
+                said.Add(fixture.ViewModel.ScanStatus);
+            }
+        };
+
+        await fixture.ViewModel.AddDroppedAsync([tree], TestContext.Current.CancellationToken);
+
+        said.ShouldContain(
+            s => s.StartsWith("Read 500 files", StringComparison.Ordinal),
+            "the drop ran to completion in silence");
+
+        // And the footer keeps the short sentence, not the notice, which can be longer
+        // than one trimmed line.
+        fixture.ViewModel.ScanStatus.ShouldBe("Added 500 files from big.");
+    }
+
+    /// <summary>
+    /// The one number in this feature. It is a remark on the notice, not a cap: nothing is
+    /// truncated or refused, so the only thing to pin is that it speaks up when it should
+    /// and stays quiet otherwise.
+    /// </summary>
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(24_999, false)]
+    [InlineData(25_000, true)]
+    public void A_large_list_says_so_and_an_ordinary_one_does_not(int added, bool expected)
+    {
+        const string Summary = "Added some files from Photos.";
+
+        string notice = WorkbenchViewModel.DescribeDrop(Summary, added);
+
+        notice.ShouldStartWith(Summary, Case.Sensitive, "the count comes first either way");
+        notice.Contains("large list", StringComparison.Ordinal).ShouldBe(expected);
+    }
+
     [Fact]
     public void The_settings_survive_a_restart()
     {
