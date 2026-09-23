@@ -134,6 +134,16 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private bool _applyingTemplate;
 
+    /// <summary>
+    /// Same idea again, for the three commands that tick or untick every row in a loop.
+    ///
+    /// Each row's change triggers a full RefreshSummary, which walks all of `_allRows` AND
+    /// rebuilds the recipe — so a loop over N rows did N of those, on a list built to hold
+    /// 50,000. It survived only because nobody had clicked Select all on a big enough list
+    /// to notice. The commands refresh once at the end instead.
+    /// </summary>
+    private bool _selectingInBulk;
+
     private CancellationTokenSource? _debounce;
     private CancellationTokenSource? _run;
 
@@ -1753,8 +1763,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 DescribeDrop(summary, this._rowsFromDrop.Count),
                 () =>
                 {
-                    this._allRows.Clear();
-                    this._allRows.AddRange(before);
+                    this.ClearRows();
+                    this.RestoreRows(before);
                 });
 
             // The short form, not the notice. The footer trims to a single line and the
@@ -1804,8 +1814,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         List<PlanRowViewModel> kept = [.. this._rowsFromDrop];
 
-        this._allRows.Clear();
-        this._allRows.AddRange(kept);
+        this.ClearRows();
+        this.RestoreRows(kept);
         this.DismissActionNotice();
         this.Recompute();
     }
@@ -2090,7 +2100,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             (this.WriteCreated, this.WriteModified, this.WriteChanged, this.WriteTaken);
         DateTemplate? template = this.ActiveTemplate;
 
-        this._allRows.Clear();
+        this.ClearRows();
         this._roots.Clear();
         this._looseFiles.Clear();
         this.SelectedRow = null;
@@ -2138,7 +2148,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // button's visibility, so the other order evaluates it against the previous action.
         this._undoLastAction = () =>
         {
-            this._allRows.AddRange(rows);
+            this.RestoreRows(rows);
             this._roots.AddRange(roots);
             this._looseFiles.AddRange(loose);
 
@@ -2244,7 +2254,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         List<string> roots = [.. this._roots];
         List<string> loose = [.. this._looseFiles];
 
-        this._allRows.Clear();
+        this.ClearRows();
         this._roots.Clear();
         this._looseFiles.Clear();
         this.SelectedRow = null;
@@ -2263,7 +2273,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 $"Cleared {rows.Count:N0} file{(rows.Count == 1 ? string.Empty : "s")}."),
             () =>
             {
-                this._allRows.AddRange(rows);
+                this.RestoreRows(rows);
                 this._roots.AddRange(roots);
                 this._looseFiles.AddRange(loose);
             });
@@ -2306,13 +2316,17 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(row);
 
-        foreach (PlanRowViewModel other in this._allRows)
+        // The third loop of this shape, and the one the item that prompted this missed.
+        // It walks every loaded row, so on a big list it was the same N x O(N).
+        this.SelectInBulk(() =>
         {
-            other.IsIncluded = ReferenceEquals(other, row);
-        }
+            foreach (PlanRowViewModel other in this._allRows)
+            {
+                other.IsIncluded = ReferenceEquals(other, row);
+            }
+        });
 
         this.Confirm(string.Create(CultureInfo.CurrentCulture, $"The run now covers {row.Name} only."));
-        this.RefreshSummary();
     }
 
     /// <summary>
@@ -2723,15 +2737,90 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private PlanRowViewModel TrackRow(PlanRowViewModel row)
     {
-        row.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(PlanRowViewModel.IsIncluded))
-            {
-                this.RefreshSummary();
-            }
-        };
+        // Detached first so a row can be tracked twice without being counted twice. On a
+        // fresh row this is a no-op; on one coming back from an undo it is the difference
+        // between one handler and two.
+        row.PropertyChanged -= this.OnRowChanged;
+        row.PropertyChanged += this.OnRowChanged;
 
         return row;
+    }
+
+    /// <summary>
+    /// The one handler every row is watched with.
+    ///
+    /// A named method rather than the lambda this used to be, for the dull reason that a
+    /// lambda cannot be unsubscribed: `_allRows.Clear()` happened in five places and not
+    /// one of them detached anything, so every row ever loaded stayed wired to this view
+    /// model for the life of the window. A leak on its own, and a correctness bug waiting
+    /// for the day a discarded row's IsIncluded could still move — at which point a list
+    /// the user has replaced would go on editing the summary of the list that replaced it.
+    /// </summary>
+    private void OnRowChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // The bulk commands set IsIncluded on every row and refresh once themselves.
+        if (this._selectingInBulk)
+        {
+            return;
+        }
+
+        if (e.PropertyName == nameof(PlanRowViewModel.IsIncluded))
+        {
+            this.RefreshSummary();
+        }
+    }
+
+    /// <summary>
+    /// Empties the list, detaching every row on the way out.
+    ///
+    /// Paired with <see cref="RestoreRows"/> so that nothing touches `_allRows.Clear()`
+    /// directly any more. That was the whole failure mode: the subscription was made in one
+    /// place and the list was emptied in five, and the five had no reason to know about it.
+    /// </summary>
+    private void ClearRows()
+    {
+        foreach (PlanRowViewModel row in this._allRows)
+        {
+            row.PropertyChanged -= this.OnRowChanged;
+        }
+
+        this._allRows.Clear();
+    }
+
+    /// <summary>
+    /// Puts rows back that were taken out, re-watching each one.
+    ///
+    /// Every undo in here works by keeping the old list and adding it back, and rows added
+    /// back after a <see cref="ClearRows"/> have been detached — so an undone drop would
+    /// otherwise restore a list whose checkboxes no longer moved the Apply count.
+    /// </summary>
+    private void RestoreRows(IEnumerable<PlanRowViewModel> rows)
+    {
+        foreach (PlanRowViewModel row in rows)
+        {
+            this._allRows.Add(this.TrackRow(row));
+        }
+    }
+
+    /// <summary>
+    /// Runs a command that ticks or unticks many rows, and refreshes once at the end.
+    ///
+    /// The refresh is in a finally because skipping it would be worse than the storm it is
+    /// suppressing: the summary would be left describing the selection as it was before.
+    /// </summary>
+    private void SelectInBulk(Action select)
+    {
+        this._selectingInBulk = true;
+
+        try
+        {
+            select();
+        }
+        finally
+        {
+            this._selectingInBulk = false;
+            this.RefreshSummary();
+        }
     }
 
     /// <summary>
@@ -2739,15 +2828,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// narrows what the run covers and selecting files it is excluding would contradict it.
     /// </summary>
     [RelayCommand]
-    public void SelectAllShown()
+    public void SelectAllShown() => this.SelectInBulk(() =>
     {
         foreach (PlanRowViewModel row in this.Rows)
         {
             row.IsIncluded = true;
         }
-
-        this.RefreshSummary();
-    }
+    });
 
     /// <summary>
     /// Unticks everything loaded, including anything a filter is hiding.
@@ -2757,15 +2844,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// ticked that you never laid eyes on.
     /// </summary>
     [RelayCommand]
-    public void SelectNone()
+    public void SelectNone() => this.SelectInBulk(() =>
     {
         foreach (PlanRowViewModel row in this._allRows)
         {
             row.IsIncluded = false;
         }
-
-        this.RefreshSummary();
-    }
+    });
 
     // ---- The command deck --------------------------------------------------------------
     //
@@ -3338,7 +3423,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             return;
         }
 
-        this._allRows.Clear();
+        this.ClearRows();
 
         // One scan source around the whole thing, claimed here so that cancelling partway
         // stops the rescan rather than just the folder currently being read. AddFolderAsync
