@@ -1147,31 +1147,21 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string TypeFilter { get; set; } = string.Empty;
 
-    private List<string> _typePatterns = [];
+    private IReadOnlyList<string> _typePatterns = [];
 
     partial void OnTypeFilterChanged(string value)
     {
-        this._typePatterns = [.. (value ?? string.Empty)
-            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-
-            // A bare extension is what people type. Accepting "png" and ".png" as well as
-            // "*.png" costs nothing and removes a way to get no results and no explanation.
-            //
-            // Only a word with no dot in it, or a lone ".ext", is an extension. The rule
-            // was "anything without a wildcard", which turned an exact name like
-            // "Thumbs.db" into "*.Thumbs.db" - a pattern that cannot match the very file
-            // it was typed to find, with nothing on screen saying why.
-            .Select(p => IsBareExtension(p) ? "*" + (p.StartsWith('.') ? p : "." + p) : p)];
+        // The same grammar the scan filters use, so "png", ".png" and "*.png" all mean the
+        // PNGs here too, and "Thumbs.db" means that file. A filter that lets everything
+        // through ("*", or "*.*", which the parser turns into "*") is no filter: otherwise
+        // the chip would read "Run limited to *.* - 0 excluded".
+        IReadOnlyList<string> parsed = NamePatterns.Parse(value, files: true);
+        this._typePatterns = NamePatterns.IsEverything(parsed) ? [] : parsed;
 
         this.OnPropertyChanged(nameof(this.HasTypeFilter));
         this.OnPropertyChanged(nameof(this.CanStartOver));
         this.Reproject();
     }
-
-    private static bool IsBareExtension(string pattern) =>
-        !pattern.Contains('*', StringComparison.Ordinal)
-        && !pattern.Contains('?', StringComparison.Ordinal)
-        && pattern.LastIndexOf('.') <= 0;
 
     public bool HasTypeFilter => this._typePatterns.Count > 0;
 
@@ -3665,23 +3655,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// A filter that quietly changes what a destructive button does is how you get a bug
     /// report titled "it changed files I did not select".
     /// </summary>
-    private bool MatchesTypeFilter(PlanRowViewModel row)
-    {
-        if (this._typePatterns.Count == 0)
-        {
-            return true;
-        }
-
-        foreach (string pattern in this._typePatterns)
-        {
-            if (FileSystemName.MatchesSimpleExpression(pattern, row.Name, ignoreCase: true))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    private bool MatchesTypeFilter(PlanRowViewModel row) =>
+        this._typePatterns.Count == 0 || NamePatterns.MatchesAny(this._typePatterns, row.Name);
 
     /// <summary>
     /// Moves the shown list to what the projection says, and says nothing at all when the

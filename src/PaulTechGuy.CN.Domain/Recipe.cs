@@ -134,6 +134,28 @@ public sealed record ScanFilter(
     bool IncludeHidden = false)
 {
     public static ScanFilter Default => new(["*"]);
+
+    /// <summary>File names to leave out. Beats <see cref="Patterns" />.</summary>
+    public IReadOnlyList<string> ExcludeFiles { get; init; } = [];
+
+    /// <summary>
+    /// Folder names whose contents are read, matched anywhere below the root. A file is in
+    /// when any folder between the root and it matches - "2019*" means every 2019 tree
+    /// and everything under it, not "only folders that are themselves named 2019*", which
+    /// is Beyond Compare's literal rule and loses 2019\January. Files directly in the root
+    /// are always in.
+    /// </summary>
+    public IReadOnlyList<string> IncludeFolders { get; init; } = NamePatterns.Everything;
+
+    /// <summary>Folder names that are never descended into. Beats <see cref="IncludeFolders" />.</summary>
+    public IReadOnlyList<string> ExcludeFolders { get; init; } = [];
+
+    /// <summary>Whether any name pattern leaves something out.</summary>
+    public bool IsNarrowed =>
+        !NamePatterns.IsEverything(this.Patterns)
+        || this.ExcludeFiles.Count > 0
+        || !NamePatterns.IsEverything(this.IncludeFolders)
+        || this.ExcludeFolders.Count > 0;
 }
 
 /// <summary>
