@@ -258,8 +258,8 @@ Also worth one look each:
 
 ### 11. Name filters — "More filters…" — landed 2026-09-23, entirely unseen
 
-**Source card ▸ New drops dropdown ▸ More filters…** opens *Read or skip by name*: four
-panes (read/skip × files/folders), **Clear**, **Suggest**, **Reset to saved** (only when the
+**Source card ▸ New drops dropdown ▸ More filters…** opens *Include or skip by name*: four
+panes (include/skip × files/folders), **Clear**, **Suggest**, **Reset to saved** (only when the
 filters differ from the saved ones), and *Use for this session only / Also update application
 preferences* under them. Background, decisions and the adversarial review are in
 `docs/studies/AdvancedFilters.md`.
@@ -275,7 +275,7 @@ looked at**. In order:
   tooltip on it should list the filters in full.
 - **Skip folders `@eaDir`** (or press Suggest), OK, then drop a tree containing one. Nothing
   from inside it should be listed.
-- **Read folders `2019*`** over a dated tree: `2019\January\*` and `Archive\2019\*` come in,
+- **Include folders `2019*`** over a dated tree: `2019\January\*` and `Archive\2019\*` come in,
   `2020\*` does not, and files sitting directly in the dropped folder always do. Try it with
   *Also set the folders' own dates* on as well.
 - **Change a filter with files loaded.** Nothing is re-read on OK, and **Read the folders

@@ -64,7 +64,7 @@ public sealed record ScanPatterns(
 
         if (!NamePatterns.IsEverything(this.IncludeFiles))
         {
-            lines.Add("Read files named " + NamePatterns.Format(this.IncludeFiles));
+            lines.Add("Include files named " + NamePatterns.Format(this.IncludeFiles));
         }
 
         if (this.ExcludeFiles.Count > 0)
@@ -74,7 +74,7 @@ public sealed record ScanPatterns(
 
         if (!NamePatterns.IsEverything(this.IncludeFolders))
         {
-            lines.Add("Read folders named " + NamePatterns.Format(this.IncludeFolders));
+            lines.Add("Include folders named " + NamePatterns.Format(this.IncludeFolders));
         }
 
         if (this.ExcludeFolders.Count > 0)

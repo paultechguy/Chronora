@@ -15,8 +15,8 @@ namespace PaulTechGuy.CN.App.Views;
 ///
 /// This decides what is READ FROM DISK. The Type filter on the list header is the other
 /// half and stays: it narrows a list already loaded, instantly, and scopes the run. The
-/// panes are titled "Read" and "Skip" rather than include and exclude so the two do not
-/// look like one control twice.
+/// panes are titled "Include" and "Skip". They were "Read" and "Skip" until Paul chose
+/// Include on 2026-09-24; the help line's pointer to Type is what keeps the two apart.
 ///
 /// Pressing OK reads nothing, exactly like ticking one of the flyout's boxes; the card
 /// offers "Read the folders again" instead.
@@ -34,9 +34,9 @@ internal static class ScanFiltersDialog
 
         ScanPatterns current = workbench.ScanPatternsInEffect;
 
-        TextBox readFiles = Pane("Read files named");
+        TextBox readFiles = Pane("Include files named");
         TextBox skipFiles = Pane("Skip files named");
-        TextBox readFolders = Pane("Read folders named");
+        TextBox readFolders = Pane("Include folders named");
         TextBox skipFolders = Pane("Skip folders named");
 
         void Fill(ScanPatterns patterns)
@@ -111,7 +111,7 @@ internal static class ScanFiltersDialog
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75,
             Text = "One name per line, or separated by ;. Use * and ? as wildcards; \"xmp\" means *.xmp. "
-                + "Skip wins over Read. Read folders takes everything beneath a match, at any depth. "
+                + "Skip wins over Include. Include folders takes everything beneath a match, at any depth. "
                 + "Hidden and system files are already skipped. Files you drop one at a time are always read. "
                 + "To narrow a list that is already loaded, use Type on the list instead.",
         };
@@ -125,7 +125,7 @@ internal static class ScanFiltersDialog
         var dialog = new ContentDialog
         {
             XamlRoot = root,
-            Title = "Read or skip by name",
+            Title = "Include or skip by name",
             Content = new ScrollViewer { Content = panel },
             PrimaryButtonText = "OK",
             CloseButtonText = "Cancel",

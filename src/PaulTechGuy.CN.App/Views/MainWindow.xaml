@@ -204,7 +204,7 @@
                                     <Button Content="More filters…"
                                             HorizontalAlignment="Stretch"
                                             Click="OnMoreScanFilters"
-                                            ToolTipService.ToolTip="Read or skip files and folders by name - @eaDir, *.aae, 2019*." />
+                                            ToolTipService.ToolTip="Include or skip files and folders by name - @eaDir, *.aae, 2019*." />
 
                                     <!--
                                         Changing a setting does not re-read the disk, so
