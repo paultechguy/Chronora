@@ -1,6 +1,10 @@
 # Feasibility study: advanced folder filters
 
-2026-09-23. Investigation only — nothing here is approved or scheduled.
+2026-09-23. **Built the same day**, as "More filters…" on the Source card; see Status
+section 11. Below the study is the record of what was decided and what the adversarial review
+of the plan changed, which is the part worth keeping. Some details of the study were
+superseded by those decisions: the panes are titled *Read* and *Skip*, the Suggest list is
+shorter, and *Use for this session only* is the default unless saved filters are already on.
 
 **The idea.** A modal in the style of Beyond Compare's *Session Settings* filter page: four
 pattern lists (include files, exclude files, include folders, exclude folders), a Clear
@@ -126,3 +130,67 @@ few and aimed at the traps: `*.*` handling, a folder exclude that is never desce
 (measured with a counter in the predicate, not inferred), one walk for many patterns, and
 `CanRescanWithOptions` lighting when only a pattern changes. No new dependency, no network,
 no ExifTool involvement.
+
+---
+
+# What was built
+
+## Behaviour rules (the spec tests pin)
+
+1. **Exclude beats include**, at every level.
+2. **An excluded folder is never descended into.** Pruned in `ShouldRecursePredicate`, next
+   to the junction guard.
+3. **The dropped root is exempt** from folder patterns, both as a walk start and as a folder
+   row (`IncludeRootDirectory`). Dropping `@eaDir` on purpose means it.
+4. **A file dropped individually bypasses every pattern.** This is existing behaviour in
+   `ScanPathsAsync` and is kept.
+5. **Pattern grammar** (one parser, `NamePatterns.Parse`):
+   - Split on `;` and newline, trim, drop empties, de-duplicate ignoring case.
+   - **Only a bare word with no dot (`xmp`) or a lone `.ext` (`.xmp`) becomes `*.xmp`.**
+     Anything else is literal, so `Thumbs.db` stays `Thumbs.db`. Both reviewers measured the
+     current rule turning it into `*.Thumbs.db`, which never matches.
+   - `*.*` becomes `*`. Measured: `MatchesSimpleExpression("*.*","README")` is false.
+   - An include list that is empty or contains `*` is exactly `["*"]`, meaning not narrowed.
+   - Folder panes get no extension normalisation.
+6. **"Subtree follows" for files and folder rows alike.** When Include folders is narrowed,
+   a file or folder is in if it, or any folder between the root and it, matches. That makes
+   `2019\Jan` a row while `Archive` is not and `Archive\2019` is. Include-files patterns apply
+   to files only. Today they are also tested against folder names (`FileScanner.cs:193-195`);
+   that change is deliberate and gets a comment.
+7. Case-insensitive, which is `MatchesSimpleExpression`'s default.
+8. **Include folders is inert when *Include subfolders* is off**, because only root files are
+   read. It is then left out of the label.
+
+## Adversarial (GAN) review — 2026-09-23
+
+Two discriminator agents at once (Paul's cap), each attacking the first draft. One took the
+scanner, patterns and tests; the other took state, persistence, UX and the journal. Both
+were read-only, and one measured .NET behaviour with `dotnet fsi`. What each found and what
+changed:
+
+| # | Finding | Severity | Verified | Resolution |
+|---|---|---|---|---|
+| 1 | The shared bare-extension rule turns `Thumbs.db` into `*.Thumbs.db`: the Suggest list, exact-name excludes and today's Type filter never match. Both reviewers found it. | Blocker | Measured | Rule 5 rewritten, fixed in step 0/1, tested |
+| 2 | Segment slicing by the captured `root` is off by one with a trailing slash and wrong at a drive root | Major | Measured | Slice by `entry.RootDirectory.Length`, test 4 |
+| 3 | Folder rows under "subtree follows" were undefined, and the root row contradicted rule 6 | Major | Reasoned | Rules 3 and 6, test 2 extended |
+| 4 | "Counter in the predicate" can't be written: the predicates are private lambdas | Major | Read | Extract `internal static` decisions, test 1 |
+| 5 | `_listScanFilter` is last-writer-wins: mixed lists hide staleness and the journal lies | Major | Read | Mixed flag |
+| 6 | "Also update" is saved only on a clean close. Crash or a second Send To instance loses it | Major | Read | Save on OK |
+| 7 | History ignores every key but `summary`, so the "History shows scan" check was false | Major | Read | Journal-only, check removed |
+| 8 | The existing `ScanSettingLabel[12..]` chops a letter; the plan would have built on it | Major | Read + confirmed by me | Step 0, `ScanSettingBody` |
+| 9 | `[]` vs `["*"]` would light Read again with nothing changed | Major | Suspect | Rule 5 canonical form, test 6 |
+| 10 | The label is too long for an Auto column at 820 epx, and "3 filters" is ambiguous | Minor | Suspect | Fixed suffix, tooltip, Paul checks |
+| 11 | Session-only as the default when nothing is saved, and no way back to the saved copy | Minor | — | ComboBox default rule, Reset to saved |
+| 12 | The Suggest list held hidden/system and non-photo entries | Minor | Read | Trimmed |
+| 13 | Include folders is inert when recursion is off | Minor | Reasoned | Rule 8 |
+| 14 | No notification test; `*.*` Type chip reads "0 excluded"; log text names a pattern | Minor | Read | Test 11, `*` = no Type filter, log text |
+| 15 | Separate de-duplication test redundant | — | Read | Dropped |
+
+**Rejected:** cutting the journal `scan` key entirely (reviewer 2's proportion
+suggestion). With the mixed flag it costs one dictionary entry, and CLAUDE.md is explicit
+that the journal is what settles a disputed run. "Why did this file not get dated?" is
+exactly the question it would answer.
+
+**Accepted as-is:** the rescan after Apply picks up changed patterns without saying so.
+That is identical to today's checkbox behaviour and is covered by the label's staleness
+signal.

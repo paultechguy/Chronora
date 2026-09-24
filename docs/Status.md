@@ -1,7 +1,7 @@
 # Where Chronora is
 
 Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-523 tests passing, 1 skipped.
+546 tests passing, 1 skipped.
 
 **The suite is intermittently red and it is not the code.** `Presentation.Tests` fails about
 one run in four, a different test each time, from two unrelated pre-existing causes — see
@@ -256,9 +256,41 @@ Also worth one look each:
 - **Read the folders again** now spells its setting in full. It said "ubfolders" and
   "his folder only".
 
-The advanced filters feature itself is **planned, reviewed and not started**. See
-`docs/studies/AdvancedFilters.md` for the feasibility study. Its journal row was wrong and
-has been corrected.
+### 11. Name filters — "More filters…" — landed 2026-09-23, entirely unseen
+
+**Source card ▸ New drops dropdown ▸ More filters…** opens *Read or skip by name*: four
+panes (read/skip × files/folders), **Clear**, **Suggest**, **Reset to saved** (only when the
+filters differ from the saved ones), and *Use for this session only / Also update application
+preferences* under them. Background, decisions and the adversarial review are in
+`docs/studies/AdvancedFilters.md`.
+
+Scanner, settings and view model are pinned by tests; **nothing about the dialog has been
+looked at**. In order:
+
+- **The dialog's layout.** Title, the 2×2 panes, and whether the help text is readable.
+  Try it at the 820 epx minimum and on a scaled monitor, in dark and light. The panes are
+  Consolas, 130 px tall, and Enter should add a line rather than press OK.
+- **The card label still fits beside the RULE card** with filters on. It reads
+  `New drops: subfolders · name filters (this session)` at its longest ordinary length. The
+  tooltip on it should list the filters in full.
+- **Skip folders `@eaDir`** (or press Suggest), OK, then drop a tree containing one. Nothing
+  from inside it should be listed.
+- **Read folders `2019*`** over a dated tree: `2019\January\*` and `Archive\2019\*` come in,
+  `2020\*` does not, and files sitting directly in the dropped folder always do. Try it with
+  *Also set the folders' own dates* on as well.
+- **Change a filter with files loaded.** Nothing is re-read on OK, and **Read the folders
+  again** lights. Its confirmation should name the filters.
+- **Session only**, close, reopen: the filters are gone. **Also update application
+  preferences**, then end the process from Task Manager rather than closing, and reopen:
+  they are back, because they are saved on OK, not at close.
+- **A file dropped on its own is always read**, even if a skip pattern names it.
+- **`settings.json`** should show `scanExcludeFolderPatterns` and friends after a saved
+  choice, and **journal.db**'s recipe JSON for a run has a `scan` entry saying how the list
+  was read, or `mixed`. History does not show it, deliberately.
+
+Behaviour changes worth knowing: the scanner now walks a tree once however many patterns
+there are (it walked once per pattern), and the file patterns no longer apply to folder
+rows. Neither was reachable before today, because the patterns were always `*`.
 
 ---
 
