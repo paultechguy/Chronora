@@ -22,6 +22,8 @@ public sealed class FileScanner(
     VolumeProbe? volumes = null,
     ILogger<FileScanner>? logger = null)
 {
+    private static readonly char[] Separators = ['\\', '/'];
+
     private static readonly FrozenDictionary<DateField, MetadataValue> NoMetadata =
         new Dictionary<DateField, MetadataValue>().ToFrozenDictionary();
 
@@ -148,70 +150,155 @@ public sealed class FileScanner(
             ReturnSpecialDirectories = false,
         };
 
-        // Patterns are entered semicolon-separated, which is the form FileTouch used and
-        // which people already expect from Explorer-adjacent tools.
-        IReadOnlyList<string> patterns = filter.Patterns.Count > 0 ? filter.Patterns : ["*"];
+        bool directoriesOnly = filter.IncludeDirectories && !filter.IncludeFiles;
 
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // "*" and an empty list both mean everything; testing one pattern is cheaper than
+        // testing none by special case in the hot path.
+        IReadOnlyList<string> patterns = NamePatterns.IsEverything(filter.Patterns) ? NamePatterns.Everything : filter.Patterns;
 
-        foreach (string pattern in patterns)
+        // Include folders only means anything below the root. With recursion off every
+        // file is IN the root, and the pane is inert rather than a way to empty the list.
+        bool folderGate = filter.Recurse && !NamePatterns.IsEverything(filter.IncludeFolders);
+
+        // Entries from one folder arrive together, so the ancestor test is answered once
+        // per folder rather than once per file.
+        string? lastDirectory = null;
+        bool lastDirectoryIncluded = false;
+
+        bool InIncludedFolder(ref FileSystemEntry entry)
+        {
+            ReadOnlySpan<char> directory = entry.Directory;
+
+            if (lastDirectory is null || !directory.SequenceEqual(lastDirectory))
+            {
+                lastDirectory = directory.ToString();
+                lastDirectoryIncluded = IsWithinIncludedFolders(RelativeDirectory(ref entry), filter.IncludeFolders);
+            }
+
+            return lastDirectoryIncluded;
+        }
+
+        // ONE walk. This used to build an enumerable per pattern and de-duplicate across
+        // them, which cost nothing while the list was always "*" and would have walked a
+        // NAS five times over for five patterns. Each entry is visited once now, so the
+        // de-duplication went with it.
+        IEnumerable<string> matches;
+        try
+        {
+            matches = new FileSystemEnumerable<string>(
+                root,
+                static (ref FileSystemEntry entry) => entry.ToFullPath(),
+                options)
+            {
+                ShouldRecursePredicate = (ref FileSystemEntry entry) =>
+                    ShouldRecurse(entry.FileName, entry.Attributes, filter),
+
+                // MatchesSimpleExpression, not Win32: EnumerationOptions.MatchType
+                // defaults to Simple, so this is the matcher the app has always used.
+                // Win32 would quietly change what IMG_????.CR2 means.
+                ShouldIncludePredicate = (ref FileSystemEntry entry) =>
+                {
+                    if (entry.IsDirectory)
+                    {
+                        // Folder rows answer to the FOLDER patterns only. The file
+                        // patterns used to be tested against folder names too, so
+                        // "*.jpg" quietly meant "and no folder rows"; that was never a
+                        // choice anybody made.
+                        //
+                        // The root's "always in" is for its FILES. A folder sitting in the
+                        // root is in only by matching itself - without the IsEmpty check,
+                        // 2020 and Archive both came back as rows under "2019*".
+                        return filter.IncludeDirectories
+                            && !NamePatterns.MatchesAny(filter.ExcludeFolders, entry.FileName)
+                            && (!folderGate
+                                || NamePatterns.MatchesAny(filter.IncludeFolders, entry.FileName)
+                                || (!RelativeDirectory(ref entry).IsEmpty && InIncludedFolder(ref entry)));
+                    }
+
+                    return !directoriesOnly
+                        && NamePatterns.MatchesAny(patterns, entry.FileName)
+                        && !NamePatterns.MatchesAny(filter.ExcludeFiles, entry.FileName)
+                        && (!folderGate || InIncludedFolder(ref entry));
+                },
+            };
+        }
+        catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException)
+        {
+            this._logger.LogWarning(ex, "Could not enumerate {Root}.", root);
+            yield break;
+        }
+
+        foreach (string path in matches)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            bool directoriesOnly = filter.IncludeDirectories && !filter.IncludeFiles;
-            string current = pattern;
-
-            IEnumerable<string> matches;
-            try
-            {
-                matches = new FileSystemEnumerable<string>(
-                    root,
-                    static (ref FileSystemEntry entry) => entry.ToFullPath(),
-                    options)
-                {
-                    // The junction guard, and the reason this is hand-built rather than a
-                    // call to Directory.EnumerateFileSystemEntries.
-                    //
-                    // RecurseSubdirectories follows reparse points: measured 2026-09-22, a
-                    // junction inside a dropped folder handed back a file from outside it,
-                    // and a junction that points at one of its own ancestors walks for
-                    // ever. "I dropped this folder" cannot reasonably mean "and everywhere
-                    // its links point".
-                    //
-                    // Adding ReparsePoint to AttributesToSkip DOES stop the descent - also
-                    // measured - and is the wrong tool, because that flag applies to files
-                    // as well as folders, and a dehydrated OneDrive file is a reparse
-                    // point. A photo-date tool that silently skipped somebody's cloud
-                    // photos to guard against junctions would be a poor trade. This
-                    // predicate is only consulted for directories, so files are untouched.
-                    ShouldRecursePredicate = static (ref FileSystemEntry entry) =>
-                        !entry.Attributes.HasFlag(FileAttributes.ReparsePoint),
-
-                    // MatchesSimpleExpression, not Win32: EnumerationOptions.MatchType
-                    // defaults to Simple, so this is the matcher the app has always used.
-                    // Win32 would quietly change what IMG_????.CR2 means.
-                    ShouldIncludePredicate = (ref FileSystemEntry entry) =>
-                        (!directoriesOnly || entry.IsDirectory)
-                        && FileSystemName.MatchesSimpleExpression(current, entry.FileName),
-                };
-            }
-            catch (Exception ex) when (ex is DirectoryNotFoundException or UnauthorizedAccessException)
-            {
-                this._logger.LogWarning(ex, "Could not enumerate {Root} with pattern {Pattern}.", root, pattern);
-                continue;
-            }
-
-            foreach (string path in matches)
-            {
-                // Several patterns can match the same file; the user asked for the file
-                // once, so they get it once.
-                if (seen.Add(path))
-                {
-                    yield return path;
-                }
-            }
+            yield return path;
         }
     }
+
+    /// <summary>
+    /// Whether the walk goes into a folder. Pulled out of the predicate so a test can show
+    /// an excluded folder is PRUNED rather than walked and then filtered - the two look the
+    /// same from the files that come back, and only one of them saves the time.
+    /// </summary>
+    /// <remarks>
+    /// The junction guard is first, and the reason the enumerable is hand-built rather than
+    /// a call to Directory.EnumerateFileSystemEntries.
+    ///
+    /// RecurseSubdirectories follows reparse points: measured 2026-09-22, a junction inside
+    /// a dropped folder handed back a file from outside it, and a junction that points at
+    /// one of its own ancestors walks for ever. "I dropped this folder" cannot reasonably
+    /// mean "and everywhere its links point".
+    ///
+    /// Adding ReparsePoint to AttributesToSkip DOES stop the descent - also measured - and
+    /// is the wrong tool, because that flag applies to files as well as folders, and a
+    /// dehydrated OneDrive file is a reparse point. A photo-date tool that silently skipped
+    /// somebody's cloud photos to guard against junctions would be a poor trade. This is
+    /// only consulted for directories, so files are untouched.
+    ///
+    /// The dropped root is never tested: the walk starts inside it. Dropping a folder that
+    /// is named like an excluded one means that folder.
+    /// </remarks>
+    internal static bool ShouldRecurse(ReadOnlySpan<char> name, FileAttributes attributes, ScanFilter filter) =>
+        !attributes.HasFlag(FileAttributes.ReparsePoint)
+        && !NamePatterns.MatchesAny(filter.ExcludeFolders, name);
+
+    /// <summary>
+    /// Whether any folder in a path relative to the root matches an include pattern -
+    /// "subtree follows", so 2019\January is in because 2019 is. An empty path is the root
+    /// itself, whose files are always in.
+    /// </summary>
+    internal static bool IsWithinIncludedFolders(ReadOnlySpan<char> relativeDirectory, IReadOnlyList<string> include)
+    {
+        relativeDirectory = relativeDirectory.Trim(Separators);
+
+        if (relativeDirectory.IsEmpty)
+        {
+            return true;
+        }
+
+        foreach (Range segment in relativeDirectory.SplitAny(Separators))
+        {
+            if (NamePatterns.MatchesAny(include, relativeDirectory[segment]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The entry's folder relative to the root it was reached from.
+    ///
+    /// Sliced by RootDirectory rather than by the root string the caller passed, because
+    /// they differ: RootDirectory has a trailing separator trimmed, except at a drive root
+    /// where "C:\" keeps its own. Slicing by the caller's string was off by one - and threw
+    /// for a file in a root given with a trailing slash. Measured 2026-09-23.
+    /// </summary>
+    private static ReadOnlySpan<char> RelativeDirectory(ref FileSystemEntry entry) =>
+        entry.Directory.Length <= entry.RootDirectory.Length
+            ? []
+            : entry.Directory[entry.RootDirectory.Length..];
 
     private ScannedFile? Describe(string path, bool isDirectory, VolumeCapabilities volume)
     {
