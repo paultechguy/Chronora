@@ -106,6 +106,9 @@ public class ScanOptionTests
 
         fixture.ViewModel.Rows.Count.ShouldBe(1, "the buried file is out of scope now");
         fixture.ViewModel.Rows[0].Name.ShouldBe("top.txt");
+
+        // It sliced the card label one character too far and said "his folder only".
+        fixture.ViewModel.ActionNotice.ShouldBe("Read the folders again: this folder only.");
     }
 
     /// <summary>Hidden files are left alone unless asked for, which is a change of behaviour.</summary>

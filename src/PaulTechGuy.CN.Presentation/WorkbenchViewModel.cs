@@ -1885,7 +1885,16 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// rescans, so a card reading "4,000 files / 3 folders · deep" would be describing a
     /// list that no longer matches its own settings, directly above the list that does.
     /// </summary>
-    public string ScanSettingLabel
+    public string ScanSettingLabel => "New drops: " + this.ScanSettingBody;
+
+    /// <summary>
+    /// The settings alone, for both the card and the rescan confirmation.
+    ///
+    /// The confirmation used to slice the label at [12..], one past the end of an
+    /// eleven-character prefix, and so read "Read the folders again: ubfolders." Building
+    /// both from one piece means neither has to know how long the other's prefix is.
+    /// </summary>
+    private string ScanSettingBody
     {
         get
         {
@@ -1901,7 +1910,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 parts.Add("folders too");
             }
 
-            return "New drops: " + string.Join(" · ", parts);
+            return string.Join(" · ", parts);
         }
     }
 
@@ -1942,7 +1951,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.Confirm(string.Create(
             CultureInfo.CurrentCulture,
-            $"Read the folders again: {this.ScanSettingLabel[12..]}."));
+            $"Read the folders again: {this.ScanSettingBody}."));
     }
 
     // ---- Clearing and starting over ----------------------------------------------------
