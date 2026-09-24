@@ -1156,14 +1156,22 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             // A bare extension is what people type. Accepting "png" and ".png" as well as
             // "*.png" costs nothing and removes a way to get no results and no explanation.
-            .Select(p => p.Contains('*', StringComparison.Ordinal) || p.Contains('?', StringComparison.Ordinal)
-                ? p
-                : "*" + (p.StartsWith('.') ? p : "." + p))];
+            //
+            // Only a word with no dot in it, or a lone ".ext", is an extension. The rule
+            // was "anything without a wildcard", which turned an exact name like
+            // "Thumbs.db" into "*.Thumbs.db" - a pattern that cannot match the very file
+            // it was typed to find, with nothing on screen saying why.
+            .Select(p => IsBareExtension(p) ? "*" + (p.StartsWith('.') ? p : "." + p) : p)];
 
         this.OnPropertyChanged(nameof(this.HasTypeFilter));
         this.OnPropertyChanged(nameof(this.CanStartOver));
         this.Reproject();
     }
+
+    private static bool IsBareExtension(string pattern) =>
+        !pattern.Contains('*', StringComparison.Ordinal)
+        && !pattern.Contains('?', StringComparison.Ordinal)
+        && pattern.LastIndexOf('.') <= 0;
 
     public bool HasTypeFilter => this._typePatterns.Count > 0;
 

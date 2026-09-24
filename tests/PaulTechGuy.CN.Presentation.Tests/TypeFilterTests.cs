@@ -204,6 +204,11 @@ public class ExplorerPatternTests
     [InlineData("*.jpg;*.png", 4)]
     [InlineData("IMG_????.CR2", 1)]
     [InlineData("*.txt", 1)]
+
+    // An exact name, not an extension. The bare-extension rule used to make this
+    // "*.mountain.png", which matches nothing - Thumbs.db was the case that found it.
+    [InlineData("mountain.png", 1)]
+    [InlineData("notes.txt;mountain.png", 2)]
     public async Task Explorer_style_patterns_select_what_they_should(string pattern, int expected)
     {
         using WorkbenchFixture fixture = await LibraryAsync();
