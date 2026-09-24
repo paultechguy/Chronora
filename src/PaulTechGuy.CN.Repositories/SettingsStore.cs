@@ -96,6 +96,26 @@ public sealed record AppSettings
 
     /// <summary>Whether the folders themselves get dated, as well as what is in them.</summary>
     public bool ScanIncludeFolders { get; set; }
+
+    // The four name filters behind "More filters…", as the "; "-separated text the dialog
+    // edits. Strings rather than lists so there is no new JSON shape to get wrong, and so
+    // missing and null both read back as "no filter". Named *Patterns because
+    // ScanIncludeFolders above was already taken by the folder-rows checkbox.
+    //
+    // Written only when somebody picks "Also update application preferences"; a
+    // session-only filter never reaches this file.
+
+    /// <summary>File names to read. Null or empty means all.</summary>
+    public string? ScanIncludeFilePatterns { get; set; }
+
+    /// <summary>File names to leave out.</summary>
+    public string? ScanExcludeFilePatterns { get; set; }
+
+    /// <summary>Folder names whose subtrees are read. Null or empty means all.</summary>
+    public string? ScanIncludeFolderPatterns { get; set; }
+
+    /// <summary>Folder names never entered.</summary>
+    public string? ScanExcludeFolderPatterns { get; set; }
 }
 
 [JsonSourceGenerationOptions(
