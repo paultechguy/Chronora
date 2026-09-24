@@ -176,7 +176,7 @@
                     <DropDownButton Style="{StaticResource CnColumnHeaderStyle}"
                                     Content="{x:Bind Workbench.ScanSettingLabel, Mode=OneWay}"
                                     AutomationProperties.Name="How folders are read"
-                                    ToolTipService.ToolTip="Applies to drops, Add folder, Send To and the command line alike.">
+                                    ToolTipService.ToolTip="{x:Bind Workbench.ScanSettingTooltip, Mode=OneWay}">
                         <DropDownButton.Flyout>
                             <Flyout x:Name="ScanOptionsFlyout" Placement="BottomEdgeAlignedLeft">
                                 <StackPanel Spacing="8" MinWidth="260">
@@ -194,6 +194,17 @@
                                     <CheckBox Content="Also set the folders' own dates"
                                               IsChecked="{x:Bind Workbench.ScanIncludeFolders, Mode=TwoWay}"
                                               ToolTipService.ToolTip="Folders carry Created and Modified dates too. Off by default, because a run aimed at photos should not quietly restamp the folders holding them." />
+
+                                    <!--
+                                        The four name filters, in a dialog of their own:
+                                        four multi-line panes do not fit a flyout, and the
+                                        three boxes above stay one click away rather than
+                                        moving in there with them.
+                                    -->
+                                    <Button Content="More filters…"
+                                            HorizontalAlignment="Stretch"
+                                            Click="OnMoreScanFilters"
+                                            ToolTipService.ToolTip="Read or skip files and folders by name - @eaDir, *.aae, 2019*." />
 
                                     <!--
                                         Changing a setting does not re-read the disk, so

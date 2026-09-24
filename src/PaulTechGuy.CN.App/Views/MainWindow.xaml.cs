@@ -302,6 +302,34 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Opens the name filters. The flyout goes first: a ContentDialog over an open flyout
+    /// leaves the flyout stranded behind it.
+    ///
+    /// "Also update application preferences" is saved the moment OK is pressed rather than
+    /// at close. Everything else waits for a clean close, and there is no single-instance
+    /// guard - a crash, or a Send To instance closing after this one, would lose the choice.
+    ///
+    /// async void, so it catches everything.
+    /// </summary>
+    private async void OnMoreScanFilters(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            this.ScanOptionsFlyout.Hide();
+
+            await ScanFiltersDialog.ShowAsync(this.Content.XamlRoot, this.Workbench, () =>
+            {
+                this.Workbench.CaptureScanPatterns(this._settings.Current);
+                _ = this._settings.Save();
+            });
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Could not show the name filters.");
+        }
+    }
+
+    /// <summary>
     /// Gives a clicked row the focus rectangle, the one the arrow keys produce.
     ///
     /// Not marked handled, so selection, double-click and the row menu all carry on
