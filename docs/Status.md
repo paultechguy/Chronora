@@ -1,7 +1,7 @@
 # Where Chronora is
 
 Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-521 tests passing, 1 skipped.
+523 tests passing, 1 skipped.
 
 **The suite is intermittently red and it is not the code.** `Presentation.Tests` fails about
 one run in four, a different test each time, from two unrelated pre-existing causes — see
@@ -247,6 +247,18 @@ Also worth one look each:
 - **Provoke an error** — right-click a row and Open on a file you have deleted underneath
   the app. The red bar should stay until dismissed, and a scan should not clear it.
 - **Start over** should clear the run report and any error along with the list.
+
+### 10. Two small fixes found while planning advanced filters — landed 2026-09-23
+
+- **Type filter, exact names.** Type `Thumbs.db` or `mountain.png` into Type: it now
+  matches that file. It used to become `*.Thumbs.db` and match nothing. `png` and `.png`
+  still mean `*.png`.
+- **Read the folders again** now spells its setting in full. It said "ubfolders" and
+  "his folder only".
+
+The advanced filters feature itself is **planned, reviewed and not started**. See
+`docs/studies/AdvancedFilters.md` for the feasibility study. Its journal row was wrong and
+has been corrected.
 
 ---
 
