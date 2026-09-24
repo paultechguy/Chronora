@@ -1278,7 +1278,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         // Remembered so the source card can tell when the settings have moved on from the
         // list they produced, and offer to read it again rather than describing it wrongly.
-        this._listScanFilter = filter;
+        this.NoteListScanFilter(filter);
 
         this.IsScanning = true;
         this.ProgressStatus = $"Reading {folder}…";
@@ -1703,7 +1703,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         try
         {
             ScanFilter filter = this.BuildScanFilter();
-            this._listScanFilter = filter;
+            this.NoteListScanFilter(filter);
 
             int added = 0;
 
@@ -1857,15 +1857,97 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     /// <summary>The filter every scan uses, built from the settings that are on screen.</summary>
     public ScanFilter BuildScanFilter() => new(
-        ["*"],
+        this.ScanPatternsInEffect.IncludeFiles,
         Recurse: this.ScanRecurse,
         IncludeFiles: true,
         IncludeDirectories: this.ScanIncludeFolders,
         IncludeRootDirectory: this.ScanIncludeFolders,
-        IncludeHidden: this.ScanIncludeHidden);
+        IncludeHidden: this.ScanIncludeHidden)
+    {
+        ExcludeFiles = this.ScanPatternsInEffect.ExcludeFiles,
+        IncludeFolders = this.ScanPatternsInEffect.IncludeFolders,
+        ExcludeFolders = this.ScanPatternsInEffect.ExcludeFolders,
+    };
+
+    // ---- The name filters behind "More filters…" -------------------------------------
+    //
+    // Two copies, and that is the whole of "Use for this session only": scans read the
+    // one in effect, the settings file gets the saved one. Picking "Also update
+    // application preferences" makes them the same.
+    //
+    // The checkboxes above are NOT split like this. They were sticky before the dialog
+    // existed and Paul chose to leave them so; session-only covers the patterns alone.
+
+    /// <summary>The name filters every scan uses now.</summary>
+    public ScanPatterns ScanPatternsInEffect { get; private set; } = ScanPatterns.None;
+
+    /// <summary>The name filters the settings file holds.</summary>
+    public ScanPatterns ScanPatternsSaved { get; private set; } = ScanPatterns.None;
+
+    /// <summary>Whether the filters in effect will be gone when the app closes.</summary>
+    public bool ScanPatternsAreSessionOnly => !this.ScanPatternsInEffect.SameAs(this.ScanPatternsSaved);
+
+    /// <summary>
+    /// The one way the dialog changes the filters. Reads nothing from disk, like the
+    /// checkboxes: "Read the folders again" lights instead.
+    /// </summary>
+    public void ApplyScanPatterns(ScanPatterns patterns, bool savePreference)
+    {
+        ArgumentNullException.ThrowIfNull(patterns);
+
+        this.ScanPatternsInEffect = patterns;
+
+        if (savePreference)
+        {
+            this.ScanPatternsSaved = patterns;
+        }
+
+        this.OnPropertyChanged(nameof(this.ScanPatternsInEffect));
+        this.OnPropertyChanged(nameof(this.ScanPatternsSaved));
+        this.OnPropertyChanged(nameof(this.ScanPatternsAreSessionOnly));
+        this.NotifyDeck();
+    }
+
+    /// <summary>
+    /// Writes the saved filters into settings. Separate from <see cref="CaptureSettings" />
+    /// so the dialog can save the moment somebody chooses "Also update application
+    /// preferences": everything else is written on a clean close, and a crash - or a
+    /// second instance started from Send To closing later - would lose the choice.
+    /// </summary>
+    public void CaptureScanPatterns(AppSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        settings.ScanIncludeFilePatterns = NamePatterns.Format(this.ScanPatternsSaved.IncludeFiles);
+        settings.ScanExcludeFilePatterns = NamePatterns.Format(this.ScanPatternsSaved.ExcludeFiles);
+        settings.ScanIncludeFolderPatterns = NamePatterns.Format(this.ScanPatternsSaved.IncludeFolders);
+        settings.ScanExcludeFolderPatterns = NamePatterns.Format(this.ScanPatternsSaved.ExcludeFolders);
+    }
 
     /// <summary>What produced the list currently on screen, so the card can tell when it is stale.</summary>
     private ScanFilter? _listScanFilter;
+
+    /// <summary>
+    /// Whether the list was read under more than one filter - drop one folder, change the
+    /// filters, drop another. The last filter used would otherwise stand for all of it: the
+    /// card would call the list current while half of it was read under the old filters,
+    /// and the journal would record the wrong ones for every file.
+    /// </summary>
+    private bool _listScanMixed;
+
+    /// <summary>Records the filter a scan is about to read with.</summary>
+    private void NoteListScanFilter(ScanFilter filter)
+    {
+        if (this._allRows.Count == 0)
+        {
+            this._listScanFilter = filter;
+            this._listScanMixed = false;
+        }
+        else if (this._listScanFilter is not { } used || !SameScan(used, filter))
+        {
+            this._listScanMixed = true;
+        }
+    }
 
     /// <summary>
     /// The setting, worded as a setting rather than as a description of the list.
@@ -1900,7 +1982,32 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 parts.Add("folders too");
             }
 
+            // Stated on the card, because a sticky exclude set months ago that is only
+            // visible inside a dialog is how files go missing from a drop without a word.
+            // No count: "3 filters" beside the Type chip is ambiguous. The detail is in
+            // the tooltip.
+            if (this.ScanPatternsInEffect.IsNarrowed(this.ScanRecurse))
+            {
+                parts.Add(this.ScanPatternsAreSessionOnly ? "name filters (this session)" : "name filters");
+            }
+
             return string.Join(" · ", parts);
+        }
+    }
+
+    /// <summary>The card's tooltip: where the setting applies, then any name filters in full.</summary>
+    public string ScanSettingTooltip
+    {
+        get
+        {
+            const string Where = "Applies to drops, Add folder, Send To and the command line alike.";
+
+            string filters = this.ScanPatternsInEffect.Describe();
+
+            return filters.Length == 0
+                ? Where
+                : Where + Environment.NewLine + Environment.NewLine + filters
+                    + (this.ScanPatternsAreSessionOnly ? Environment.NewLine + "(This session only.)" : string.Empty);
         }
     }
 
@@ -1913,25 +2020,30 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     public bool CanRescanWithOptions =>
         this._roots.Count > 0
-        && this._listScanFilter is { } used
-        && !SameScan(used, this.BuildScanFilter());
+        && (this._listScanMixed
+            || (this._listScanFilter is { } used && !SameScan(used, this.BuildScanFilter())));
 
     /// <summary>
     /// Compares the parts that are SETTINGS, which is not the same as comparing the records.
     ///
-    /// ScanFilter is a record, so == looks like the obvious answer and is not: Patterns is
-    /// an IReadOnlyList and records compare members with the default equality comparer,
+    /// ScanFilter is a record, so == looks like the obvious answer and is not: the patterns
+    /// are IReadOnlyLists and records compare members with the default equality comparer,
     /// which for a collection is reference equality. Two filters built a second apart are
     /// never equal, so the card offered to re-read the folders the instant they were read.
-    /// Patterns is excluded on purpose anyway - it is always ["*"] here, because narrowing
-    /// by type is the type filter's job and lives on the list header.
+    ///
+    /// The patterns used to be left out because they were always ["*"]. The name filters
+    /// made them settings, and left out they would never light "Read the folders again".
     /// </summary>
     private static bool SameScan(ScanFilter a, ScanFilter b) =>
         a.Recurse == b.Recurse
         && a.IncludeFiles == b.IncludeFiles
         && a.IncludeDirectories == b.IncludeDirectories
         && a.IncludeRootDirectory == b.IncludeRootDirectory
-        && a.IncludeHidden == b.IncludeHidden;
+        && a.IncludeHidden == b.IncludeHidden
+        && NamePatterns.SameAs(a.Patterns, b.Patterns)
+        && NamePatterns.SameAs(a.ExcludeFiles, b.ExcludeFiles)
+        && NamePatterns.SameAs(a.IncludeFolders, b.IncludeFolders)
+        && NamePatterns.SameAs(a.ExcludeFolders, b.ExcludeFolders);
 
     /// <summary>Re-reads every folder in the list with the settings as they are now.</summary>
     [RelayCommand]
@@ -2545,6 +2657,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.ScanIncludeHidden = settings.ScanIncludeHidden;
         this.ScanIncludeFolders = settings.ScanIncludeFolders;
 
+        ScanPatterns patterns = ScanPatterns.FromText(
+            settings.ScanIncludeFilePatterns,
+            settings.ScanExcludeFilePatterns,
+            settings.ScanIncludeFolderPatterns,
+            settings.ScanExcludeFolderPatterns);
+        this.ApplyScanPatterns(patterns, savePreference: true);
+
         // What was restored is where this session starts, not something the user has done.
         // Without this the window opened with Start over already live, offering to undo a
         // choice made on another day.
@@ -2606,6 +2725,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         settings.ScanRecurse = this.ScanRecurse;
         settings.ScanIncludeHidden = this.ScanIncludeHidden;
         settings.ScanIncludeFolders = this.ScanIncludeFolders;
+
+        // The SAVED patterns, never the ones in effect: a session-only filter must not
+        // survive a clean close by being swept up here.
+        this.CaptureScanPatterns(settings);
     }
 
     /// <summary>
@@ -3071,6 +3194,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         // else the segment shows, rather than from its own cluster that half the callers
         // would forget: the notification tests caught exactly that.
         this.OnPropertyChanged(nameof(this.ScanSettingLabel));
+        this.OnPropertyChanged(nameof(this.ScanSettingTooltip));
         this.OnPropertyChanged(nameof(this.CanRescanWithOptions));
 
         this.OnPropertyChanged(nameof(this.IsRuleFromTemplate));
@@ -3500,7 +3624,41 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             record["templateId"] = template.Id;
         }
 
+        // How the list was read, so "why was this file not dated?" can be answered from the
+        // journal. History shows only the summary and ignores this key; it is here for
+        // whoever reads journal.db, which is where a disputed run gets settled.
+        if (this._listScanMixed)
+        {
+            record["scan"] = "mixed - the list was read under more than one filter";
+        }
+        else if (this._listScanFilter is { } scan)
+        {
+            record["scan"] = DescribeScan(scan);
+        }
+
         return System.Text.Json.JsonSerializer.Serialize(record, RunRecordJsonContext.Default.DictionaryStringString);
+    }
+
+    /// <summary>A scan filter in words, for the journal.</summary>
+    private static string DescribeScan(ScanFilter filter)
+    {
+        var parts = new List<string>
+        {
+            filter.Recurse ? "subfolders" : "this folder only",
+            filter.IncludeHidden ? "hidden files" : "no hidden files",
+            filter.IncludeDirectories ? "folders too" : "files only",
+        };
+
+        string names = new ScanPatterns(filter.Patterns, filter.ExcludeFiles, filter.IncludeFolders, filter.ExcludeFolders)
+            .Describe()
+            .Replace(Environment.NewLine, "; ", StringComparison.Ordinal);
+
+        if (names.Length > 0)
+        {
+            parts.Add(names);
+        }
+
+        return string.Join("; ", parts);
     }
 
     /// <summary>One line naming what was written and where it came from.</summary>

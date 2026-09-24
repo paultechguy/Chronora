@@ -233,6 +233,22 @@ public class WorkbenchNotificationTests
     }
 
     /// <summary>
+    /// The name filters change the card label, its tooltip and whether a list is stale,
+    /// all computed and all bound.
+    /// </summary>
+    [Fact]
+    public async Task Setting_name_filters_announces_everything_it_changes()
+    {
+        using var fixture = new WorkbenchFixture();
+        await fixture.LoadAsync("a.jpg");
+
+        using var watcher = new NotificationWatcher(fixture.ViewModel);
+        fixture.ViewModel.ApplyScanPatterns(ScanPatterns.FromText(null, "*.aae", null, "@eaDir"), savePreference: false);
+
+        watcher.SilentChanges().ShouldBeEmpty();
+    }
+
+    /// <summary>
     /// A guard on the guard. If the watcher cannot detect a deliberately unannounced
     /// change then every test above is passing for the wrong reason.
     /// </summary>

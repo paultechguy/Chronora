@@ -288,4 +288,126 @@ public class ScanOptionTests
         reopened.ViewModel.ScanIncludeHidden.ShouldBeTrue();
         reopened.ViewModel.BuildScanFilter().Recurse.ShouldBeFalse();
     }
+
+    // ---- The name filters behind "More filters…" -------------------------------------
+
+    private static ScanPatterns SkipSidecars => ScanPatterns.FromText(null, "*.aae", null, "@eaDir");
+
+    /// <summary>
+    /// SameScan used to leave the patterns out, because they were always "*". Left out
+    /// now, changing a filter would never offer to re-read - and the other half: a pane
+    /// cleared to nothing is the same setting as "*", so it must not offer either.
+    /// </summary>
+    [Fact]
+    public async Task A_name_filter_alone_offers_to_read_the_folders_again()
+    {
+        using var fixture = new WorkbenchFixture();
+        await fixture.LoadAsync("a.jpg");
+
+        fixture.ViewModel.ApplyScanPatterns(ScanPatterns.FromText(string.Empty, string.Empty, "*", string.Empty), savePreference: false);
+        fixture.ViewModel.CanRescanWithOptions.ShouldBeFalse("an empty include pane and \"*\" are the same setting");
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: false);
+        fixture.ViewModel.CanRescanWithOptions.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Session only means the settings file never hears of it - including on a clean
+    /// close, when CaptureSettings sweeps everything else up.
+    /// </summary>
+    [Fact]
+    public void Session_only_filters_are_used_but_never_saved()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: false);
+
+        fixture.ViewModel.BuildScanFilter().ExcludeFolders.ShouldBe(["@eaDir"]);
+
+        var saved = new AppSettings();
+        fixture.ViewModel.CaptureSettings(saved);
+
+        using (var reopened = new WorkbenchFixture())
+        {
+            reopened.ViewModel.ApplySettings(saved);
+            reopened.ViewModel.BuildScanFilter().IsNarrowed.ShouldBeFalse("session-only filters end with the session");
+        }
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: true);
+        fixture.ViewModel.CaptureSettings(saved);
+
+        using var again = new WorkbenchFixture();
+        again.ViewModel.ApplySettings(saved);
+
+        ScanFilter restored = again.ViewModel.BuildScanFilter();
+        restored.ExcludeFiles.ShouldBe(["*.aae"]);
+        restored.ExcludeFolders.ShouldBe(["@eaDir"]);
+        again.ViewModel.ScanPatternsAreSessionOnly.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// The entry point everybody forgets, again: the rescan after a run must read with the
+    /// name filters too, or it refills the list with the @eaDir folders just excluded.
+    /// </summary>
+    [Fact]
+    public async Task The_rescan_uses_the_name_filters()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        _ = Directory.CreateDirectory(Path.Combine(fixture.Files, "@eaDir"));
+        _ = fixture.CreateFile(Path.Combine("@eaDir", "thumb.jpg"));
+        _ = fixture.CreateFile("edit.aae");
+
+        fixture.ViewModel.ChooseIntent(WorkIntent.FileDates);
+        await fixture.LoadAsync("top.jpg");
+        fixture.ViewModel.Rows.Count.ShouldBe(3);
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: false);
+        await fixture.ViewModel.RescanWithOptionsAsync();
+
+        fixture.ViewModel.Rows.Select(r => r.Name).ShouldBe(["top.jpg"]);
+        fixture.ViewModel.ActionNotice.ShouldBe("Read the folders again: subfolders · name filters (this session).");
+        fixture.ViewModel.CanRescanWithOptions.ShouldBeFalse("the list matches its settings again");
+    }
+
+    /// <summary>
+    /// Read a folder, change the filters, read another. The list is now half one and half
+    /// the other, and neither filter describes it - so the card must offer to re-read it,
+    /// even after the filters are put back.
+    /// </summary>
+    [Fact]
+    public async Task A_list_read_under_two_filters_offers_to_read_again()
+    {
+        using var fixture = new WorkbenchFixture();
+        await fixture.LoadAsync("a.jpg");
+
+        string more = Path.Combine(fixture.Files, "more");
+        _ = Directory.CreateDirectory(more);
+        await File.WriteAllTextAsync(Path.Combine(more, "b.jpg"), "x", TestContext.Current.CancellationToken);
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: false);
+        await fixture.ViewModel.AddFolderAsync(more, fixture.ViewModel.BuildScanFilter(), TestContext.Current.CancellationToken);
+
+        fixture.ViewModel.ApplyScanPatterns(ScanPatterns.None, savePreference: false);
+
+        fixture.ViewModel.CanRescanWithOptions.ShouldBeTrue("part of the list was read under the other filter");
+    }
+
+    [Fact]
+    public void The_card_says_when_name_filters_are_on_and_whether_they_last()
+    {
+        using var fixture = new WorkbenchFixture();
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: false);
+        fixture.ViewModel.ScanSettingLabel.ShouldBe("New drops: subfolders · name filters (this session)");
+        fixture.ViewModel.ScanSettingTooltip.ShouldContain("Skip folders named @eaDir");
+
+        fixture.ViewModel.ApplyScanPatterns(SkipSidecars, savePreference: true);
+        fixture.ViewModel.ScanSettingLabel.ShouldBe("New drops: subfolders · name filters");
+
+        // Include folders means nothing when only the dropped folder itself is read.
+        fixture.ViewModel.ApplyScanPatterns(ScanPatterns.FromText(null, null, "2019", null), savePreference: true);
+        fixture.ViewModel.ScanRecurse = false;
+        fixture.ViewModel.ScanSettingLabel.ShouldBe("New drops: this folder only");
+    }
 }
