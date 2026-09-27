@@ -33,8 +33,8 @@
                 <MenuFlyoutItem Text="Properties" Click="OnRowMenuProperties" />
 
                 <!-- Hidden for a file ExifTool is never asked about, and when there is no ExifTool. -->
-                <MenuFlyoutItem Tag="metadata" Text="Show all metadata…" Click="OnRowMenuShowMetadata"
-                                ToolTipService.ToolTip="Every tag in this file, grouped, with what Remove private details would take out." />
+                <MenuFlyoutItem Tag="metadata" Text="Show all private data…" Click="OnRowMenuShowMetadata"
+                                ToolTipService.ToolTip="The personal details this file carries, grouped, with what Remove private details would take out." />
 
                 <MenuFlyoutSeparator />
 
@@ -1051,7 +1051,7 @@
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    Text="Windows does not show Date taken for PNG. Chronora still writes it, and photo apps will read it." />
 
-                        <HyperlinkButton Content="Show all metadata…" Padding="0" Click="OnShowSelectedMetadata"
+                        <HyperlinkButton Content="Show all private data…" Padding="0" Click="OnShowSelectedMetadata"
                                          Visibility="{x:Bind Workbench.CanShowSelectedMetadata, Mode=OneWay}" />
                     </StackPanel>
                 </Border>

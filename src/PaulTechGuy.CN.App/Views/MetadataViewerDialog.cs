@@ -12,8 +12,9 @@ using PaulTechGuy.CN.Presentation;
 namespace PaulTechGuy.CN.App.Views;
 
 /// <summary>
-/// "Show all metadata…": every tag in one file, read-only, grouped by what it means rather
-/// than by where it is stored.
+/// "Show all private data…": the personal details in one file, read-only, grouped by what
+/// they mean rather than by where they are stored. Read live from the file each time, never
+/// from the scan snapshot.
 ///
 /// The groups are Private details' own categories, each marked Removed or Kept under the
 /// current ticks, so looking at one file is also a preview of what the run would do to it.
@@ -54,7 +55,9 @@ internal static class MetadataViewerDialog
         var panel = new StackPanel { Spacing = 12, MinWidth = 640 };
         panel.Children.Add(new TextBlock
         {
-            Text = string.Create(CultureInfo.CurrentCulture, $"{tags.Count:N0} tags. Removed and Kept say what Remove private details would do with the boxes ticked now."),
+            Text = sections.Count == 0
+                ? "This file carries no private data."
+                : string.Create(CultureInfo.CurrentCulture, $"{sections.Sum(s => s.Tags.Count):N0} private tags. Removed and Kept say what Remove private details would do with the boxes ticked now."),
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75,
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
@@ -85,7 +88,10 @@ internal static class MetadataViewerDialog
     {
         var byTitle = new Dictionary<string, (string Badge, List<MetadataTag> Tags)>(StringComparer.Ordinal);
 
-        foreach (MetadataTag tag in tags)
+        // Private data only. It showed every tag, and after a clean the camera model, the
+        // exposure and the dates still filled the dialog - which read as "the details are all
+        // still there". What is not personal is not this dialog's business.
+        foreach (MetadataTag tag in tags.Where(t => PrivacyTagCatalog.CategoryOf($"{t.Group}:{t.Name}") is not null))
         {
             (string title, string badge) = SectionOf(tag, workbench, kind);
 

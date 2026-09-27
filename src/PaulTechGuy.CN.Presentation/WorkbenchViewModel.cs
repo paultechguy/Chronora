@@ -226,11 +226,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Whether the detail pane offers "Show all metadata…": only for a file ExifTool is asked
-    /// about, and only when there is an ExifTool to ask.
+    /// Whether the detail pane offers "Show all private data…": only when the selected file
+    /// is known to carry some. After a clean it has none, and a link that opens an empty list
+    /// - or, worse, one that seems to show the details still there - says the run failed.
     /// </summary>
-    public bool CanShowSelectedMetadata =>
-        this.SelectedRow is { } row && this.EngineStatus.Available && MetadataGateway.CanRead(row.File);
+    public bool CanShowSelectedMetadata => this.SelectedRow is { } row && HasPrivateData(row);
+
+    /// <summary>What the privacy read found in this file, if it has been read and found anything.</summary>
+    public bool HasPrivateData(PlanRowViewModel row) =>
+        this.EngineStatus.Available && row?.File.Privacy is { } found && found.Found.Count > 0;
 
     [ObservableProperty]
     public partial bool IsScanning { get; set; }
@@ -1431,6 +1435,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.ProgressStatus = string.Create(
             CultureInfo.CurrentCulture, $"Looked for personal details in {read.Count:N0} of {candidates.Count:N0} files.");
+
+        // The selected row's snapshot may just have changed underneath the detail pane's link.
+        this.OnPropertyChanged(nameof(this.CanShowSelectedMetadata));
 
         this.Recompute();
     }

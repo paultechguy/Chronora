@@ -17,7 +17,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Domain;
-using PaulTechGuy.CN.Services;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -1124,9 +1123,7 @@ public sealed partial class MainWindow : Window
 
         if (this.RowMenuItem("metadata") is { } metadata)
         {
-            metadata.Visibility = this.Workbench.EngineStatus.Available && MetadataGateway.CanRead(row.File)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            metadata.Visibility = this.Workbench.HasPrivateData(row) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // Positioned against the row rather than the list, so a keyboard request - which
