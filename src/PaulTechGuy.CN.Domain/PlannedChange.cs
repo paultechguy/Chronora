@@ -69,6 +69,21 @@ public enum ProblemCode
 
     /// <summary>ExifTool is needed for this field and is not available.</summary>
     MetadataEngineUnavailable,
+
+    /// <summary>
+    /// Raw files are left alone by Private details. Proprietary raw is the negative and only
+    /// its vendor fully understands it, and Chronora writes its dates to a sidecar for exactly
+    /// that reason - so a strip would clean the sidecar and report success while the location
+    /// stayed embedded in the raw file itself.
+    /// </summary>
+    RawNotSupported,
+
+    /// <summary>
+    /// The file carries a second image or a video inside it - a motion photo, an MPF preview -
+    /// whose own metadata a strip of the outer file does not reach. Refused rather than
+    /// reported clean.
+    /// </summary>
+    EmbeddedMediaNotSupported,
 }
 
 /// <summary>
@@ -107,6 +122,16 @@ public abstract record ChangeTarget
     public sealed record Flag(System.IO.FileAttributes Attribute, bool Set) : ChangeTarget
     {
         public override string DisplayName => this.Attribute.ToString();
+    }
+
+    /// <summary>
+    /// A category of personal detail to remove. Not a date, and deliberately not a list of
+    /// tags: the preview, the counts and the journal all speak in categories, and which tags
+    /// make up a category is the metadata layer's business.
+    /// </summary>
+    public sealed record Privacy(PrivacyCategory Which) : ChangeTarget
+    {
+        public override string DisplayName => PrivacyCategoryNames.Title(this.Which);
     }
 
     public abstract string DisplayName { get; }

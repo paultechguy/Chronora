@@ -35,6 +35,14 @@ public enum RunKind
     /// means reverts are journaled, appear in History, and can themselves be reverted.
     /// </summary>
     Revert,
+
+    /// <summary>
+    /// Personal details removed in place. There is no way back from one of these: no backup is
+    /// kept, by decision, and the removed values are never journaled - storing the coordinates
+    /// that were just deleted would move the private data rather than remove it. Every undo
+    /// path checks for <see cref="Apply" /> explicitly so that this can never be offered one.
+    /// </summary>
+    PrivacyStrip,
 }
 
 /// <summary>What happened to one file during a run.</summary>

@@ -142,6 +142,16 @@ public sealed record ScannedFile(
     public bool IsDirectory => this.Traits.HasFlag(FileTraits.Directory);
 
     /// <summary>
+    /// Which personal details the file carries. Null until read, and read only while the
+    /// Private details intent is chosen: it is a second ExifTool pass nobody dating their
+    /// photos should pay for.
+    ///
+    /// A property rather than a positional parameter so that the dozens of places that
+    /// build a ScannedFile, none of which know or care about privacy, stay as they are.
+    /// </summary>
+    public PrivacyFindings? Privacy { get; init; }
+
+    /// <summary>
     /// The current value of any field, from whichever genre it belongs to. This is what lets
     /// a rule read across the boundary without caring which side it is on.
     /// </summary>
