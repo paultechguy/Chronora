@@ -46,7 +46,7 @@ public sealed partial class MetadataGateway
             {
                 foreach (FilePrivacy file in await this._reader.ReadPrivacyAsync(session, batch, cancellationToken).ConfigureAwait(false))
                 {
-                    results[file.Path] = file.Findings;
+                    results[WindowsPath(file.Path)] = file.Findings;
                 }
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
@@ -136,6 +136,14 @@ public sealed partial class MetadataGateway
             return Failed(path, "ExifTool did not finish with this file, so the details may not have been removed.");
         }
     }
+
+    /// <summary>
+    /// ExifTool echoes SourceFile with forward slashes ("C:/Photos/a.jpg") however the path
+    /// was passed in - measured 2026-09-27 - while every row is keyed by the Windows form. An
+    /// unnormalised key matches no row, silently: the privacy read left every row "reading…"
+    /// for ever, and the date read's results had the same mismatch.
+    /// </summary>
+    private static string WindowsPath(string exifToolPath) => exifToolPath.Replace('/', '\\');
 
     private static MetadataWriteResult Failed(string path, string detail) =>
         new(path, Succeeded: false, WriteDestination.Embedded, BackupPath: null, detail);

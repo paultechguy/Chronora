@@ -111,7 +111,7 @@ public sealed partial class MetadataGateway(
 
                 foreach (FileMetadata file in read)
                 {
-                    results[file.Path] = file;
+                    results[WindowsPath(file.Path)] = file;
                 }
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or ObjectDisposedException)
