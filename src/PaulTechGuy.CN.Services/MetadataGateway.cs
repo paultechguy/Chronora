@@ -20,7 +20,7 @@ namespace PaulTechGuy.CN.Services;
 /// they cannot. So a read with no engine returns nothing, and a write with no engine
 /// returns a refusal with a sentence, and neither throws.
 /// </summary>
-public sealed class MetadataGateway(
+public sealed partial class MetadataGateway(
     ExifToolService exifTool,
     MetadataReader reader,
     MetadataWriter writer,

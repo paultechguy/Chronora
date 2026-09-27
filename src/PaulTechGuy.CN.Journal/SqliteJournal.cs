@@ -313,6 +313,16 @@ public sealed class SqliteJournal : IDisposable
         return affected;
     }
 
+    /// <summary>What kind of run this was, or null when there is no such run.</summary>
+    public RunKind? KindOf(long runId)
+    {
+        using SqliteCommand command = this._connection.CreateCommand();
+        command.CommandText = "SELECT kind FROM runs WHERE run_id = $run;";
+        _ = command.Parameters.AddWithValue("$run", runId);
+
+        return command.ExecuteScalar() is long kind ? (RunKind)kind : null;
+    }
+
     /// <summary>Runs, newest first.</summary>
     public IReadOnlyList<JournalRun> ListRuns(int limit = 100)
     {
@@ -373,9 +383,15 @@ public sealed class SqliteJournal : IDisposable
             WHERE run_id = $run
               AND outcome = $applied
               AND (revert_outcome IS NULL OR revert_outcome <> $revertedOutcome)
+              AND run_id NOT IN (SELECT run_id FROM runs WHERE kind = $strip)
             ORDER BY file_row_id;
             """;
         _ = fileCommand.Parameters.AddWithValue("$run", runId);
+
+        // A privacy strip has nothing to put back - no backup, no recorded values - so it is
+        // excluded here, at the one place every revert reads from, rather than trusted to
+        // each caller remembering to ask.
+        _ = fileCommand.Parameters.AddWithValue("$strip", (int)RunKind.PrivacyStrip);
         _ = fileCommand.Parameters.AddWithValue("$applied", (int)FileOutcome.Applied);
         _ = fileCommand.Parameters.AddWithValue("$revertedOutcome", (int)RevertOutcome.Reverted);
 

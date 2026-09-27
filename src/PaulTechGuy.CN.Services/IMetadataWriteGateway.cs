@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Paul Carver
 // SPDX-License-Identifier: Apache-2.0
 
+using PaulTechGuy.CN.Domain;
 using PaulTechGuy.CN.Metadata;
 
 namespace PaulTechGuy.CN.Services;
@@ -39,4 +40,22 @@ public interface IMetadataWriteGateway
     /// a photo or video date was permanently un-undoable.
     /// </summary>
     Task<FileMetadata?> ReadOneAsync(string path, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Removes the chosen categories of personal detail from one file, in place, with no copy
+    /// kept. A success here means only that ExifTool finished; see <see cref="ReadPrivacyOneAsync" />.
+    /// </summary>
+    Task<MetadataWriteResult> StripAsync(
+        string path,
+        IReadOnlyCollection<PrivacyCategory> categories,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Which personal details one file carries right now, or null when it could not be read.
+    ///
+    /// This, not ExifTool's exit status, is what decides whether a strip worked. With -m a
+    /// warning rides along with a successful write, and a tag that cannot be deleted is
+    /// silently left in place - both look the same as success from the status alone.
+    /// </summary>
+    Task<PrivacyFindings?> ReadPrivacyOneAsync(string path, CancellationToken cancellationToken = default);
 }

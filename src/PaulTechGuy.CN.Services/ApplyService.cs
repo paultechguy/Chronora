@@ -92,6 +92,20 @@ public sealed class ApplyService(
         ArgumentNullException.ThrowIfNull(plans);
         ArgumentNullException.ThrowIfNull(header);
 
+        // A run is one kind of work or the other. A privacy change inside a date run would be
+        // journaled as revertible and could never be put back; a date change inside a strip
+        // would lose the undo it is owed. Refused outright rather than half-honoured.
+        bool strip = header.Kind == RunKind.PrivacyStrip;
+
+        if (plans.Any(p => p.Changes.Any(c => c.WillWrite && (c.Target is ChangeTarget.Privacy) != strip)))
+        {
+            throw new ArgumentException(
+                strip
+                    ? "A privacy run can only remove personal details."
+                    : "Personal details can only be removed by a privacy run.",
+                nameof(plans));
+        }
+
         return await Task.Run(
             () => this.ApplyCoreAsync(plans, header, progress, cancellationToken),
             cancellationToken).ConfigureAwait(false);
@@ -115,9 +129,15 @@ public sealed class ApplyService(
         var reasons = new List<string>();
         var status = RunStatus.Completed;
 
+        // A strip is journaled one file at a time. Results are otherwise recorded per batch of
+        // 500, and a cancel or a crash between files loses the outcome of every file already
+        // done in that batch - which for a date run costs an accurate undo list, and for a run
+        // that cannot be undone costs the only record that those files were changed.
+        bool strip = header.Kind == RunKind.PrivacyStrip;
+
         try
         {
-            foreach (FilePlan[] batch in Batch(plans, SqliteJournal.BatchSize))
+            foreach (FilePlan[] batch in Batch(plans, strip ? 1 : SqliteJournal.BatchSize))
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -133,7 +153,14 @@ public sealed class ApplyService(
                     cancellationToken.ThrowIfCancellationRequested();
 
                     FilePlan plan = batch[i];
-                    FileResult result = await this.ApplyOneAsync(plan, rowIds[i], cancellationToken).ConfigureAwait(false);
+
+                    // A strip is never cancelled mid-file. The token only stops the WAIT - ExifTool
+                    // carries on rewriting the file regardless - so cancelling there would record
+                    // a file as untouched that is being changed irreversibly. Cancel is honoured
+                    // between files, by the checks above.
+                    FileResult result = strip
+                        ? await this.StripOneAsync(plan, rowIds[i]).ConfigureAwait(false)
+                        : await this.ApplyOneAsync(plan, rowIds[i], cancellationToken).ConfigureAwait(false);
                     results.Add(result);
 
                     switch (result.Outcome)
@@ -290,6 +317,82 @@ public sealed class ApplyService(
     }
 
     /// <summary>
+    /// Removes personal details from one file, and then finds out whether that worked.
+    ///
+    /// ExifTool's word is not taken for it. It runs with -m, so a minor problem is a warning
+    /// riding on a successful write, and a tag it cannot delete - an unwritable maker-note
+    /// field - is left in place without complaint. Both look like success from the status
+    /// alone, and for a change that cannot be undone "cleaned" must mean cleaned. So the file
+    /// is read back, and only an empty read-back for the asked-for categories counts.
+    ///
+    /// The file's own dates are put back whatever happened. ExifTool may have rewritten the
+    /// file even on a path that ends in failure, and a privacy clean that quietly moved every
+    /// photo's Modified date to today would be the one bug this app cannot ship.
+    /// </summary>
+    private async Task<FileResult> StripOneAsync(FilePlan plan, long rowId)
+    {
+        PrivacyCategory[] categories = [.. plan.Changes
+            .Where(c => c.WillWrite)
+            .Select(c => c.Target)
+            .OfType<ChangeTarget.Privacy>()
+            .Select(p => p.Which)
+            .Distinct()];
+
+        if (categories.Length == 0)
+        {
+            return new FileResult(rowId, FileOutcome.Skipped, null);
+        }
+
+        if (this._metadata is null || !this._metadata.Available)
+        {
+            return new FileResult(rowId, FileOutcome.Failed, "ExifTool is not available, so the details were not removed.");
+        }
+
+        string path = plan.File.FullPath;
+
+        MetadataWriteResult stripped = await this._metadata
+            .StripAsync(path, categories, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        WriteResult times = this._writer.Write(
+            path,
+            ToTimestampSet([], restoreFrom: plan.File.Times),
+            plan.File.IsDirectory,
+            attributes: null,
+            verify: false);
+
+        PrivacyFindings? after = await this._metadata.ReadPrivacyOneAsync(path, CancellationToken.None).ConfigureAwait(false);
+
+        if (after is null)
+        {
+            return new FileResult(
+                rowId,
+                FileOutcome.Failed,
+                stripped.Detail ?? "Chronora could not read the file back, so it cannot say the details are gone.");
+        }
+
+        // Names only, never values - this sentence goes into the journal and the run report.
+        string[] left = [.. categories.Where(after.Has).Select(c =>
+            $"{PrivacyCategoryNames.Title(c)} is still there ({string.Join(", ", after.TagsFor(c).Take(3))})")];
+
+        if (left.Length > 0)
+        {
+            return new FileResult(rowId, FileOutcome.Failed, string.Join("; ", left) + ".");
+        }
+
+        if (!times.Succeeded)
+        {
+            return new FileResult(
+                rowId,
+                FileOutcome.Failed,
+                "The details were removed, but the file's own dates could not be put back: "
+                + (times.Detail ?? times.Problem.ToString()));
+        }
+
+        return new FileResult(rowId, FileOutcome.Applied, null);
+    }
+
+    /// <summary>
     /// Removes the pre-write copy, once the file is known good.
     ///
     /// The copy exists to survive the write itself: ExifTool rewrites the container, and
@@ -338,6 +441,13 @@ public sealed class ApplyService(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(header);
+
+        // The journal already returns nothing to revert for a strip. Refusing here as well
+        // means asking does not leave an empty "Undo of run N" behind in History.
+        if (this._journal.KindOf(sourceRunId) == RunKind.PrivacyStrip)
+        {
+            throw new InvalidOperationException("Removing personal details cannot be undone.");
+        }
 
         return await Task.Run(
             () => this.RevertCoreAsync(sourceRunId, header, force, progress, cancellationToken),

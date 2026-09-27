@@ -628,6 +628,31 @@ internal sealed class RecordingGateway : IMetadataWriteGateway
             System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(this.Live),
             QuickTimeReadAsUtc: false));
 
+    /// <summary>Every strip, as the categories it was asked for.</summary>
+    public List<IReadOnlyCollection<PrivacyCategory>> Strips { get; } = [];
+
+    /// <summary>What the file holds after a strip. Clean by default.</summary>
+    public PrivacyFindings? AfterStrip { get; set; } = PrivacyFindings.None;
+
+    public Task<MetadataWriteResult> StripAsync(
+        string path,
+        IReadOnlyCollection<PrivacyCategory> categories,
+        CancellationToken cancellationToken = default)
+    {
+        this.Strips.Add(categories);
+
+        if (this.Succeeds)
+        {
+            this.OnWrite?.Invoke(path);
+        }
+
+        return Task.FromResult(new MetadataWriteResult(
+            path, this.Succeeds, WriteDestination.Embedded, null, this.Succeeds ? null : "Pretend failure."));
+    }
+
+    public Task<PrivacyFindings?> ReadPrivacyOneAsync(string path, CancellationToken cancellationToken = default) =>
+        Task.FromResult(this.AfterStrip);
+
     public Task<MetadataWriteResult> WriteAsync(
         MetadataWriteRequest request,
         bool keepBackup = true,
