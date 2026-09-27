@@ -72,6 +72,22 @@ public sealed record BlockedLine(DateField Field, int Count, string Reason)
 }
 
 /// <summary>
+/// One category of personal detail across the whole run: how many files lose it, or, when
+/// <see cref="Reason" /> is set, how many cannot and why.
+/// </summary>
+/// <param name="Category">The category.</param>
+/// <param name="Count">How many files.</param>
+/// <param name="Reason">Why these files will not be cleaned; null for the ones that will.</param>
+public sealed record PrivacyLine(PrivacyCategory Category, int Count, string? Reason = null)
+{
+    public string Title => PrivacyCategoryNames.Title(this.Category);
+
+    public string Detail => this.Reason is null
+        ? string.Create(CultureInfo.CurrentCulture, $"{this.Count:N0} file{(this.Count == 1 ? string.Empty : "s")}")
+        : string.Create(CultureInfo.CurrentCulture, $"{this.Count:N0} file{(this.Count == 1 ? string.Empty : "s")} — {this.Reason}");
+}
+
+/// <summary>
 /// What the whole run will do, grouped so it can be verified at a glance.
 ///
 /// This exists because a per-row diff does not scale: at 4,000 files, scanning every row is
@@ -116,6 +132,22 @@ public sealed record ChangeSummary(
     public IReadOnlyList<BlockedLine> BlockedLines { get; init; } = [];
 
     public bool HasBlocked => this.BlockedLines.Count > 0;
+
+    /// <summary>
+    /// For a Private details run, the categories that will go and from how many files. Kept
+    /// apart from <see cref="Lines" />, which is keyed by date field and ranges over dates -
+    /// a privacy change has no date to put in a range, and forcing it through would have
+    /// meant the summary silently dropping every one of them.
+    /// </summary>
+    public IReadOnlyList<PrivacyLine> PrivacyLines { get; init; } = [];
+
+    /// <summary>For a Private details run, the files that cannot be cleaned, per category and reason.</summary>
+    public IReadOnlyList<PrivacyLine> PrivacyBlocked { get; init; } = [];
+
+    public bool HasPrivacyBlocked => this.PrivacyBlocked.Count > 0;
+
+    /// <summary>Whether this is a Private details run, so the Apply button says what it does.</summary>
+    public bool IsPrivacy { get; init; }
 
     /// <summary>
     /// File dates this run is NOT writing, so the confirmation can say so before anyone
@@ -181,6 +213,8 @@ public sealed record ChangeSummary(
     /// </summary>
     public string ApplyLabel => this.FilesToWrite == 0
         ? "Nothing to apply"
+        : this.IsPrivacy
+            ? string.Create(CultureInfo.CurrentCulture, $"Remove from {this.FilesToWrite:N0} of {this.FilesTotal:N0} files")
         : this.HasTypeFilter
             ? string.Create(
                 CultureInfo.CurrentCulture,
@@ -212,6 +246,9 @@ public sealed record ChangeSummary(
 
         var byField = new Dictionary<DateField, (int Count, DateTimeOffset? Min, DateTimeOffset? Max, int Odd)>();
         var blockedByField = new Dictionary<DateField, (int Count, ProblemCode Reason)>();
+        var byCategory = new Dictionary<PrivacyCategory, int>();
+        var blockedByCategory = new Dictionary<(PrivacyCategory Category, ProblemCode Reason), int>();
+        bool isPrivacy = false;
 
         int changing = 0;
         int blocked = 0;
@@ -277,6 +314,23 @@ public sealed record ChangeSummary(
 
             foreach (PlannedChange change in plan.Changes)
             {
+                if (change.Target is ChangeTarget.Privacy privacy)
+                {
+                    isPrivacy = true;
+
+                    if (change.Status == ChangeStatus.Blocked)
+                    {
+                        blockedByCategory[(privacy.Which, change.Problem)] =
+                            blockedByCategory.GetValueOrDefault((privacy.Which, change.Problem)) + 1;
+                    }
+                    else if (change.WillWrite)
+                    {
+                        byCategory[privacy.Which] = byCategory.GetValueOrDefault(privacy.Which) + 1;
+                    }
+
+                    continue;
+                }
+
                 if (change.Target is not ChangeTarget.Field field)
                 {
                     continue;
@@ -335,6 +389,11 @@ public sealed record ChangeSummary(
             UntouchedFileDates = untouched,
             TypeFilter = typeFilter,
             FilesHiddenByTypeFilter = Math.Max(0, totalBeforeFilter - rows.Count),
+            IsPrivacy = isPrivacy,
+            PrivacyLines = [.. byCategory.OrderBy(kv => kv.Key).Select(kv => new PrivacyLine(kv.Key, kv.Value))],
+            PrivacyBlocked = [.. blockedByCategory
+                .OrderBy(kv => kv.Key.Category)
+                .Select(kv => new PrivacyLine(kv.Key.Category, kv.Value, PlanRowViewModel.Describe(kv.Key.Reason)))],
         };
     }
 

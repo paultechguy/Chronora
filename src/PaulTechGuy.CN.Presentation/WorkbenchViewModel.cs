@@ -48,6 +48,14 @@ public enum WorkIntent
     /// option that explains nothing.
     /// </summary>
     Custom,
+
+    /// <summary>
+    /// Remove location and other personal details, in place and irreversibly. Not a date
+    /// intent at all: none of the date machinery is on screen, and none of it is restored at
+    /// the next launch - an app that opens straight onto an irreversible mode is one click
+    /// from a mistake nobody chose that morning.
+    /// </summary>
+    PrivateDetails,
 }
 
 /// <summary>Where the date comes from, as the options pane offers it.</summary>
@@ -296,6 +304,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             WorkIntent.FileDates => 0,
             WorkIntent.PhotoDates => 1,
             WorkIntent.Custom => 2,
+            WorkIntent.PrivateDetails => 3,
             _ => -1,
         };
 
@@ -306,6 +315,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                 0 => WorkIntent.FileDates,
                 1 => WorkIntent.PhotoDates,
                 2 => WorkIntent.Custom,
+                3 => WorkIntent.PrivateDetails,
                 _ => WorkIntent.None,
             };
 
@@ -343,6 +353,82 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public bool ShowsAdvancedFields => this.Intent == WorkIntent.Custom;
 
     /// <summary>
+    /// A date intent is chosen, so the date machinery - templates, source, pickers, fields -
+    /// is on screen. One flag for all of it, so no date control can be left showing under
+    /// Private details because somebody forgot to hide that one.
+    /// </summary>
+    public bool IsDateIntent => this.HasChosenIntent && this.Intent != WorkIntent.PrivateDetails;
+
+    public bool IsPrivacyIntent => this.Intent == WorkIntent.PrivateDetails;
+
+    // ---- Private details ----------------------------------------------------------------
+
+    [ObservableProperty]
+    public partial bool RemoveLocation { get; set; } = true;
+
+    [ObservableProperty]
+    public partial bool RemoveCameraOwner { get; set; } = true;
+
+    [ObservableProperty]
+    public partial bool RemoveSoftware { get; set; } = true;
+
+    [ObservableProperty]
+    public partial bool RemoveThumbnail { get; set; } = true;
+
+    partial void OnRemoveLocationChanged(bool value) => this.OnPrivacyChoiceChanged();
+
+    partial void OnRemoveCameraOwnerChanged(bool value) => this.OnPrivacyChoiceChanged();
+
+    partial void OnRemoveSoftwareChanged(bool value) => this.OnPrivacyChoiceChanged();
+
+    partial void OnRemoveThumbnailChanged(bool value) => this.OnPrivacyChoiceChanged();
+
+    private void OnPrivacyChoiceChanged()
+    {
+        this.NotifyDeck();
+        this.QueueRecompute();
+    }
+
+    /// <summary>The ticked categories, in display order.</summary>
+    private IReadOnlySet<PrivacyCategory> ChosenPrivacyCategories
+    {
+        get
+        {
+            var chosen = new HashSet<PrivacyCategory>();
+
+            if (this.RemoveLocation)
+            {
+                _ = chosen.Add(PrivacyCategory.Location);
+            }
+
+            if (this.RemoveCameraOwner)
+            {
+                _ = chosen.Add(PrivacyCategory.CameraOwner);
+            }
+
+            if (this.RemoveSoftware)
+            {
+                _ = chosen.Add(PrivacyCategory.SoftwareEdits);
+            }
+
+            if (this.RemoveThumbnail)
+            {
+                _ = chosen.Add(PrivacyCategory.Thumbnail);
+            }
+
+            return chosen;
+        }
+    }
+
+    /// <summary>
+    /// Whether the confirmation carries the irreversible-change warning. Turned off only from
+    /// that warning's own checkbox, and back on from the options pane, where the line saying
+    /// it is off sits beside the intent it applies to rather than somewhere nobody looks.
+    /// </summary>
+    [ObservableProperty]
+    public partial bool WarnBeforeMetadataRemoval { get; set; } = true;
+
+    /// <summary>
     /// The write scope the evaluator enforces. Purely a function of what is ticked, so a
     /// recipe can never target a field the UI is not offering.
     /// </summary>
@@ -360,6 +446,9 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         WorkIntent.Custom =>
             "Pick exactly the fields you want. It starts with the photo date and the file dates together, "
             + "which is what you need for it to look right both in Explorer and after an upload.",
+        WorkIntent.PrivateDetails =>
+            "Remove location and other personal details before you share. Dates, orientation and "
+            + "colour are kept.",
         _ => string.Empty,
     };
 
@@ -402,6 +491,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
                     this.WriteTaken = true;
                     break;
 
+                // The date boxes are left exactly as they were. They are hidden under this
+                // intent, and going back to a date intent resets them anyway.
                 default:
                     break;
             }
@@ -415,6 +506,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         this.NotifyIntentDerived();
         this.QueueRecompute();
+
+        if (intent == WorkIntent.PrivateDetails)
+        {
+            _ = this.ReadPrivacyForIntentAsync();
+        }
     }
 
     /// <summary>
@@ -424,7 +520,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private void ReconcileIntent()
     {
-        if (this._applyingIntent || this.Intent == WorkIntent.None)
+        // Private details owns no date boxes, so no edit to them can say anything about it.
+        if (this._applyingIntent || this.Intent is WorkIntent.None or WorkIntent.PrivateDetails)
         {
             return;
         }
@@ -468,6 +565,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.IsPhotoMode));
         this.OnPropertyChanged(nameof(this.ShowsFileDates));
         this.OnPropertyChanged(nameof(this.ShowsAdvancedFields));
+        this.OnPropertyChanged(nameof(this.IsDateIntent));
+        this.OnPropertyChanged(nameof(this.IsPrivacyIntent));
         this.OnPropertyChanged(nameof(this.Mode));
         this.OnPropertyChanged(nameof(this.IntentNote));
 
@@ -580,6 +679,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         finally
         {
             this._applyingTemplate = false;
+        }
+
+        // A template is a date recipe. Applying one under Private details - from an import, say
+        // - would otherwise put a date template in charge, hidden, under an intent that ignores
+        // it. Stepping out to a date intent first lets the reconcile below name the right one.
+        if (this.Intent == WorkIntent.PrivateDetails)
+        {
+            this.Intent = WorkIntent.Custom;
         }
 
         // The ticked set has moved, so the intent label has to catch up with it.
@@ -1228,6 +1335,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             // The snapshot changed, so every plan built against the old one is stale.
             this.Recompute();
+
+            // Inside the same scan, so it shares its token and its Cancel, and a rescan
+            // after a run re-reads what the run left behind.
+            if (this.IsPrivacyIntent)
+            {
+                await this.ReadPrivacyAsync(cancellationToken).ConfigureAwait(true);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1243,6 +1357,85 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         finally
         {
             this.IsReadingMetadata = false;
+        }
+    }
+
+    /// <summary>
+    /// Which personal details the loaded files carry. Only rows not yet read are asked
+    /// about, so switching the intent away and back costs nothing the second time.
+    ///
+    /// Rows are matched by identity, not path. A rescan builds new rows, and an answer for
+    /// the old row landing on nothing is correct; landing on the new one would attach a
+    /// reading taken before the run to a file the run has since changed.
+    /// </summary>
+    private async Task ReadPrivacyAsync(CancellationToken cancellationToken)
+    {
+        List<PlanRowViewModel> candidates = [.. this._allRows.Where(r => r.File.Privacy is null && MetadataGateway.CanRead(r.File))];
+
+        if (candidates.Count == 0 || !this._metadata.Available)
+        {
+            return;
+        }
+
+        this.ProgressStatus = string.Create(CultureInfo.CurrentCulture, $"Looking for personal details in {candidates.Count:N0} files…");
+
+        var progress = new Progress<int>(done => this.ProgressStatus = string.Create(
+            CultureInfo.CurrentCulture, $"Looked for personal details in {done:N0} of {candidates.Count:N0} files…"));
+
+        IReadOnlyDictionary<string, PrivacyFindings> read = await this._metadata
+            .ReadPrivacyAsync([.. candidates.Select(r => r.File)], progress, cancellationToken)
+            .ConfigureAwait(true);
+
+        var live = new HashSet<PlanRowViewModel>(this._allRows);
+
+        foreach (PlanRowViewModel row in candidates)
+        {
+            if (live.Contains(row) && read.TryGetValue(row.File.FullPath, out PrivacyFindings? findings))
+            {
+                row.EnrichPrivacy(findings);
+            }
+        }
+
+        this.ProgressStatus = string.Create(
+            CultureInfo.CurrentCulture, $"Looked for personal details in {read.Count:N0} of {candidates.Count:N0} files.");
+
+        this.Recompute();
+    }
+
+    /// <summary>
+    /// The read that choosing the intent needs when files are already loaded. Owned like a
+    /// scan, so Cancel reaches it and it cannot run alongside one; when a scan is already
+    /// running, that scan reads the details itself on its way out, so this simply stands down.
+    ///
+    /// Fire-and-forget from a command, so it catches everything: an exception escaping here
+    /// would surface on the UI thread with nothing above it.
+    /// </summary>
+    private async Task ReadPrivacyForIntentAsync()
+    {
+        if (!this._metadata.Available || !this.BeginScan(CancellationToken.None, out CancellationToken token))
+        {
+            return;
+        }
+
+        this.IsScanning = true;
+
+        try
+        {
+            await this.ReadPrivacyAsync(token).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            this.ProgressStatus = "Cancelled.";
+        }
+        catch (Exception ex)
+        {
+            this._logger.LogWarning(ex, "Could not read personal details.");
+            this.ReportProblem("Could not look for personal details in these files.");
+        }
+        finally
+        {
+            this.IsScanning = false;
+            this.EndScan(true);
         }
     }
 
@@ -1335,6 +1528,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         this.NotifyIntentDerived();
         this.Recompute();
+
+        // Set up ExifTool while Private details is chosen and the rows are still waiting to be
+        // looked at; without this they would say "reading…" until the next scan.
+        if (value.Available && this.IsPrivacyIntent)
+        {
+            _ = this.ReadPrivacyForIntentAsync();
+        }
     }
 
     /// <summary>
@@ -1349,6 +1549,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             if (this.EngineStatus.Available)
             {
                 return false;
+            }
+
+            // Nothing about personal details can be read or removed without it.
+            if (this.IsPrivacyIntent)
+            {
+                return true;
             }
 
             Recipe recipe = this.BuildRecipe();
@@ -2621,10 +2827,18 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        if (Enum.TryParse(settings.Intent, out WorkIntent intent) && intent != WorkIntent.None)
+        // Private details is never restored. The app opens with nothing to apply, and it must
+        // not open one Apply away from a change that cannot be undone.
+        if (Enum.TryParse(settings.Intent, out WorkIntent intent) && intent is not (WorkIntent.None or WorkIntent.PrivateDetails))
         {
             this.ChooseIntent(intent);
         }
+
+        this.RemoveLocation = settings.RemoveLocation;
+        this.RemoveCameraOwner = settings.RemoveCameraOwner;
+        this.RemoveSoftware = settings.RemoveSoftware;
+        this.RemoveThumbnail = settings.RemoveThumbnail;
+        this.WarnBeforeMetadataRemoval = settings.WarnBeforeMetadataRemoval;
 
         this.WriteCreated = settings.WriteCreated;
         this.WriteModified = settings.WriteModified;
@@ -2682,13 +2896,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// The first distinct reason goes on the line. Anything beyond that is a count and a
     /// pointer to History, because a status bar that tries to hold three sentences holds none.
     /// </summary>
-    public static string DescribeOutcome(ApplyOutcome outcome)
+    /// <param name="outcome">The run.</param>
+    /// <param name="cleaned">A Private details run, which reports files cleaned rather than changed.</param>
+    public static string DescribeOutcome(ApplyOutcome outcome, bool cleaned = false)
     {
         ArgumentNullException.ThrowIfNull(outcome);
 
         string counts = string.Create(
             CultureInfo.CurrentCulture,
-            $"Done. {outcome.Written:N0} changed, {outcome.Failed:N0} failed, {outcome.Skipped:N0} skipped.");
+            $"Done. {outcome.Written:N0} {(cleaned ? "cleaned" : "changed")}, {outcome.Failed:N0} failed, {outcome.Skipped:N0} skipped.");
 
         if (outcome.FailureReasons.Count == 0)
         {
@@ -2725,6 +2941,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         settings.ScanRecurse = this.ScanRecurse;
         settings.ScanIncludeHidden = this.ScanIncludeHidden;
         settings.ScanIncludeFolders = this.ScanIncludeFolders;
+        settings.RemoveLocation = this.RemoveLocation;
+        settings.RemoveCameraOwner = this.RemoveCameraOwner;
+        settings.RemoveSoftware = this.RemoveSoftware;
+        settings.RemoveThumbnail = this.RemoveThumbnail;
+        settings.WarnBeforeMetadataRemoval = this.WarnBeforeMetadataRemoval;
 
         // The SAVED patterns, never the ones in effect: a session-only filter must not
         // survive a clean close by being swept up here.
@@ -3031,10 +3252,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// template's own description - which is the only place that part of the run is stated.
     /// So when a template is in charge, the deck says so and quotes it instead of guessing.
     /// </summary>
-    public bool IsRuleFromTemplate => this.HasActiveTemplate;
+    public bool IsRuleFromTemplate => this.HasActiveTemplate && !this.IsPrivacyIntent;
 
     /// <summary>The other half of <see cref="IsRuleFromTemplate" />, so the view needs no converter.</summary>
-    public bool IsRuleFromPane => !this.HasActiveTemplate;
+    public bool IsRuleFromPane => !this.IsRuleFromTemplate;
 
     public string RuleTemplateName => this.ActiveTemplate?.Name ?? string.Empty;
 
@@ -3044,11 +3265,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         WorkIntent.FileDates => "File dates",
         WorkIntent.PhotoDates => "Photo and video dates",
         WorkIntent.Custom => "Let me pick the fields",
+        WorkIntent.PrivateDetails => "Private details",
         _ => "Nothing chosen yet",
     };
 
     /// <summary>Where the date comes from. The arrow carries the "from".</summary>
-    public string RuleSourceLine => !this.HasChosenIntent
+    public string RuleSourceLine => !this.IsDateIntent
         ? string.Empty
         : this.Source switch
         {
@@ -3075,6 +3297,15 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             if (!this.HasChosenIntent)
             {
                 return string.Empty;
+            }
+
+            if (this.IsPrivacyIntent)
+            {
+                string[] removing = [.. PrivacyCategoryNames.All
+                    .Where(this.ChosenPrivacyCategories.Contains)
+                    .Select(PrivacyCategoryNames.InList)];
+
+                return removing.Length == 0 ? "→ nothing ticked" : "→ remove " + string.Join(" · ", removing);
             }
 
             List<string> fields = [];
@@ -3135,7 +3366,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             return string.Create(
                 CultureInfo.CurrentCulture,
-                $"{this.Summary.FilesToWrite:N0} of {this.Summary.FilesTotal:N0} will be written");
+                $"{this.Summary.FilesToWrite:N0} of {this.Summary.FilesTotal:N0} will be {(this.IsPrivacyIntent ? "cleaned" : "written")}");
         }
     }
 
@@ -3221,7 +3452,10 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     public void RefreshSummary() =>
         this.Summary = ChangeSummary.Build(
             [.. this._allRows.Where(this.MatchesTypeFilter)],
-            this.BuildRecipe().AllTargets,
+
+            // No targets under Private details, which writes no dates - otherwise the
+            // confirmation would list "Created: not selected" under a privacy clean.
+            this.IsPrivacyIntent ? null : this.BuildRecipe().AllTargets,
             this.HasTypeFilter ? this.TypeFilter : null,
             this._allRows.Count);
 
@@ -3314,8 +3548,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         try
         {
+            // The kind is what keeps a strip out of every undo path - CanUndo, UndoLastAsync,
+            // History and the journal's own revert read all key on it - so it is decided here,
+            // from the intent that produced the plans, and nowhere else.
             var header = new RunHeader(
-                RunKind.Apply,
+                this.IsPrivacyIntent ? RunKind.PrivacyStrip : RunKind.Apply,
                 AppVersion,
                 ExifToolVersion: null,
                 TimeZoneInfo.Local.Id,
@@ -3333,7 +3570,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             // rescan re-enters AddFolderAsync, which writes to the footer twice more before
             // control returns to the UI, so a run report written there was destroyed by
             // this method every time it ran. It was never a message that COULD be missed.
-            this.RunNotice = DescribeOutcome(outcome);
+            this.RunNotice = DescribeOutcome(outcome, cleaned: header.Kind == RunKind.PrivacyStrip);
             this.RunNoticeIsBad = outcome.Failed > 0;
 
             // The files on disk have moved on, so the snapshot the preview was built from
@@ -3610,15 +3847,26 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     private string DescribeRecipe()
     {
-        var record = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["summary"] = this.SummariseRun(),
-            ["intent"] = this.Intent.ToString(),
-            ["source"] = this.Source.ToString(),
-            ["mode"] = this.Mode.ToString(),
-        };
+        // Category names only. The values removed are exactly what must not be kept, and the
+        // journal outlives the run by months.
+        var record = this.IsPrivacyIntent
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["summary"] = "Removed " + string.Join(", ", PrivacyCategoryNames.All
+                    .Where(this.ChosenPrivacyCategories.Contains)
+                    .Select(PrivacyCategoryNames.InList)),
+                ["intent"] = this.Intent.ToString(),
+                ["categories"] = string.Join(", ", this.ChosenPrivacyCategories.Order()),
+            }
+            : new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["summary"] = this.SummariseRun(),
+                ["intent"] = this.Intent.ToString(),
+                ["source"] = this.Source.ToString(),
+                ["mode"] = this.Mode.ToString(),
+            };
 
-        if (this.ActiveTemplate is { } template)
+        if (this.IsDateIntent && this.ActiveTemplate is { } template)
         {
             record["template"] = template.Name;
             record["templateId"] = template.Id;
@@ -3762,8 +4010,6 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     public void Recompute()
     {
-        Recipe recipe = this.BuildRecipe();
-
         // The real state, not an assumption. A machine-wide ExifTool can be upgraded or
         // uninstalled between sessions, so the preview reflects whatever the last
         // validation found rather than what was true when the app started.
@@ -3771,6 +4017,29 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             ClockContext.Local,
             DateTimeOffset.Now,
             this._exifTool.Status.Available);
+
+        if (this.IsPrivacyIntent)
+        {
+            IReadOnlySet<PrivacyCategory> chosen = this.ChosenPrivacyCategories;
+
+            foreach (PlanRowViewModel row in this._allRows)
+            {
+                // A null plan is the row's own "reading…". Only while a read is actually
+                // coming - with no ExifTool the evaluator says so instead, and a row that
+                // waits for a read nobody will do would say "reading…" for ever.
+                //
+                // By-hand dates are not consulted: they are date overrides, and this is
+                // not a date run.
+                row.Plan = row.File.Privacy is null && context.MetadataEngineAvailable && MetadataGateway.CanRead(row.File)
+                    ? null
+                    : PrivacyEvaluator.Evaluate(row.File, chosen, context);
+            }
+
+            this.Reproject();
+            return;
+        }
+
+        Recipe recipe = this.BuildRecipe();
 
         // One rule always exists, even when no date has been picked - BuildRecipe uses an
         // Unset source rather than an empty recipe precisely so the targets survive.
@@ -3869,7 +4138,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
         // The name is always the tie-break, whatever the primary key is, so that two files
         // the sort cannot separate still come out in a stable and obvious order.
-        IOrderedEnumerable<PlanRowViewModel> ordered = this.Sort switch
+        // Biggest change and resulting date mean nothing without dates. Under Private details
+        // they fall back to the name rather than to an order no-one can explain; the setting
+        // itself is left alone, so a date intent picks it up again.
+        SortChoice sort = this.IsPrivacyIntent && this.Sort is SortChoice.BiggestChange or SortChoice.ResultingDate
+            ? SortChoice.Name
+            : this.Sort;
+
+        IOrderedEnumerable<PlanRowViewModel> ordered = sort switch
         {
             SortChoice.BiggestChange => this.SortDescending
                 ? query.OrderByDescending(r => r.SortDeltaTicks)

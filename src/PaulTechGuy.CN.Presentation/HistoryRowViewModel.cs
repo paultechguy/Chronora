@@ -35,7 +35,14 @@ public sealed class HistoryRowViewModel(JournalRun run)
         : Describe(this.Run);
 
     /// <summary>The scale of it, which is what someone is really scanning for.</summary>
-    public string Scale => this.Run.ErrorCount > 0
+    public string Scale => this.Run.Kind == RunKind.PrivacyStrip
+        ? this.Run.ErrorCount > 0
+            ? string.Create(CultureInfo.CurrentCulture, $"{this.Run.FileCount:N0} files · {this.Run.ErrorCount:N0} failed")
+            : string.Create(CultureInfo.CurrentCulture, $"{this.Run.FileCount:N0} files")
+
+        // "0 changes" would be true of the journal and false of the files: a strip records no
+        // field values, because the values are what it removed.
+        : this.Run.ErrorCount > 0
         ? string.Create(
             CultureInfo.CurrentCulture,
             $"{this.Run.FileCount:N0} files · {this.Run.ChangeCount:N0} changes · {this.Run.ErrorCount:N0} failed")
@@ -51,7 +58,7 @@ public sealed class HistoryRowViewModel(JournalRun run)
         _ => string.Create(CultureInfo.CurrentCulture, $"{this.Run.Roots[0]} and {this.Run.Roots.Count - 1:N0} more"),
     };
 
-    public string StatusText => this.Run.Status switch
+    public string StatusText => this.Run.Kind == RunKind.PrivacyStrip ? "Cannot be undone" : this.Run.Status switch
     {
         // A finished undo says "Undone", not "Applied". Both are true of the machinery and
         // only one is true of what the user did.
@@ -71,9 +78,14 @@ public sealed class HistoryRowViewModel(JournalRun run)
     /// undoing an undo is a thing people want. What cannot be undone is a run that never
     /// wrote anything, and offering a button that would do nothing is worse than not
     /// offering one.
+    ///
+    /// The kind is checked first and on its own. A privacy strip has nothing to put back, and
+    /// its status can be Completed like any other run - so a test that looked only at status
+    /// and counts is one refactor away from offering Undo on a run that cannot have one.
     /// </summary>
     public bool CanRevert =>
-        this.Run.Status is RunStatus.Completed or RunStatus.PartiallyReverted or RunStatus.Interrupted
+        this.Run.Kind != RunKind.PrivacyStrip
+        && this.Run.Status is RunStatus.Completed or RunStatus.PartiallyReverted or RunStatus.Interrupted
         && this.Run.ChangeCount > 0;
 
     /// <summary>Already put back, so the button would have nothing to do.</summary>

@@ -51,14 +51,17 @@ public static class PrivacyEvaluator
             return new FilePlan(file, [.. applicable.Select(c => Change(c, ChangeStatus.Blocked, refusal))]);
         }
 
-        // Not read yet. No plan rather than a guess: the row says it is reading, and a file
-        // that has not been looked at must never count towards "will change".
+        // Not read yet. No changes rather than a guess: a file that has not been looked at must
+        // never count towards "will change". The workbench shows such a row as reading.
         if (file.Privacy is not { } found)
         {
             return new FilePlan(file, []);
         }
 
-        return new FilePlan(file, [.. applicable.Where(found.Has).Select(c => Change(c, ChangeStatus.WillChange, ProblemCode.None))]);
+        // Unchanged entries for what is not there, so the row can say "nothing to remove" rather
+        // than a date app's "no change", and the detail pane can list what was looked for.
+        return new FilePlan(file, [.. applicable.Select(c =>
+            Change(c, found.Has(c) ? ChangeStatus.WillChange : ChangeStatus.Unchanged, ProblemCode.None))]);
     }
 
     /// <summary>

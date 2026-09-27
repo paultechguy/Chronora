@@ -116,6 +116,26 @@ public sealed record AppSettings
 
     /// <summary>Folder names never entered.</summary>
     public string? ScanExcludeFolderPatterns { get; set; }
+
+    // Private details. The categories are remembered; the intent itself never is, so the app
+    // cannot open one click from an irreversible run. Defaults written out, because a file
+    // from before this feature has none of these keys - and set, never init, for the reason
+    // above: init would read every missing one back as false, and quietly turn the warning off.
+
+    public bool RemoveLocation { get; set; } = true;
+
+    public bool RemoveCameraOwner { get; set; } = true;
+
+    public bool RemoveSoftware { get; set; } = true;
+
+    public bool RemoveThumbnail { get; set; } = true;
+
+    /// <summary>
+    /// Whether removing personal details warns that it cannot be undone. Turned off only by
+    /// ticking "Don't warn me about this again" and then confirming; turned back on from the
+    /// options pane.
+    /// </summary>
+    public bool WarnBeforeMetadataRemoval { get; set; } = true;
 }
 
 [JsonSourceGenerationOptions(

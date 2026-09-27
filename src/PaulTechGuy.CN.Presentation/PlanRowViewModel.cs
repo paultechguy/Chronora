@@ -53,6 +53,19 @@ public sealed partial class PlanRowViewModel : ObservableObject
         this.OnPropertyChanged(nameof(this.File));
     }
 
+    /// <summary>
+    /// Attaches which personal details the file carries. Separate from <see cref="Enrich" />
+    /// because the two reads are separate passes that can land in either order, and each
+    /// must add to the snapshot rather than replace what the other has already put there.
+    /// </summary>
+    public void EnrichPrivacy(PrivacyFindings findings)
+    {
+        ArgumentNullException.ThrowIfNull(findings);
+
+        this.File = this.File with { Privacy = findings };
+        this.OnPropertyChanged(nameof(this.File));
+    }
+
     public string Name { get; }
 
     public string FullPath => this.File.FullPath;
@@ -152,6 +165,11 @@ public sealed partial class PlanRowViewModel : ObservableObject
             return "reading…";
         }
 
+        if (plan.Changes.Any(c => c.Target is ChangeTarget.Privacy))
+        {
+            return FormatPrivacySummary(plan);
+        }
+
         List<PlannedChange> writes = [.. plan.Changes.Where(c => c.WillWrite)];
 
         if (writes.Count == 0)
@@ -203,6 +221,24 @@ public sealed partial class PlanRowViewModel : ObservableObject
             $"{writes.Count} fields, {distinct.Count} different dates ⚠");
     }
 
+    /// <summary>
+    /// Line two for Private details: what goes, in the user's words - "Removes location ·
+    /// thumbnail" - or why nothing will.
+    /// </summary>
+    private static string FormatPrivacySummary(FilePlan plan)
+    {
+        if (plan.Changes.FirstOrDefault(c => c.Status == ChangeStatus.Blocked) is { } blocked)
+        {
+            return Describe(blocked.Problem);
+        }
+
+        string[] removing = [.. plan.Changes
+            .Where(c => c.WillWrite)
+            .Select(c => PrivacyCategoryNames.InList(((ChangeTarget.Privacy)c.Target).Which))];
+
+        return removing.Length == 0 ? "nothing to remove" : "Removes " + string.Join(" · ", removing);
+    }
+
     /// <summary>The short status chip at the end of line one.</summary>
     public static string FormatStatus(FilePlan? plan)
     {
@@ -228,11 +264,56 @@ public sealed partial class PlanRowViewModel : ObservableObject
             return "Nothing to change.";
         }
 
+        if (plan.Changes.Any(c => c.Target is ChangeTarget.Privacy))
+        {
+            return FormatPrivacyDetail(plan);
+        }
+
         return string.Join(
             Environment.NewLine,
             plan.Changes.Select(c => string.Create(
                 CultureInfo.CurrentCulture,
                 $"{c.Target.DisplayName,-16} {Stamp(c.BeforeDate),-20} → {Stamp(c.AfterDate),-20} {Note(c)}")));
+    }
+
+    /// <summary>
+    /// Per category, the tags that will go - names only, which is all the snapshot holds -
+    /// or what stands in the way. Plus the two things the strip does not reach, stated here
+    /// because this is where somebody checks one file before trusting the run.
+    /// </summary>
+    private static string FormatPrivacyDetail(FilePlan plan)
+    {
+        var lines = new List<string>(plan.Changes.Count + 2);
+
+        foreach (PlannedChange change in plan.Changes)
+        {
+            var category = ((ChangeTarget.Privacy)change.Target).Which;
+
+            string what = change.Status switch
+            {
+                ChangeStatus.Blocked => Describe(change.Problem),
+                ChangeStatus.WillChange => string.Join(", ", plan.File.Privacy?.TagsFor(category) ?? []),
+                _ => "none found",
+            };
+
+            lines.Add(string.Create(CultureInfo.CurrentCulture, $"{PrivacyCategoryNames.Title(category),-26} {what}"));
+        }
+
+        if (plan.File.Kind == MediaKind.Video)
+        {
+            lines.Add("A GPS track recorded inside the video itself is not metadata, and stays.");
+        }
+
+        // One File.Exists, for the one selected row. The snapshot rule is about the preview
+        // not re-reading 50,000 files on every option change, and this is neither.
+        string sidecar = Path.ChangeExtension(plan.File.FullPath, ".xmp");
+
+        if (System.IO.File.Exists(sidecar))
+        {
+            lines.Add(string.Create(CultureInfo.CurrentCulture, $"{Path.GetFileName(sidecar)} beside it is not changed, and may hold the same details."));
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static string Note(PlannedChange change) => change.Status switch
@@ -267,6 +348,8 @@ public sealed partial class PlanRowViewModel : ObservableObject
         ProblemCode.AmbiguousLocalTime => "that clock time happens twice (clocks went back)",
         ProblemCode.ImplausibleDate => "the result looks wrong",
         ProblemCode.MetadataEngineUnavailable => "needs ExifTool",
+        ProblemCode.RawNotSupported => "raw files are left alone",
+        ProblemCode.EmbeddedMediaNotSupported => "motion photo: its video keeps its own details",
         _ => problem.ToString(),
     };
 }

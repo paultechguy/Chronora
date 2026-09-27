@@ -28,6 +28,7 @@ public class WorkbenchNotificationTests
     [InlineData(WorkIntent.FileDates)]
     [InlineData(WorkIntent.PhotoDates)]
     [InlineData(WorkIntent.Custom)]
+    [InlineData(WorkIntent.PrivateDetails)]
     public void Choosing_an_intent_announces_everything_it_changes(WorkIntent intent)
     {
         using var fixture = new WorkbenchFixture();
