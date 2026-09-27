@@ -219,8 +219,18 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// </summary>
     public bool HasSelection => this.SelectedRow is not null;
 
-    partial void OnSelectedRowChanged(PlanRowViewModel? value) =>
+    partial void OnSelectedRowChanged(PlanRowViewModel? value)
+    {
         this.OnPropertyChanged(nameof(this.HasSelection));
+        this.OnPropertyChanged(nameof(this.CanShowSelectedMetadata));
+    }
+
+    /// <summary>
+    /// Whether the detail pane offers "Show all metadata…": only for a file ExifTool is asked
+    /// about, and only when there is an ExifTool to ask.
+    /// </summary>
+    public bool CanShowSelectedMetadata =>
+        this.SelectedRow is { } row && this.EngineStatus.Available && MetadataGateway.CanRead(row.File);
 
     [ObservableProperty]
     public partial bool IsScanning { get; set; }
@@ -361,6 +371,12 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
     public bool IsPrivacyIntent => this.Intent == WorkIntent.PrivateDetails;
 
+    /// <summary>
+    /// The two sorts that order by dates. Hidden under Private details, where there are none
+    /// to order by, rather than left to produce an order nobody could explain.
+    /// </summary>
+    public bool ShowsDateSorts => !this.IsPrivacyIntent;
+
     // ---- Private details ----------------------------------------------------------------
 
     [ObservableProperty]
@@ -389,8 +405,20 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.QueueRecompute();
     }
 
+    /// <summary>
+    /// Whether a run under the current choices would remove this category from a file of
+    /// this kind. What the metadata viewer badges each group with, so the viewer is also the
+    /// one-file preview of the run.
+    /// </summary>
+    public bool WouldRemove(PrivacyCategory category, MediaKind kind) =>
+        this.ChosenPrivacyCategories.Contains(category) && PrivacyEvaluator.AppliesTo(category, kind);
+
+    /// <summary>Every tag in one file, for the viewer. Null when ExifTool cannot be asked.</summary>
+    public Task<IReadOnlyList<MetadataTag>?> ReadAllMetadataAsync(string path, CancellationToken cancellationToken = default) =>
+        this._metadata.ReadAllAsync(path, cancellationToken);
+
     /// <summary>The ticked categories, in display order.</summary>
-    private IReadOnlySet<PrivacyCategory> ChosenPrivacyCategories
+    private HashSet<PrivacyCategory> ChosenPrivacyCategories
     {
         get
         {
@@ -426,7 +454,11 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     /// it is off sits beside the intent it applies to rather than somewhere nobody looks.
     /// </summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsRemovalWarningOff))]
     public partial bool WarnBeforeMetadataRemoval { get; set; } = true;
+
+    /// <summary>The other half, so the "turn it back on" line needs no converter.</summary>
+    public bool IsRemovalWarningOff => !this.WarnBeforeMetadataRemoval;
 
     /// <summary>
     /// The write scope the evaluator enforces. Purely a function of what is ticked, so a
@@ -567,6 +599,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         this.OnPropertyChanged(nameof(this.ShowsAdvancedFields));
         this.OnPropertyChanged(nameof(this.IsDateIntent));
         this.OnPropertyChanged(nameof(this.IsPrivacyIntent));
+        this.OnPropertyChanged(nameof(this.ShowsDateSorts));
         this.OnPropertyChanged(nameof(this.Mode));
         this.OnPropertyChanged(nameof(this.IntentNote));
 
@@ -1527,6 +1560,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
     partial void OnEngineStatusChanged(EngineStatus value)
     {
         this.NotifyIntentDerived();
+        this.OnPropertyChanged(nameof(this.CanShowSelectedMetadata));
         this.Recompute();
 
         // Set up ExifTool while Private details is chosen and the rows are still waiting to be

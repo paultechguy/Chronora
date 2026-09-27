@@ -17,6 +17,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using PaulTechGuy.CN.Presentation;
 using PaulTechGuy.CN.Repositories;
 using PaulTechGuy.CN.Domain;
+using PaulTechGuy.CN.Services;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -1104,6 +1105,30 @@ public sealed partial class MainWindow : Window
                 : Visibility.Collapsed;
         }
 
+        // Hidden, not greyed, like everything else here. Under Private details the whole date
+        // group goes, separator and all: a by-hand date on a run that writes no dates is a
+        // setting with no effect, and a menu offering one invites somebody to wonder why.
+        bool dates = this.Workbench.IsDateIntent || !this.Workbench.HasChosenIntent;
+
+        foreach (MenuFlyoutItemBase item in this.RowMenu.Items)
+        {
+            if (item.Tag is "dates" or "setdate" or "usedate")
+            {
+                item.Visibility = dates ? Visibility.Visible : Visibility.Collapsed;
+            }
+            else if (item.Tag is "clear" or "clearall" && !dates)
+            {
+                item.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        if (this.RowMenuItem("metadata") is { } metadata)
+        {
+            metadata.Visibility = this.Workbench.EngineStatus.Available && MetadataGateway.CanRead(row.File)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
         // Positioned against the row rather than the list, so a keyboard request - which
         // carries no pointer position - still opens the menu on the row it belongs to
         // instead of at the top-left corner of a list scrolled a long way down.
@@ -1129,6 +1154,37 @@ public sealed partial class MainWindow : Window
     private MenuFlyoutItem? RowMenuItem(string tag) =>
         this.RowMenu.Items.OfType<MenuFlyoutItem>()
             .FirstOrDefault(item => string.Equals(item.Tag as string, tag, StringComparison.Ordinal));
+
+    private void OnRowMenuShowMetadata(object sender, RoutedEventArgs e)
+    {
+        if (this._menuRow is { } row)
+        {
+            this.ShowMetadata(row);
+        }
+    }
+
+    /// <summary>The detail pane's link: the same viewer, for the selected row.</summary>
+    private void OnShowSelectedMetadata(object sender, RoutedEventArgs e)
+    {
+        if (this.Workbench.SelectedRow is { } row)
+        {
+            this.ShowMetadata(row);
+        }
+    }
+
+    /// <summary>async void, so it catches everything.</summary>
+    private async void ShowMetadata(PlanRowViewModel row)
+    {
+        try
+        {
+            await MetadataViewerDialog.ShowAsync(this.Content.XamlRoot, this.Workbench, row);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Could not show the metadata of {Path}.", row.FullPath);
+            this.Workbench.ReportProblem(string.Create(CultureInfo.CurrentCulture, $"Could not show the metadata of {row.Name}."));
+        }
+    }
 
     private void OnRowMenuOpen(object sender, RoutedEventArgs e)
     {
@@ -1776,6 +1832,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (this.Workbench.IsPrivacyIntent)
+        {
+            await this.ConfirmPrivacyRunAsync(summary);
+            return;
+        }
+
         var body = new StringBuilder();
         _ = body.AppendLine(CultureInfo.CurrentCulture, $"{summary.FilesToWrite:N0} files will be changed.");
 
@@ -1871,6 +1933,112 @@ public sealed partial class MainWindow : Window
         {
             await this.Workbench.ApplyAsync();
         }
+    }
+
+    /// <summary>
+    /// The confirmation for removing personal details: the one run in the app with no way
+    /// back, so the one confirmation that says so in its own block.
+    ///
+    /// Always shown, with Cancel as the default - "don't warn me again" drops the WARNING,
+    /// never the confirmation, so a slip of the Apply button still meets one stop. The tick
+    /// only counts if the removal is then confirmed: switching the warning off from a dialog
+    /// that was cancelled would let somebody silence it without ever having read it through.
+    /// It is saved the moment it counts, like the scan filters, because there is no
+    /// single-instance guard and waiting for a clean close can lose it.
+    /// </summary>
+    private async Task ConfirmPrivacyRunAsync(ChangeSummary summary)
+    {
+        var panel = new StackPanel { Spacing = 12, MaxWidth = 460 };
+        bool warn = this.Workbench.WarnBeforeMetadataRemoval;
+
+        if (warn)
+        {
+            panel.Children.Add(new InfoBar
+            {
+                IsOpen = true,
+                IsClosable = false,
+                Severity = InfoBarSeverity.Warning,
+                Title = "The files themselves are changed, and this cannot be undone.",
+                Message = "Chronora keeps no copy of what it removes. If you might want these details back, keep your own copy of the files first.",
+            });
+        }
+
+        var body = new StringBuilder();
+        _ = body.AppendLine("Removes:");
+
+        foreach (PrivacyLine line in summary.PrivacyLines)
+        {
+            _ = body.AppendLine(CultureInfo.CurrentCulture, $"  {line.Title}: {line.Detail}");
+        }
+
+        if (summary.HasPrivacyBlocked)
+        {
+            _ = body.AppendLine();
+            _ = body.AppendLine("Will NOT be cleaned:");
+
+            foreach (PrivacyLine line in summary.PrivacyBlocked)
+            {
+                _ = body.AppendLine(CultureInfo.CurrentCulture, $"  {line.Title}: {line.Detail}");
+            }
+        }
+
+        if (summary.HasTypeFilter)
+        {
+            _ = body.AppendLine();
+            _ = body.AppendLine(CultureInfo.CurrentCulture, $"Only files matching {summary.TypeFilter} are included.");
+        }
+
+        _ = body.AppendLine();
+        _ = body.Append("Kept: dates, orientation, colour profile and copyright.");
+
+        if (!warn)
+        {
+            _ = body.AppendLine().AppendLine().Append("This cannot be undone.");
+        }
+
+        panel.Children.Add(new TextBlock { Text = body.ToString(), TextWrapping = TextWrapping.Wrap });
+
+        var dontWarn = new CheckBox { Content = "Don't warn me about this again" };
+
+        if (warn)
+        {
+            panel.Children.Add(dontWarn);
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = this.Content.XamlRoot,
+            Title = string.Create(CultureInfo.CurrentCulture, $"Remove private details from {summary.FilesToWrite:N0} files?"),
+            Content = new ScrollViewer { Content = panel },
+            PrimaryButtonText = string.Create(CultureInfo.CurrentCulture, $"Remove from {summary.FilesToWrite:N0} files"),
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        if (warn && dontWarn.IsChecked == true)
+        {
+            this.Workbench.WarnBeforeMetadataRemoval = false;
+            this.SaveRemovalWarningChoice();
+        }
+
+        await this.Workbench.ApplyAsync();
+    }
+
+    private void OnTurnRemovalWarningBackOn(object sender, RoutedEventArgs e)
+    {
+        this.Workbench.WarnBeforeMetadataRemoval = true;
+        this.SaveRemovalWarningChoice();
+    }
+
+    private void SaveRemovalWarningChoice()
+    {
+        this._settings.Current.WarnBeforeMetadataRemoval = this.Workbench.WarnBeforeMetadataRemoval;
+        _ = this._settings.Save();
     }
 
     /// <summary>

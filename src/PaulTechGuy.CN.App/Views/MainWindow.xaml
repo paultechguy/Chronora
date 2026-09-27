@@ -32,6 +32,10 @@
                 <MenuFlyoutItem Text="Copy full path" Click="OnRowMenuCopyPath" />
                 <MenuFlyoutItem Text="Properties" Click="OnRowMenuProperties" />
 
+                <!-- Hidden for a file ExifTool is never asked about, and when there is no ExifTool. -->
+                <MenuFlyoutItem Tag="metadata" Text="Show all metadata…" Click="OnRowMenuShowMetadata"
+                                ToolTipService.ToolTip="Every tag in this file, grouped, with what Remove private details would take out." />
+
                 <MenuFlyoutSeparator />
 
                 <MenuFlyoutItem Text="Create a copy" Click="OnRowMenuCreateCopy" />
@@ -43,9 +47,13 @@
                 <MenuFlyoutItem Text="Run on this file only" Click="OnRowMenuSelectOnly" />
                 <MenuFlyoutItem Text="Remove from the list" Click="OnRowMenuRemove" />
 
-                <MenuFlyoutSeparator />
+                <!--
+                    The date group, tagged so the whole of it - separator included - can be
+                    hidden under Private details, where a by-hand date means nothing.
+                -->
+                <MenuFlyoutSeparator Tag="dates" />
 
-                <MenuFlyoutItem Text="Set this file's date…" Click="OnRowMenuSetDate" />
+                <MenuFlyoutItem Tag="setdate" Text="Set this file's date…" Click="OnRowMenuSetDate" />
                 <!--
                     Named for what it removes, not for where it lands. It read "Use the
                     run's date again", which is accurate and is not what anybody scans for:
@@ -57,7 +65,7 @@
 
                 <!-- Text is set when the menu opens, because it carries the count. -->
                 <MenuFlyoutItem Tag="clearall" Click="OnRowMenuClearAllDates" />
-                <MenuFlyoutItem Text="Use this file's date for the run" Click="OnRowMenuUseDate" />
+                <MenuFlyoutItem Tag="usedate" Text="Use this file's date for the run" Click="OnRowMenuUseDate" />
             </MenuFlyout>
         </Grid.Resources>
 
@@ -427,6 +435,41 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
 
+                        <!--
+                            Private details, in the same two shapes: what goes, and what will
+                            not be cleaned and why. Separate lists because the date lines range
+                            over dates, and a privacy change has none - fed through them, every
+                            one of these would silently vanish from the band.
+                        -->
+                        <ItemsControl ItemsSource="{x:Bind Workbench.Summary.PrivacyLines, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PrivacyLine">
+                                    <Grid ColumnDefinitions="170,*">
+                                        <TextBlock Grid.Column="0" Text="{x:Bind Title}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource CnAccentBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{x:Bind Workbench.Summary.PrivacyBlocked, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PrivacyLine">
+                                    <Grid ColumnDefinitions="170,*">
+                                        <TextBlock Grid.Column="0" Text="{x:Bind Title}"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Detail}"
+                                                   TextWrapping="Wrap"
+                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
                         <TextBlock Text="{x:Bind Workbench.Summary.StatusLine, Mode=OneWay}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,4,0,0" />
                     </StackPanel>
@@ -489,8 +532,15 @@
                         <InfoBar.Content>
                             <StackPanel Orientation="Horizontal" Spacing="8"
                                         Margin="0,8,0,12">
+                                <!--
+                                    Shown only when there is something to undo. It carried only
+                                    a Command, and the command has no CanExecute, so it sat
+                                    clickable on the report of a run that could never be undone -
+                                    a privacy clean - beside the footer's correctly greyed twin.
+                                -->
                                 <Button Content="Undo last run"
                                         Command="{x:Bind Workbench.UndoLastCommand}"
+                                        Visibility="{x:Bind Workbench.CanUndo, Mode=OneWay}"
                                         Height="{StaticResource CnChromeButtonHeight}" />
                                 <Button Content="History" Click="OnOpenHistory"
                                         Height="{StaticResource CnChromeButtonHeight}" />
@@ -674,8 +724,10 @@
                                         a list action and belongs with the other ones.
                                     -->
                                     <MenuFlyoutItem Text="Sort by biggest change" Click="OnSortByBiggestChange"
+                                                    Visibility="{x:Bind Workbench.ShowsDateSorts, Mode=OneWay}"
                                                     ToolTipService.ToolTip="Brings the most-moved dates to the top. It is the quickest way to spot one that looks wrong." />
-                                    <MenuFlyoutItem Text="Sort by resulting date" Click="OnSortByResultingDate" />
+                                    <MenuFlyoutItem Text="Sort by resulting date" Click="OnSortByResultingDate"
+                                                    Visibility="{x:Bind Workbench.ShowsDateSorts, Mode=OneWay}" />
                                     <MenuFlyoutItem Text="Reverse the order"
                                                     Command="{x:Bind Workbench.ReverseSortCommand}"
                                                     ToolTipService.ToolTip="The File and Status headers reverse on a second click; these two have no header to click." />
@@ -998,6 +1050,9 @@
                                    Visibility="{x:Bind Workbench.SelectedRow.ShowsTakenNote, Mode=OneWay}"
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    Text="Windows does not show Date taken for PNG. Chronora still writes it, and photo apps will read it." />
+
+                        <HyperlinkButton Content="Show all metadata…" Padding="0" Click="OnShowSelectedMetadata"
+                                         Visibility="{x:Bind Workbench.CanShowSelectedMetadata, Mode=OneWay}" />
                     </StackPanel>
                 </Border>
             </Grid>
@@ -1030,11 +1085,52 @@
                         <x:String>File dates</x:String>
                         <x:String>Photo and video dates</x:String>
                         <x:String>Let me pick the fields</x:String>
+                        <x:String>Remove private details</x:String>
                     </RadioButtons>
                     <TextBlock Text="{x:Bind Workbench.IntentNote, Mode=OneWay}"
                                Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" TextWrapping="Wrap" />
 
-                    <StackPanel Spacing="8" Visibility="{x:Bind Workbench.HasChosenIntent, Mode=OneWay}">
+                    <!--
+                        Private details. Everything a date run needs is in the panel after
+                        this one, and hidden under this intent by ONE flag, so no date control
+                        can be left on screen beside a run that writes no dates.
+                    -->
+                    <StackPanel Spacing="8" Visibility="{x:Bind Workbench.IsPrivacyIntent, Mode=OneWay}">
+                        <TextBlock Text="Remove" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,6,0,0" />
+                        <StackPanel Spacing="2">
+                            <CheckBox Content="Location" IsChecked="{x:Bind Workbench.RemoveLocation, Mode=TwoWay}"
+                                      ToolTipService.ToolTip="GPS coordinates and place names, wherever the file keeps them: EXIF, XMP, IPTC and video location atoms." />
+                            <CheckBox Content="Camera and owner" IsChecked="{x:Bind Workbench.RemoveCameraOwner, Mode=TwoWay}"
+                                      ToolTipService.ToolTip="Camera and lens serial numbers, the owner's name and the creator's name. Copyright is kept." />
+                            <CheckBox Content="Software and edit history" IsChecked="{x:Bind Workbench.RemoveSoftware, Mode=TwoWay}"
+                                      ToolTipService.ToolTip="The programs that touched the file and the edit history they left, which can include file paths. Lightroom's edit settings are kept." />
+                            <CheckBox Content="Embedded thumbnail" IsChecked="{x:Bind Workbench.RemoveThumbnail, Mode=TwoWay}"
+                                      ToolTipService.ToolTip="The small preview stored inside the file. After a crop it often still shows the whole original picture." />
+                        </StackPanel>
+
+                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75" TextWrapping="Wrap"
+                                   Text="Always kept: dates, orientation, colour profile and copyright." />
+
+                        <!--
+                            Said here, before anybody reaches the confirmation, and in words
+                            rather than an icon: this is the one run in the app with no way back.
+                        -->
+                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" TextWrapping="Wrap"
+                                   Text="Changes the files themselves. This cannot be undone." />
+
+                        <!--
+                            The only place the warning can be turned back on, and it sits
+                            under the intent it belongs to. A sticky "don't ask again" that is
+                            visible nowhere is how somebody forgets they ever ticked it.
+                        -->
+                        <StackPanel Spacing="4" Visibility="{x:Bind Workbench.IsRemovalWarningOff, Mode=OneWay}">
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75" TextWrapping="Wrap"
+                                       Text="The warning before removing details is turned off." />
+                            <HyperlinkButton Content="Turn it back on" Click="OnTurnRemovalWarningBackOn" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Spacing="8" Visibility="{x:Bind Workbench.IsDateIntent, Mode=OneWay}">
 
                     <!--
                         Templates sit above the individual options because for most people

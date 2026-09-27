@@ -90,7 +90,11 @@
                            Style="{StaticResource SubtitleTextBlockStyle}"
                            HorizontalAlignment="Center" TextWrapping="Wrap"
                            TextAlignment="Center" />
-                <TextBlock Text="Every change Chronora applies is recorded here, with a way back. Undo still works days later, not just straight after the run."
+                <!--
+                    "Every change... with a way back" stopped being true the day removing private
+                    details arrived: those runs are recorded here too, and have no way back.
+                -->
+                <TextBlock Text="Every run Chronora applies is recorded here. Date changes can be undone days later, not just straight after the run."
                            Style="{StaticResource BodyTextBlockStyle}" Opacity="0.6"
                            MaxWidth="360" HorizontalAlignment="Center"
                            TextWrapping="Wrap" TextAlignment="Center" />
