@@ -57,7 +57,7 @@ public sealed record MetadataWriteRequest(
 /// backup is mutually exclusive with writing in place, and in place is the more important
 /// of the two, so the copy is made here instead.
 /// </summary>
-public sealed class MetadataWriter(ILogger<MetadataWriter>? logger = null)
+public sealed partial class MetadataWriter(ILogger<MetadataWriter>? logger = null)
 {
     private readonly ILogger<MetadataWriter> _logger = logger ?? NullLogger<MetadataWriter>.Instance;
 

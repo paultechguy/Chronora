@@ -36,7 +36,7 @@ public sealed record FileMetadata(
 /// constant - applied uniformly it shifts half a library the wrong way. It is inferred per
 /// file, against the EXIF date when the file has one.
 /// </summary>
-public sealed class MetadataReader(ILogger<MetadataReader>? logger = null)
+public sealed partial class MetadataReader(ILogger<MetadataReader>? logger = null)
 {
     /// <summary>
     /// How many files go in one ExifTool command.
