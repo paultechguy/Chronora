@@ -3825,6 +3825,8 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             return;
         }
 
+        string? selectedPath = this.SelectedRow?.FullPath;
+
         this.ClearRows();
 
         // One scan source around the whole thing, claimed here so that cancelling partway
@@ -3865,6 +3867,14 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
         finally
         {
             this.EndScan(ownsScan);
+
+            // The rescan builds new rows, so the selection still pointed at a discarded one
+            // and the detail pane went on showing the file as it was BEFORE the run - after a
+            // privacy clean, the very details that had just been removed. The same file is
+            // selected again as it is now, or nothing when it has gone.
+            this.SelectedRow = selectedPath is null
+                ? null
+                : this._allRows.FirstOrDefault(r => string.Equals(r.FullPath, selectedPath, StringComparison.OrdinalIgnoreCase));
         }
     }
 
