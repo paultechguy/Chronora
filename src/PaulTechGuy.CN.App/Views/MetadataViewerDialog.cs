@@ -57,13 +57,16 @@ internal static class MetadataViewerDialog
         {
             Text = sections.Count == 0
                 ? "This file carries no private data."
-                : string.Create(CultureInfo.CurrentCulture, $"{sections.Sum(s => s.Tags.Count):N0} private tags. Removed and Kept say what Remove private details would do with the boxes ticked now."),
+                : string.Create(CultureInfo.CurrentCulture, $"{sections.Sum(s => s.Tags.Count):N0} private tags, marked with what Remove private details would do with the boxes ticked now. Nothing is removed until you run it."),
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75,
             Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
         });
         panel.Children.Add(search);
-        panel.Children.Add(new ScrollViewer { Content = list, MaxHeight = 520 });
+
+        // No scroller of our own. The dialog already scrolls its content, and a fixed-height one
+        // nested inside it was clipped by the dialog, hiding the bottom of the list.
+        panel.Children.Add(list);
 
         var dialog = new ContentDialog
         {
@@ -121,7 +124,7 @@ internal static class MetadataViewerDialog
     {
         if (PrivacyTagCatalog.CategoryOf($"{tag.Group}:{tag.Name}") is { } category)
         {
-            return (PrivacyCategoryNames.Title(category), workbench.WouldRemove(category, kind) ? "Removed" : "Kept");
+            return (PrivacyCategoryNames.Title(category), workbench.WouldRemove(category, kind) ? "will be removed" : "will be kept");
         }
 
         // What ExifTool reports about the file on disk rather than from inside it.

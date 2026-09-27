@@ -1546,8 +1546,6 @@ public sealed partial class MainWindow : Window
             {
                 UseShellExecute = true,
             });
-
-            this.Workbench.Confirm($"Opened {row.Name}.");
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or FileNotFoundException)
         {
@@ -1621,8 +1619,6 @@ public sealed partial class MainWindow : Window
         {
             using var opening = System.Diagnostics.Process.Start(
                 new System.Diagnostics.ProcessStartInfo(row.File.FullPath) { UseShellExecute = true });
-
-            this.Workbench.Confirm($"Opened {row.Name}.");
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException
                                       or System.IO.FileNotFoundException)

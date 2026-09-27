@@ -1996,25 +1996,13 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
 
             string what = paths.Count == 1 ? Path.GetFileName(paths[0].TrimEnd(Path.DirectorySeparatorChar)) : $"{paths.Count} items";
 
-            List<PlanRowViewModel> before = [.. this._rowsBeforeDrop];
-
-
-
             string summary = string.Create(
                 CultureInfo.CurrentCulture,
                 $"Added {this._rowsFromDrop.Count:N0} file{(this._rowsFromDrop.Count == 1 ? string.Empty : "s")} from {what}.");
 
-            this.AnnounceUndoable(
-                DescribeDrop(summary, this._rowsFromDrop.Count),
-                () =>
-                {
-                    this.ClearRows();
-                    this.RestoreRows(before);
-                });
-
-            // The short form, not the notice. The footer trims to a single line and the
-            // notice can now carry a second sentence, which would be the half that got cut.
-            // The toast is where the longer one has room to be read.
+            // No toast and no Undo for a drop - Paul's call, 2026-09-27. The rows appearing
+            // in the list is the confirmation, and Clear list is the way back. The count
+            // stays on the footer, which is where progress is read anyway.
             this.ProgressStatus = summary;
             this.Recompute();
             this.CheckIntentAgainstContent();
