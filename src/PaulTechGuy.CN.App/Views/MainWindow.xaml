@@ -1100,8 +1100,8 @@
                         <StackPanel Spacing="2">
                             <CheckBox Content="Location" IsChecked="{x:Bind Workbench.RemoveLocation, Mode=TwoWay}"
                                       ToolTipService.ToolTip="GPS coordinates and place names, wherever the file keeps them: EXIF, XMP, IPTC and video location atoms." />
-                            <CheckBox Content="Camera and owner" IsChecked="{x:Bind Workbench.RemoveCameraOwner, Mode=TwoWay}"
-                                      ToolTipService.ToolTip="Camera and lens serial numbers, the owner's name and the creator's name. Copyright is kept." />
+                            <CheckBox Content="Camera, lens and owner" IsChecked="{x:Bind Workbench.RemoveCameraOwner, Mode=TwoWay}"
+                                      ToolTipService.ToolTip="Camera maker and model, lens, shooting settings (aperture, shutter, ISO, flash and the rest of Explorer's Camera and Advanced photo groups), serial numbers, and the owner and creator names. Copyright is kept." />
                             <CheckBox Content="Software and edit history" IsChecked="{x:Bind Workbench.RemoveSoftware, Mode=TwoWay}"
                                       ToolTipService.ToolTip="The programs that touched the file and the edit history they left, which can include file paths. Lightroom's edit settings are kept." />
                             <CheckBox Content="Embedded thumbnail" IsChecked="{x:Bind Workbench.RemoveThumbnail, Mode=TwoWay}"

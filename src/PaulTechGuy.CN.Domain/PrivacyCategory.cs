@@ -73,7 +73,7 @@ public static class PrivacyCategoryNames
     public static string Title(PrivacyCategory category) => category switch
     {
         PrivacyCategory.Location => "Location",
-        PrivacyCategory.CameraOwner => "Camera and owner",
+        PrivacyCategory.CameraOwner => "Camera, lens and owner",
         PrivacyCategory.SoftwareEdits => "Software and edit history",
         PrivacyCategory.Thumbnail => "Embedded thumbnail",
         _ => category.ToString(),
@@ -83,7 +83,7 @@ public static class PrivacyCategoryNames
     public static string InList(PrivacyCategory category) => category switch
     {
         PrivacyCategory.Location => "location",
-        PrivacyCategory.CameraOwner => "camera and owner",
+        PrivacyCategory.CameraOwner => "camera",
         PrivacyCategory.SoftwareEdits => "software",
         PrivacyCategory.Thumbnail => "thumbnail",
         _ => category.ToString(),

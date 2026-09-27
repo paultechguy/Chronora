@@ -31,6 +31,25 @@ namespace PaulTechGuy.CN.Metadata;
 /// </summary>
 public static class PrivacyTagCatalog
 {
+    /// <summary>
+    /// The camera, the lens and how the shot was taken: Explorer's "Camera" and "Advanced
+    /// photo" groups. Structural tags - ExifVersion, ColorSpace, PhotometricInterpretation -
+    /// are deliberately absent; they describe the image, not the person holding the camera.
+    ///
+    /// Declared first because the static initialisers below read it, and they run in order.
+    /// </summary>
+    private static readonly string[] CameraNames =
+    [
+        "Make", "Model", "LensMake", "LensModel", "LensInfo", "Lens",
+        "FNumber", "ApertureValue", "MaxApertureValue", "ExposureTime", "ShutterSpeedValue",
+        "ISO", "SensitivityType", "RecommendedExposureIndex", "ExposureCompensation", "BrightnessValue",
+        "FocalLength", "FocalLengthIn35mmFormat", "MeteringMode", "SubjectDistance", "SubjectDistanceRange",
+        "SubjectArea", "SubjectLocation", "Flash", "FlashEnergy", "LightSource", "ExposureProgram",
+        "ExposureMode", "WhiteBalance", "Contrast", "Saturation", "Sharpness", "DigitalZoomRatio",
+        "SceneCaptureType", "SceneType", "SensingMethod", "GainControl", "FileSource", "CustomRendered",
+        "CompositeImage",
+    ];
+
     /// <summary>Deleting these takes the category out of the file.</summary>
     private static readonly Dictionary<PrivacyCategory, string[]> Deletes = new()
     {
@@ -42,9 +61,15 @@ public static class PrivacyTagCatalog
 
         // Copyright is deliberately absent. It is the photographer's claim, not a leak, and
         // somebody sharing their own work almost always wants it to travel with the picture.
+        //
+        // Also everything Explorer lists under "Camera" and "Advanced photo" - maker, model,
+        // lens and the shooting settings - added 2026-09-27 at Paul's request: together they
+        // fingerprint a camera almost as well as its serial number does. Named one by one
+        // rather than MakerNotes:all, for the Live Photo reason above.
         [PrivacyCategory.CameraOwner] =
         [
             "-*Serial*=", "-*Owner*=", "-Artist=", "-Creator=", "-By-line=", "-Author=",
+            .. CameraNames.Select(name => $"-{name}="),
         ],
 
         // XMP-crs is deliberately absent: those are Lightroom's edit settings, and removing
@@ -71,6 +96,7 @@ public static class PrivacyTagCatalog
         "-*GPS*", "-City*", "-Country*", "-State", "-Province-State", "-Sub-location", "-Landmark",
         "-Location", "-LocationName", "-LocationCreated*", "-LocationShown*",
         "-*Serial*", "-*Owner*", "-Artist", "-Creator", "-By-line", "-Author",
+        .. CameraNames.Select(name => "-" + name),
         "-Software", "-ProcessingSoftware", "-HostComputer", "-CreatorTool", "-DocumentAncestors", "-XMP-xmpMM:all",
         "-ThumbnailImage", "-PreviewImage", "-ThumbnailTIFF",
         "-*EmbeddedVideo*", "-MotionPhoto", "-MicroVideo",
@@ -134,7 +160,8 @@ public static class PrivacyTagCatalog
 
         if (name.Contains("Serial", StringComparison.OrdinalIgnoreCase)
             || name.Contains("Owner", StringComparison.OrdinalIgnoreCase)
-            || PeopleNames.Contains(name))
+            || PeopleNames.Contains(name)
+            || CameraNames.Contains(name, StringComparer.OrdinalIgnoreCase))
         {
             return PrivacyCategory.CameraOwner;
         }
