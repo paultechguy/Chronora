@@ -1,7 +1,7 @@
 # Where Chronora is
 
-Last updated 2026-09-23. Branch `dev`, no remote. Build clean at `-warnaserror`,
-546 tests passing, 1 skipped.
+Last updated 2026-09-27. Branch `dev`, no remote. Build clean at `-warnaserror`,
+572 tests passing, 1 skipped.
 
 **The suite is intermittently red and it is not the code.** `Presentation.Tests` fails about
 one run in four, a different test each time, from two unrelated pre-existing causes — see
@@ -291,6 +291,54 @@ looked at**. In order:
 Behaviour changes worth knowing: the scanner now walks a tree once however many patterns
 there are (it walked once per pattern), and the file patterns no longer apply to folder
 rows. Neither was reachable before today, because the patterns were always `*`.
+
+### 12. Private details — landed 2026-09-27, entirely unseen
+
+A fourth answer to *What are you changing?*: **Remove private details**. It removes Location,
+Camera and owner, Software and edit history, and the Embedded thumbnail. The files are
+changed **in place, with no backup and no undo**, by decision. Dates, orientation, the colour
+profile and copyright are always kept. Background, decisions and the adversarial review are
+in `docs/studies/PrivateDetails.md`.
+
+The tag lists were **measured** against real ExifTool on a JPEG and a PNG, and a gated test
+repeats that round trip. **Every file is re-read after its strip**, and it counts as
+cleaned only if nothing it was asked to lose is still there. ExifTool's exit status is not
+trusted, because `-m` turns problems into warnings. **Work on copies of real files for all
+of this.**
+
+- **The options pane at 820 epx, in dark and light.** You should see four checkboxes, the
+  *Always kept* line and *Changes the files themselves. This cannot be undone.* None of the
+  date controls should be visible, templates included.
+- **The confirmation, first time.** It should show a yellow warning block, the per-category
+  counts and **Don't warn me about this again**, with Cancel as the default.
+  - Tick it and press **Cancel**: the warning should still be on next time.
+  - Tick it and confirm: the next confirmation should have no block, only *This cannot be
+    undone.*, and the options pane should say the warning is off and offer **Turn it back on**.
+- **Show all metadata…** Open it from the row menu and from the link in the detail pane, on
+  a real phone JPEG.
+  - Groups should be marked Removed or Kept, and should follow the checkboxes.
+  - The search box should filter.
+  - Look at the layout at the small window size.
+- **The real test.** Copy an **iPhone HEIC and JPEG, a Pixel JPEG and a phone MP4**, run it
+  on the copies, then check with **plain ExifTool**:
+  `exiftool -a -G1 "-*gps*" "-*location*" "-*city*" "-*serial*" file`
+  - Nothing should come back.
+  - In Explorer, Date taken should still show and the photo should not be rotated.
+  - Created and Modified should be unchanged.
+  - **An iPhone Live Photo should still pair.** Maker notes are deliberately not deleted
+    wholesale, because that is what would break the pairing.
+- **A Pixel or Samsung motion photo** should be refused on its row (*motion photo: its video
+  keeps its own details*), not cleaned. **Raw and DNG** should say *raw files are left alone*.
+- **After a run**, the report should say *N cleaned*, and **neither Undo button should be
+  offered**. History should show the run as **Cannot be undone**.
+- **Close with the intent chosen and reopen.** The app should open with nothing chosen, while
+  the category boxes and the warning setting come back.
+
+**Unmeasured, and worth a real file before trusting:** HEIC (no genuine one on hand, same
+as before), maker-note location on a Panasonic or Casio (it is detected, and reported as
+still present if it cannot be deleted), and whether an **MPF preview** carries location of
+its own. MPF is deliberately *not* refused, because iPhone HDR JPEGs carry their gain map
+that way.
 
 ---
 
