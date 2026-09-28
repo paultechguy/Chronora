@@ -64,9 +64,17 @@ internal static class MetadataViewerDialog
         });
         panel.Children.Add(search);
 
-        // No scroller of our own. The dialog already scrolls its content, and a fixed-height one
-        // nested inside it was clipped by the dialog, hiding the bottom of the list.
-        panel.Children.Add(list);
+        // A fixed height, short enough to sit inside the dialog at any window size, with its
+        // own scrollbar. At 520 it overran the dialog and the bottom was clipped; with no
+        // scroller at all the dialog did not scroll either.
+        panel.Children.Add(new ScrollViewer
+        {
+            Content = list,
+            Height = 340,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Enabled,
+            Padding = new Thickness(0, 0, 16, 8),
+        });
 
         var dialog = new ContentDialog
         {
