@@ -2660,7 +2660,7 @@ public sealed partial class WorkbenchViewModel : ObservableObject, IDisposable
             this.SelectedRow = null;
         }
 
-        this.Confirm(string.Create(CultureInfo.CurrentCulture, $"Removed {row.Name} from the list."));
+        // No message: the row leaving the list is the confirmation (Paul, 2026-09-27).
         this.Reproject();
         this.OnPropertyChanged(nameof(this.CanStartOver));
     }
