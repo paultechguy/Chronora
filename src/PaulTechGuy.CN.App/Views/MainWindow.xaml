@@ -1031,12 +1031,18 @@
                 <Border Grid.Row="4" Padding="12,8" Margin="0,8,0,8" CornerRadius="4"
                         MinHeight="88"
                         Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                    <!--
+                        FallbackValue on every binding through SelectedRow. When a path passes
+                        through null, x:Bind leaves the target at its LAST value rather than
+                        clearing it - so removing the selected file left its name and details
+                        sitting here, describing a row that no longer existed.
+                    -->
                     <StackPanel Spacing="4">
-                        <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay}"
+                        <TextBlock Text="{x:Bind Workbench.SelectedRow.Name, Mode=OneWay, FallbackValue=''}"
                                    Style="{StaticResource BodyStrongTextBlockStyle}"
                                    TextTrimming="CharacterEllipsis" />
                         <TextBlock FontFamily="Consolas" IsTextSelectionEnabled="True"
-                                   Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay}"
+                                   Text="{x:Bind vm:PlanRowViewModel.FormatDetail(Workbench.SelectedRow.Plan), Mode=OneWay, FallbackValue=''}"
                                    Style="{StaticResource CaptionTextBlockStyle}" />
 
                         <!--
@@ -1047,7 +1053,7 @@
                             here, look in Explorer, see nothing, and file a bug.
                         -->
                         <TextBlock TextWrapping="Wrap" Opacity="0.75"
-                                   Visibility="{x:Bind Workbench.SelectedRow.ShowsTakenNote, Mode=OneWay}"
+                                   Visibility="{x:Bind Workbench.SelectedRow.ShowsTakenNote, Mode=OneWay, FallbackValue=Collapsed}"
                                    Style="{StaticResource CaptionTextBlockStyle}"
                                    Text="Windows does not show Date taken for PNG. Chronora still writes it, and photo apps will read it." />
 
